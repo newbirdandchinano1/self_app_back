@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>selfApp · 主页 Demo</title>
+  <style>
+    :root {
+      --bg: #0f1419;
+      --surface: #1a2332;
+      --border: #2d3a4f;
+      --text: #e7ecf3;
+      --muted: #8b9cb3;
+      --accent: #3b82f6;
+      --accent-hover: #2563eb;
+      --ok: #22c55e;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      line-height: 1.6;
+    }
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 1rem 2rem;
+      border-bottom: 1px solid var(--border);
+      background: rgba(26, 35, 50, 0.8);
+      backdrop-filter: blur(8px);
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+    .logo { font-weight: 700; font-size: 1.25rem; letter-spacing: -0.02em; }
+    .logo span { color: var(--accent); }
+    nav a {
+      color: var(--muted);
+      text-decoration: none;
+      margin-left: 1.5rem;
+      font-size: 0.9rem;
+      transition: color 0.2s;
+    }
+    nav a:hover { color: var(--text); }
+    main { max-width: 960px; margin: 0 auto; padding: 3rem 1.5rem 4rem; }
+    .hero { text-align: center; padding: 2rem 0 3rem; }
+    .hero h1 {
+      font-size: clamp(2rem, 5vw, 2.75rem);
+      font-weight: 700;
+      letter-spacing: -0.03em;
+      margin-bottom: 0.75rem;
+    }
+    .hero p {
+      color: var(--muted);
+      font-size: 1.1rem;
+      max-width: 32rem;
+      margin: 0 auto 2rem;
+    }
+    .badge {
+      display: inline-block;
+      padding: 0.25rem 0.75rem;
+      border-radius: 999px;
+      background: rgba(59, 130, 246, 0.15);
+      color: var(--accent);
+      font-size: 0.8rem;
+      font-weight: 600;
+      margin-bottom: 1rem;
+    }
+    .actions { display: flex; gap: 0.75rem; justify-content: center; flex-wrap: wrap; }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.65rem 1.25rem;
+      border-radius: 8px;
+      font-size: 0.95rem;
+      font-weight: 500;
+      text-decoration: none;
+      border: none;
+      cursor: pointer;
+      transition: background 0.2s, transform 0.15s;
+    }
+    .btn-primary { background: var(--accent); color: #fff; }
+    .btn-primary:hover { background: var(--accent-hover); }
+    .btn-ghost {
+      background: transparent;
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+    .btn-ghost:hover { border-color: var(--muted); }
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 1rem;
+      margin-top: 2rem;
+    }
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1.25rem 1.5rem;
+    }
+    .card h3 { font-size: 1rem; margin-bottom: 0.5rem; }
+    .card p { color: var(--muted); font-size: 0.9rem; }
+    .status-box {
+      margin-top: 2rem;
+      padding: 1rem 1.25rem;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      font-family: ui-monospace, monospace;
+      font-size: 0.85rem;
+    }
+    .status-box .label { color: var(--muted); margin-bottom: 0.5rem; font-family: inherit; }
+    .status-ok { color: var(--ok); }
+    .status-err { color: #ef4444; }
+    footer {
+      text-align: center;
+      padding: 2rem;
+      color: var(--muted);
+      font-size: 0.85rem;
+      border-top: 1px solid var(--border);
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="logo">self<span>App</span></div>
+    <nav>
+      <a href="/home">主页</a>
+      <a href="/health" target="_blank">健康检查</a>
+    </nav>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div class="badge">Demo 主页</div>
+      <h1>欢迎使用 selfApp 后端</h1>
+      <p>这是示例主页。访问根路径 <code>/</code> 会自动跳转到此处。</p>
+      <div class="actions">
+        <button class="btn btn-primary" type="button" id="checkHealth">检测服务状态</button>
+        <a class="btn btn-ghost" href="/health" target="_blank">查看 /health</a>
+      </div>
+    </section>
+
+    <section class="cards">
+      <article class="card">
+        <h3>Express + TypeScript</h3>
+        <p>基于 Node.js 的轻量 API 服务，支持开发与生产构建。</p>
+      </article>
+      <article class="card">
+        <h3>路由就绪</h3>
+        <p>可在 <code>src/routes</code> 中继续注册业务接口与页面。</p>
+      </article>
+      <article class="card">
+        <h3>健康检查</h3>
+        <p><code>GET /health</code> 返回服务运行状态与 uptime。</p>
+      </article>
+    </section>
+
+    <div class="status-box">
+      <div class="label">接口探测结果</div>
+      <pre id="healthResult">点击「检测服务状态」查看 /health 响应</pre>
+    </div>
+  </main>
+
+  <footer>selfApp Backend · 主页 Demo</footer>
+
+  <script>
+    document.getElementById('checkHealth').addEventListener('click', async () => {
+      const el = document.getElementById('healthResult');
+      el.textContent = '请求中…';
+      try {
+        const res = await fetch('/health');
+        const json = await res.json();
+        el.innerHTML = '<span class="status-ok">● 正常</span>\n' + JSON.stringify(json, null, 2);
+      } catch (e) {
+        el.innerHTML = '<span class="status-err">● 失败</span>\n' + String(e);
+      }
+    });
+  </script>
+</body>
+</html>
