@@ -1,0 +1,26 @@
+name: Deploy to Linux Server
+
+on:
+  push:
+    branches:
+      - main  # 只有当 main 分支收到 push 时才触发
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Executing remote ssh commands using password
+      uses: appleboy/ssh-action@master
+      with:
+        host: ${{ secrets.SERVER_HOST }}      # 服务器IP
+        username: ${{ secrets.SERVER_USER }}  # 服务器用户名（如 root）
+        password: ${{ secrets.SERVER_PASS }}  # 服务器密码或SSH私钥
+        port: 22
+        script: |
+          cd /www/wwwroot/my-project # 你的项目在服务器上的目录
+          git pull origin main
+          docker compose up -d --build # 重新构建镜像并后台启动
