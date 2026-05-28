@@ -1,21 +1,28 @@
-# 使用轻量级镜像
-FROM node:18-alpine AS builder
+
+FROM swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/node:18-alpine AS builder
 
 WORKDIR /app
 
+RUN npm config set registry https://registry.npmmirror.com \
+    && npm cache clean --force
+
 COPY package*.json ./
-RUN npm install
+
+RUN npm install --no-package-lock
 
 COPY . .
-RUN npm run build
 
-# 生产运行镜像
-FROM node:18-alpine
+RUN npx tsc
+
+FROM swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/node:18-alpine
 
 WORKDIR /app
 
+RUN npm config set registry https://registry.npmmirror.com
+
 COPY package*.json ./
-RUN npm install --omit=dev
+
+RUN npm install --omit=dev --no-package-lock
 
 COPY --from=builder /app/dist ./dist
 COPY public ./public
@@ -23,3 +30,4 @@ COPY public ./public
 EXPOSE 3000
 
 CMD ["node", "dist/index.js"]
+

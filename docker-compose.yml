@@ -1,9 +1,6 @@
-version: '3.8'
-
 services:
-  # MySQL 数据库服务
   mysql-db:
-    image: mysql:8.0
+    image: swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/mysql:8.0
     container_name: my_mysql
     restart: always
     environment:
@@ -12,10 +9,8 @@ services:
     ports:
       - "3306:3306"
     volumes:
-      # 必须挂载数据卷，否则容器重启后数据库数据会丢失
       - mysql_data:/var/lib/mysql
 
-  # Node.js 后端服务
   node-app:
     build: .
     container_name: my_node_app
@@ -23,10 +18,10 @@ services:
     ports:
       - "3000:3000"
     environment:
-      - DB_HOST=mysql-db # 注意：这里直接填 mysql 服务名，Docker 会自动解析 IP
-      - DB_USER=root
-      - DB_PASSWORD=${DB_ROOT_PASSWORD}
-      - DB_NAME=${DB_NAME}
+      DB_HOST: mysql-db
+      DB_USER: root
+      DB_PASSWORD: ${DB_ROOT_PASSWORD}
+      DB_NAME: ${DB_NAME}
     depends_on:
       - mysql-db
 
