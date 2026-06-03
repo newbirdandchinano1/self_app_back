@@ -31,6 +31,9 @@ services:
       NODE_ENV: production
       PORT: "3000"
       JWT_SECRET: ${JWT_SECRET:-self_app_dev_secret}
+      ZHIPU_API_KEY: ${ZHIPU_API_KEY:-}
+      ZHIPU_TEXT_MODEL: ${ZHIPU_TEXT_MODEL:-glm-4-flash}
+      ZHIPU_VISION_MODEL: ${ZHIPU_VISION_MODEL:-glm-4.6v-flash}
     depends_on:
       mysql-db:
         condition: service_healthy

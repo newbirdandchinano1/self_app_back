@@ -14,3 +14,12 @@ export const dbConfig = {
   password: process.env.DB_PASSWORD || '',
   database: process.env.DB_NAME || 'self_app',
 };
+
+export const zhipuConfig = {
+  apiKey:
+    process.env.ZHIPU_API_KEY ||
+    process.env.EXPO_PUBLIC_ZHIPU_API_KEY ||
+    'd0ab5a5e402040d291d9b77f58996d32.nL1sXtGfaUMXzW7W',
+  textModel: process.env.ZHIPU_TEXT_MODEL || 'glm-4-flash',
+  visionModel: process.env.ZHIPU_VISION_MODEL || 'glm-4.6v-flash',
+};
