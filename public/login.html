@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>selfApp · 管理员登录</title>
+  <style>
+    :root {
+      --bg: #0b0f14;
+      --surface: #151c27;
+      --surface2: #1c2636;
+      --border: #2a3649;
+      --text: #eef2f7;
+      --muted: #8b9cb3;
+      --accent: #4f8cff;
+      --accent-hover: #3b7aed;
+      --danger: #ef4444;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: "Segoe UI", system-ui, sans-serif;
+      background: radial-gradient(ellipse 80% 60% at 50% -10%, rgba(79,140,255,.18), transparent), var(--bg);
+      color: var(--text);
+      padding: 1.5rem;
+    }
+    .card {
+      width: 100%;
+      max-width: 400px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 2rem;
+      box-shadow: 0 24px 48px rgba(0,0,0,.35);
+    }
+    .brand { text-align: center; margin-bottom: 2rem; }
+    .brand h1 { font-size: 1.5rem; font-weight: 700; letter-spacing: -.02em; }
+    .brand p { color: var(--muted); font-size: .9rem; margin-top: .35rem; }
+    .field { margin-bottom: 1rem; }
+    .field label { display: block; font-size: .85rem; color: var(--muted); margin-bottom: .4rem; }
+    .field input {
+      width: 100%;
+      padding: .7rem .85rem;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--surface2);
+      color: var(--text);
+      font-size: .95rem;
+      outline: none;
+      transition: border-color .2s;
+    }
+    .field input:focus { border-color: var(--accent); }
+    .btn {
+      width: 100%;
+      padding: .75rem;
+      border: none;
+      border-radius: 8px;
+      background: var(--accent);
+      color: #fff;
+      font-size: .95rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background .2s;
+      margin-top: .5rem;
+    }
+    .btn:hover { background: var(--accent-hover); }
+    .btn:disabled { opacity: .6; cursor: not-allowed; }
+    .forgot {
+      display: block;
+      text-align: center;
+      margin-top: 1rem;
+      color: var(--muted);
+      font-size: .85rem;
+      background: none;
+      border: none;
+      cursor: pointer;
+      width: 100%;
+    }
+    .forgot:hover { color: var(--text); }
+    .error {
+      display: none;
+      margin-bottom: 1rem;
+      padding: .65rem .85rem;
+      border-radius: 8px;
+      background: rgba(239,68,68,.12);
+      color: #fca5a5;
+      font-size: .85rem;
+    }
+    .error.show { display: block; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="brand">
+      <h1>selfApp 管理后台</h1>
+      <p>请使用管理员账号登录</p>
+    </div>
+    <div id="error" class="error"></div>
+    <form id="loginForm">
+      <div class="field">
+        <label for="username">账号</label>
+        <input id="username" name="username" type="text" autocomplete="username" required placeholder="admin" />
+      </div>
+      <div class="field">
+        <label for="password">密码</label>
+        <input id="password" name="password" type="password" autocomplete="current-password" required placeholder="请输入密码" />
+      </div>
+      <button type="submit" class="btn" id="submitBtn">登 录</button>
+    </form>
+    <button type="button" class="forgot" id="forgotBtn">忘记密码？</button>
+  </div>
+  <script>
+    const TOKEN_KEY = 'self_app_admin_token';
+
+    if (localStorage.getItem(TOKEN_KEY)) {
+      fetch('/api/auth/me', { headers: { Authorization: 'Bearer ' + localStorage.getItem(TOKEN_KEY) } })
+        .then(r => r.json())
+        .then(d => { if (d.code === 0) location.href = '/admin'; });
+    }
+
+    const form = document.getElementById('loginForm');
+    const errorEl = document.getElementById('error');
+    const submitBtn = document.getElementById('submitBtn');
+
+    function showError(msg) {
+      errorEl.textContent = msg;
+      errorEl.classList.add('show');
+    }
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      errorEl.classList.remove('show');
+      submitBtn.disabled = true;
+      submitBtn.textContent = '登录中...';
+
+      try {
+        const res = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            username: document.getElementById('username').value.trim(),
+            password: document.getElementById('password').value,
+          }),
+        });
+        const data = await res.json();
+        if (data.code !== 0) {
+          showError(data.message || '登录失败');
+          return;
+        }
+        localStorage.setItem(TOKEN_KEY, data.data.token);
+        location.href = '/admin';
+      } catch {
+        showError('网络错误，请稍后重试');
+      } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = '登 录';
+      }
+    });
+
+    document.getElementById('forgotBtn').addEventListener('click', () => {
+      alert('忘记密码功能暂未开放，请联系系统管理员。');
+    });
+  </script>
+</body>
+</html>

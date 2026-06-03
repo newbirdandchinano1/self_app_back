@@ -1,0 +1,567 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>selfApp · 数据管理</title>
+  <style>
+    :root {
+      --bg: #0b0f14;
+      --surface: #121a24;
+      --surface2: #1a2433;
+      --border: #273447;
+      --text: #eef2f7;
+      --muted: #8b9cb3;
+      --accent: #4f8cff;
+      --accent-hover: #3b7aed;
+      --ok: #22c55e;
+      --danger: #ef4444;
+      --sidebar-w: 260px;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: "Segoe UI", system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+    }
+    .sidebar {
+      width: var(--sidebar-w);
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      position: fixed;
+      top: 0; left: 0; bottom: 0;
+      z-index: 20;
+    }
+    .sidebar-head {
+      padding: 1.25rem 1rem 1rem;
+      border-bottom: 1px solid var(--border);
+    }
+    .sidebar-head h1 { font-size: 1.1rem; font-weight: 700; }
+    .sidebar-head p { font-size: .8rem; color: var(--muted); margin-top: .25rem; }
+    .search {
+      margin: .75rem 1rem;
+      padding: .55rem .75rem;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--surface2);
+      color: var(--text);
+      width: calc(100% - 2rem);
+      font-size: .85rem;
+      outline: none;
+    }
+    .table-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: .5rem;
+    }
+    .table-item {
+      display: block;
+      width: 100%;
+      text-align: left;
+      padding: .55rem .75rem;
+      border: none;
+      border-radius: 6px;
+      background: transparent;
+      color: var(--muted);
+      font-size: .82rem;
+      cursor: pointer;
+      transition: all .15s;
+      word-break: break-all;
+    }
+    .table-item:hover { background: var(--surface2); color: var(--text); }
+    .table-item.active { background: rgba(79,140,255,.15); color: var(--accent); font-weight: 600; }
+    .main {
+      margin-left: var(--sidebar-w);
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+    }
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: .85rem 1.5rem;
+      border-bottom: 1px solid var(--border);
+      background: rgba(18,26,36,.9);
+      backdrop-filter: blur(8px);
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+    .topbar h2 { font-size: 1.05rem; font-weight: 600; }
+    .topbar-actions { display: flex; gap: .5rem; align-items: center; }
+    .user { font-size: .85rem; color: var(--muted); margin-right: .5rem; }
+    .btn {
+      padding: .45rem .9rem;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: var(--surface2);
+      color: var(--text);
+      font-size: .82rem;
+      cursor: pointer;
+      transition: all .15s;
+    }
+    .btn:hover { border-color: var(--accent); }
+    .btn-primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+    .btn-primary:hover { background: var(--accent-hover); }
+    .btn-danger { color: #fca5a5; border-color: rgba(239,68,68,.4); }
+    .btn-sm { padding: .3rem .55rem; font-size: .78rem; }
+    .content { padding: 1rem 1.5rem 2rem; flex: 1; }
+    .toolbar {
+      display: flex;
+      gap: .5rem;
+      align-items: center;
+      margin-bottom: 1rem;
+      flex-wrap: wrap;
+    }
+    .meta { font-size: .82rem; color: var(--muted); margin-left: auto; }
+    .table-wrap {
+      overflow: auto;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: var(--surface);
+    }
+    table { width: 100%; border-collapse: collapse; font-size: .8rem; }
+    th, td {
+      padding: .55rem .65rem;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+      max-width: 200px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    th { background: var(--surface2); color: var(--muted); font-weight: 600; position: sticky; top: 0; }
+    tr:hover td { background: rgba(255,255,255,.02); }
+    .empty {
+      text-align: center;
+      padding: 3rem;
+      color: var(--muted);
+    }
+    .pagination {
+      display: flex;
+      gap: .5rem;
+      align-items: center;
+      justify-content: center;
+      margin-top: 1rem;
+    }
+    .pagination button:disabled { opacity: .4; cursor: not-allowed; }
+    .overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,.6);
+      z-index: 100;
+      align-items: center;
+      justify-content: center;
+      padding: 1rem;
+    }
+    .overlay.show { display: flex; }
+    .modal {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      width: 100%;
+      max-width: 560px;
+      max-height: 85vh;
+      display: flex;
+      flex-direction: column;
+    }
+    .modal-head {
+      padding: 1rem 1.25rem;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .modal-body { padding: 1rem 1.25rem; overflow-y: auto; flex: 1; }
+    .modal-foot {
+      padding: .85rem 1.25rem;
+      border-top: 1px solid var(--border);
+      display: flex;
+      justify-content: flex-end;
+      gap: .5rem;
+    }
+    .form-field { margin-bottom: .75rem; }
+    .form-field label {
+      display: block;
+      font-size: .78rem;
+      color: var(--muted);
+      margin-bottom: .3rem;
+    }
+    .form-field input, .form-field textarea {
+      width: 100%;
+      padding: .5rem .65rem;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: var(--surface2);
+      color: var(--text);
+      font-size: .82rem;
+      outline: none;
+      font-family: inherit;
+    }
+    .form-field textarea { min-height: 60px; resize: vertical; }
+    .form-field input:focus, .form-field textarea:focus { border-color: var(--accent); }
+    .form-field .hint { font-size: .72rem; color: var(--muted); margin-top: .2rem; }
+    .toast {
+      position: fixed;
+      bottom: 1.5rem;
+      right: 1.5rem;
+      padding: .75rem 1.1rem;
+      border-radius: 8px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      font-size: .85rem;
+      z-index: 200;
+      opacity: 0;
+      transform: translateY(10px);
+      transition: all .25s;
+      pointer-events: none;
+    }
+    .toast.show { opacity: 1; transform: translateY(0); }
+    .toast.error { border-color: rgba(239,68,68,.5); color: #fca5a5; }
+    @media (max-width: 768px) {
+      .sidebar { width: 100%; position: relative; max-height: 40vh; }
+      .main { margin-left: 0; }
+      body { flex-direction: column; }
+    }
+  </style>
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="sidebar-head">
+      <h1>数据管理</h1>
+      <p id="tableCount">加载中...</p>
+    </div>
+    <input type="search" class="search" id="tableSearch" placeholder="搜索表名..." />
+    <div class="table-list" id="tableList"></div>
+  </aside>
+
+  <div class="main">
+    <header class="topbar">
+      <h2 id="currentTable">请选择数据表</h2>
+      <div class="topbar-actions">
+        <span class="user" id="userInfo"></span>
+        <button class="btn" id="logoutBtn">退出登录</button>
+      </div>
+    </header>
+    <div class="content">
+      <div class="toolbar" id="toolbar" style="display:none">
+        <button class="btn btn-primary" id="addBtn">+ 新增</button>
+        <button class="btn" id="refreshBtn">刷新</button>
+        <span class="meta" id="paginationMeta"></span>
+      </div>
+      <div class="table-wrap" id="dataWrap">
+        <div class="empty">← 从左侧选择一个数据表开始管理</div>
+      </div>
+      <div class="pagination" id="pagination" style="display:none"></div>
+    </div>
+  </div>
+
+  <div class="overlay" id="modal">
+    <div class="modal">
+      <div class="modal-head">
+        <strong id="modalTitle">编辑</strong>
+        <button class="btn btn-sm" id="modalClose">✕</button>
+      </div>
+      <div class="modal-body" id="modalBody"></div>
+      <div class="modal-foot">
+        <button class="btn" id="modalCancel">取消</button>
+        <button class="btn btn-primary" id="modalSave">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script>
+    const TOKEN_KEY = 'self_app_admin_token';
+    let token = localStorage.getItem(TOKEN_KEY);
+    let tables = [];
+    let currentTable = null;
+    let currentMeta = null;
+    let currentPage = 1;
+    let currentData = [];
+    let modalMode = 'create';
+    let editingRecord = null;
+
+    function authHeaders() {
+      return {
+        Authorization: 'Bearer ' + token,
+        'Content-Type': 'application/json',
+        'X-Admin-Panel': '1',
+      };
+    }
+
+    function isAutoManagedColumn(col) {
+      const auto = currentMeta?.autoManagedColumns;
+      if (auto?.length) return auto.includes(col);
+      return ['created_at', 'updated_at', 'sync_status'].includes(col);
+    }
+
+    async function api(url, options = {}) {
+      const res = await fetch(url, { ...options, headers: { ...authHeaders(), ...options.headers } });
+      const data = await res.json();
+      if (res.status === 401) {
+        localStorage.removeItem(TOKEN_KEY);
+        location.href = '/login';
+        throw new Error('未登录');
+      }
+      return data;
+    }
+
+    function toast(msg, isError) {
+      const el = document.getElementById('toast');
+      el.textContent = msg;
+      el.className = 'toast show' + (isError ? ' error' : '');
+      setTimeout(() => el.classList.remove('show'), 2800);
+    }
+
+    async function checkAuth() {
+      if (!token) { location.href = '/login'; return false; }
+      const data = await api('/api/auth/me');
+      if (data.code !== 0) { location.href = '/login'; return false; }
+      document.getElementById('userInfo').textContent = data.data.admin.username;
+      return true;
+    }
+
+    function colLabel(colName) {
+      const col = currentMeta?.columns?.find((c) => c.name === colName);
+      return col?.label ?? colName;
+    }
+
+    function getColumnNames() {
+      if (currentMeta?.columns) {
+        return currentMeta.columns.map((c) => c.name).filter((c) => c !== 'password_hash');
+      }
+      if (currentData.length) return Object.keys(currentData[0]).filter((c) => c !== 'password_hash');
+      return [];
+    }
+
+    async function loadTables() {
+      const data = await api('/api/tables');
+      tables = data.data || [];
+      document.getElementById('tableCount').textContent = tables.length + ' 张表';
+      renderTableList('');
+    }
+
+    function renderTableList(filter) {
+      const list = document.getElementById('tableList');
+      const q = filter.toLowerCase();
+      const filtered = tables.filter(
+        (t) => t.name.toLowerCase().includes(q) || (t.label && t.label.includes(filter)),
+      );
+      list.innerHTML = filtered.map(
+        (t) =>
+          `<button class="table-item${currentTable === t.name ? ' active' : ''}" data-table="${t.name}">${t.label}</button>`,
+      ).join('');
+      list.querySelectorAll('.table-item').forEach(btn => {
+        btn.addEventListener('click', () => selectTable(btn.dataset.table));
+      });
+    }
+
+    document.getElementById('tableSearch').addEventListener('input', e => {
+      renderTableList(e.target.value);
+    });
+
+    async function selectTable(name) {
+      currentTable = name;
+      currentMeta = tables.find(t => t.name === name);
+      currentPage = 1;
+      document.getElementById('currentTable').textContent = currentMeta?.label || name;
+      document.getElementById('toolbar').style.display = 'flex';
+      renderTableList(document.getElementById('tableSearch').value);
+      await loadData();
+    }
+
+    async function loadData() {
+      if (!currentTable) return;
+      const data = await api(`/api/data/${currentTable}?page=${currentPage}&limit=30`);
+      if (data.code !== 0) { toast(data.message, true); return; }
+
+      currentData = data.data.list || [];
+      const pg = data.data.pagination;
+      renderTable(currentData);
+      renderPagination(pg);
+      document.getElementById('paginationMeta').textContent =
+        `共 ${pg.total} 条 · 第 ${pg.page}/${pg.totalPages || 1} 页`;
+    }
+
+    function cellValue(v) {
+      if (v === null || v === undefined) return '—';
+      if (typeof v === 'object') return JSON.stringify(v);
+      const s = String(v);
+      return s.length > 40 ? s.slice(0, 40) + '…' : s;
+    }
+
+    function renderTable(rows) {
+      const wrap = document.getElementById('dataWrap');
+      if (!rows.length) {
+        wrap.innerHTML = '<div class="empty">暂无数据，点击「新增」添加记录</div>';
+        return;
+      }
+
+      const pk = currentMeta.primaryKey;
+      const cols = Object.keys(rows[0]);
+      const displayCols = cols.filter(c => c !== 'password_hash');
+
+      wrap.innerHTML = `<table>
+        <thead><tr>${displayCols.map((c) => `<th>${colLabel(c)}</th>`).join('')}<th>操作</th></tr></thead>
+        <tbody>${rows.map(row => `<tr>
+          ${displayCols.map(c => `<td title="${String(row[c] ?? '').replace(/"/g, '&quot;')}">${cellValue(row[c])}</td>`).join('')}
+          <td style="white-space:nowrap">
+            <button class="btn btn-sm" data-edit="${row[pk]}">编辑</button>
+            <button class="btn btn-sm btn-danger" data-del="${row[pk]}">删除</button>
+          </td>
+        </tr>`).join('')}</tbody>
+      </table>`;
+
+      wrap.querySelectorAll('[data-edit]').forEach(btn => {
+        btn.addEventListener('click', () => openEdit(btn.dataset.edit));
+      });
+      wrap.querySelectorAll('[data-del]').forEach(btn => {
+        btn.addEventListener('click', () => deleteRecord(btn.dataset.del));
+      });
+    }
+
+    function renderPagination(pg) {
+      const el = document.getElementById('pagination');
+      if (!pg.totalPages || pg.totalPages <= 1) { el.style.display = 'none'; return; }
+      el.style.display = 'flex';
+      el.innerHTML = `
+        <button class="btn btn-sm" id="prevPage" ${pg.page <= 1 ? 'disabled' : ''}>上一页</button>
+        <span style="font-size:.85rem;color:var(--muted)">${pg.page} / ${pg.totalPages}</span>
+        <button class="btn btn-sm" id="nextPage" ${pg.page >= pg.totalPages ? 'disabled' : ''}>下一页</button>
+      `;
+      document.getElementById('prevPage')?.addEventListener('click', () => { currentPage--; loadData(); });
+      document.getElementById('nextPage')?.addEventListener('click', () => { currentPage++; loadData(); });
+    }
+
+    function getFormColumns() {
+      return getColumnNames();
+    }
+
+    function buildFormFields(record, isCreate) {
+      const cols = getFormColumns();
+      const pk = currentMeta.primaryKey;
+      const pkLabel = currentMeta.primaryKeyLabel || colLabel(pk);
+      const body = document.getElementById('modalBody');
+      const isAdmin = currentTable === 'admin_users';
+
+      body.innerHTML = cols.map((col) => {
+        if (isAutoManagedColumn(col)) return '';
+        const label = colLabel(col);
+        if (!isCreate && col === pk) {
+          return `<div class="form-field"><label>${pkLabel}</label><input name="${col}" value="${record?.[col] ?? ''}" readonly /></div>`;
+        }
+        if (isCreate && col === pk && col === 'id') {
+          return `<div class="form-field"><label>${pkLabel}</label><input name="${col}" placeholder="留空自动生成" /><div class="hint">可留空，系统自动生成 UUID</div></div>`;
+        }
+        if (isCreate && col === pk) {
+          return `<div class="form-field"><label>${pkLabel} *</label><input name="${col}" required /></div>`;
+        }
+        if (col === 'password_hash') return '';
+
+        const val = record?.[col];
+        const strVal = val === null || val === undefined ? '' : (typeof val === 'object' ? JSON.stringify(val) : String(val));
+
+        if (isAdmin && col === 'username') {
+          let html = `<div class="form-field"><label>${label}${isCreate ? ' *' : ''}</label><input name="${col}" value="${strVal.replace(/"/g, '&quot;')}" ${isCreate ? 'required' : ''} /></div>`;
+          html += `<div class="form-field"><label>密码${isCreate ? ' *' : '（留空不修改）'}</label><input name="password" type="password" ${isCreate ? 'required' : ''} /><div class="hint">密码将加密存储</div></div>`;
+          return html;
+        }
+
+        const isLong = ['text', 'json', 'body', 'note', 'description', 'extra_data', 'value_json', 'payload_json'].some((k) => col.includes(k));
+
+        if (isLong) {
+          return `<div class="form-field"><label>${label}</label><textarea name="${col}">${strVal.replace(/</g, '&lt;')}</textarea></div>`;
+        }
+        return `<div class="form-field"><label>${label}</label><input name="${col}" value="${strVal.replace(/"/g, '&quot;')}" /></div>`;
+      }).join('');
+
+      if (isAdmin && isCreate && !body.innerHTML.includes('name="password"')) {
+        body.innerHTML += `<div class="form-field"><label>密码 *</label><input name="password" type="password" required /></div>`;
+      }
+    }
+
+    function openModal(mode, record) {
+      modalMode = mode;
+      editingRecord = record;
+      document.getElementById('modalTitle').textContent =
+        mode === 'create' ? `新增${currentMeta?.label || ''}` : `编辑${currentMeta?.label || ''}`;
+      buildFormFields(record, mode === 'create');
+      document.getElementById('modal').classList.add('show');
+    }
+
+    function closeModal() {
+      document.getElementById('modal').classList.remove('show');
+      editingRecord = null;
+    }
+
+    function collectFormData() {
+      const form = {};
+      document.getElementById('modalBody').querySelectorAll('input, textarea').forEach(el => {
+        if (!el.name || el.value === '') return;
+        let v = el.value;
+        if (v === 'null') v = null;
+        if (v === 'true') v = true;
+        if (v === 'false') v = false;
+        if (!isNaN(v) && v !== '' && el.type !== 'password' && !el.name.includes('_at') && !el.name.includes('date') && !el.name.includes('phone')) {
+          const num = Number(v);
+          if (String(num) === v) v = num;
+        }
+        form[el.name] = v;
+      });
+      return form;
+    }
+
+    async function saveRecord() {
+      const payload = collectFormData();
+      let data;
+      if (modalMode === 'create') {
+        data = await api(`/api/data/${currentTable}`, { method: 'POST', body: JSON.stringify(payload) });
+      } else {
+        const pk = currentMeta.primaryKey;
+        data = await api(`/api/data/${currentTable}/${editingRecord[pk]}`, { method: 'PUT', body: JSON.stringify(payload) });
+      }
+      if (data.code !== 0) { toast(data.message, true); return; }
+      toast(data.message || '保存成功');
+      closeModal();
+      await loadData();
+    }
+
+    async function openEdit(pkVal) {
+      const data = await api(`/api/data/${currentTable}/${encodeURIComponent(pkVal)}`);
+      if (data.code !== 0) { toast(data.message, true); return; }
+      openModal('edit', data.data);
+    }
+
+    async function deleteRecord(pkVal) {
+      if (!confirm('确定删除这条记录？删除后无法恢复。')) return;
+      const data = await api(`/api/data/${currentTable}/${encodeURIComponent(pkVal)}`, { method: 'DELETE' });
+      if (data.code !== 0) { toast(data.message, true); return; }
+      toast('删除成功');
+      await loadData();
+    }
+
+    document.getElementById('addBtn').addEventListener('click', () => openModal('create', null));
+    document.getElementById('refreshBtn').addEventListener('click', loadData);
+    document.getElementById('modalClose').addEventListener('click', closeModal);
+    document.getElementById('modalCancel').addEventListener('click', closeModal);
+    document.getElementById('modalSave').addEventListener('click', saveRecord);
+    document.getElementById('logoutBtn').addEventListener('click', () => {
+      localStorage.removeItem(TOKEN_KEY);
+      location.href = '/login';
+    });
+
+    (async () => {
+      if (await checkAuth()) await loadTables();
+    })();
+  </script>
+</body>
+</html>
