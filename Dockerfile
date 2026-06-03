@@ -5,12 +5,18 @@ WORKDIR /app
 # 设置国内镜像源
 RUN npm config set registry https://registry.npmmirror.com
 
-# 先复制依赖文件并安装
+# 先复制依赖文件并安装（含 devDependencies，用于 tsc 编译）
 COPY package*.json ./
 RUN npm install --no-package-lock
 
-# 暴露端口
+# 复制源码并编译 TypeScript -> dist/
+COPY tsconfig.json ./
+COPY src ./src
+RUN npm run build
+
+# 编译完成后移除 devDependencies，减小镜像体积
+RUN npm prune --production
+
 EXPOSE 3000
 
-# 【核心变动】启动开发模式（热重载）
 CMD ["npm", "start"]
