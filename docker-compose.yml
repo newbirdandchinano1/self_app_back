@@ -10,6 +10,12 @@ services:
       - "3306:3306"
     volumes:
       - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -uroot -p$$MYSQL_ROOT_PASSWORD || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
 
   node-app:
     build: .
@@ -22,8 +28,12 @@ services:
       DB_USER: root
       DB_PASSWORD: ${DB_ROOT_PASSWORD}
       DB_NAME: ${DB_NAME}
+      NODE_ENV: production
+      PORT: "3000"
+      JWT_SECRET: ${JWT_SECRET:-self_app_dev_secret}
     depends_on:
-      - mysql-db
+      mysql-db:
+        condition: service_healthy
 
 volumes:
   mysql_data:

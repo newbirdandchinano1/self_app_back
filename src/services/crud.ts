@@ -342,13 +342,16 @@ export async function deleteRecord(tableName: string, pkValue: string) {
 }
 
 export async function listTableNames() {
-  const tables = await Promise.all(
-    (await import('../config/tables.js')).ALLOWED_TABLES.map(async (name) => {
+  const { ALLOWED_TABLES } = await import('../config/tables.js');
+  const tables = [];
+
+  for (const name of ALLOWED_TABLES) {
+    try {
       const meta = await getTableMeta(name);
       const hidden = new Set(getHiddenColumns(name, meta));
       const visibleColumns = meta.columns.filter((c) => !hidden.has(c));
       const fkMap = TABLE_FOREIGN_KEYS[name] ?? {};
-      return {
+      tables.push({
         name,
         label: getTableLabel(name),
         primaryKey: meta.primaryKey,
@@ -360,8 +363,11 @@ export async function listTableNames() {
           ...col,
           ...(fkMap[col.name] ? { refTable: fkMap[col.name] } : {}),
         })),
-      };
-    }),
-  );
+      });
+    } catch {
+      // 数据库中尚未建表时跳过，避免 /api/tables 整体失败
+    }
+  }
+
   return tables;
 }
