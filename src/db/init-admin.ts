@@ -1,4 +1,5 @@
 import { randomUUID } from 'crypto';
+import type { RowDataPacket } from 'mysql2';
 import { db } from './index.js';
 import { hashPassword } from '../utils/password.js';
 
@@ -23,7 +24,7 @@ export async function initAdminTable(): Promise<void> {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `);
 
-  const [rows] = await db.query<{ id: string }[]>(
+  const [rows] = await db.query<RowDataPacket[]>(
     'SELECT id FROM admin_users WHERE username = ? LIMIT 1',
     [DEFAULT_ADMIN.username],
   );

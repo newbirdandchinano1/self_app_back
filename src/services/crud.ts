@@ -167,6 +167,8 @@ async function validateForeignKeys(
   if (!fkMap) return;
 
   for (const [column, refTable] of Object.entries(fkMap)) {
+    if (!refTable) continue;
+
     const value = data[column];
     if (value == null || value === '') continue;
 
