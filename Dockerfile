@@ -13,4 +13,4 @@ RUN npm install --no-package-lock
 EXPOSE 3000
 
 # 【核心变动】启动开发模式（热重载）
-CMD ["npm", "run", "dev"]
+CMD ["npm", "start"]
