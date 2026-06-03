@@ -13,9 +13,6 @@ app.use(morgan('dev'));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// 👇 加上这一行！把 public 目录作为静态资源暴露出去
-app.use(express.static('public'));
-
 app.use(routes);
 app.use(errorHandler);
 
