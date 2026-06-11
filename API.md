@@ -279,7 +279,6 @@ Token 有效期 **7 天**，过期后需重新登录。
 | `health_records` | 健康记录 | `id` |
 | `memo_dimensions` | 备忘录维度 | `id` |
 | `memos` | 备忘录 | `id` |
-| `persona_portrait_cache` | 人物画像缓存 | `slug` |
 | `project_categories` | 项目分类 | `id` |
 | `projects` | 项目 | `id` |
 | `recipe_categories` | 食谱分类 | `id` |
@@ -1804,37 +1803,6 @@ Token 有效期 **7 天**，过期后需重新登录。
 
 ---
 
-#### 人物画像缓存（`persona_portrait_cache`）
-
-| 属性 | 值 |
-|------|-----|
-| 中文名 | 人物画像缓存 |
-| 英文表名 | `persona_portrait_cache` |
-| 主键字段 | `slug` |
-
-**接口地址：**
-
-| 操作 | 方法 | URL |
-|------|------|-----|
-| 列表 | GET | `/api/data/persona_portrait_cache` |
-| 详情 | GET | `/api/data/persona_portrait_cache/:slug` |
-| 新增 | POST | `/api/data/persona_portrait_cache` |
-| 更新 | PUT | `/api/data/persona_portrait_cache/:slug` |
-| 删除 | DELETE | `/api/data/persona_portrait_cache/:slug` |
-
-> 创建时必须传入主键字段 `slug`。
-
-**字段说明：**
-
-| 字段名 | 中文名 | 类型 | 必填 | 默认值 | 说明 |
-|--------|--------|------|------|--------|------|
-| `slug` | 标识 | varchar | 是 | - | 主键 |
-| `cache_date_ymd` | 缓存日期 | varchar | 是 | - | - |
-| `payload_json` | 缓存数据 | longtext | 是 | - | - |
-| `updated_at` | 更新时间 | datetime | 是 | - | - |
-
----
-
 ## 6. 错误码与状态码
 
 | HTTP 状态码 | 说明 |
@@ -1923,7 +1891,6 @@ async function request(path, options = {}) {
 | `health_records` | 健康记录 |
 | `memo_dimensions` | 备忘录维度 |
 | `memos` | 备忘录 |
-| `persona_portrait_cache` | 人物画像缓存 |
 | `project_categories` | 项目分类 |
 | `projects` | 项目 |
 | `recipe_categories` | 食谱分类 |

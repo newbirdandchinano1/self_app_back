@@ -23,7 +23,6 @@ export const ALLOWED_TABLES = [
   'health_records',
   'memo_dimensions',
   'memos',
-  'persona_portrait_cache',
   'project_categories',
   'projects',
   'recipe_categories',
@@ -52,7 +51,6 @@ export type AllowedTable = (typeof ALLOWED_TABLES)[number];
 export const TABLE_PRIMARY_KEYS: Partial<Record<AllowedTable, string>> = {
   app_meta: 'key',
   app_settings: 'key',
-  persona_portrait_cache: 'slug',
 };
 
 /** 创建时必须由客户端提供 id，服务端不自动生成（用于多端同步） */

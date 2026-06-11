@@ -12,7 +12,7 @@ const TABLE_LABELS = {
   finance_accounts: '财务账户', finance_flow_categories: '财务流水分类', finance_transactions: '财务交易',
   frog_completion_events: '青蛙完成事件', goal_dimensions: '目标维度', habit_check_ins: '习惯打卡',
   habit_contexts: '习惯场景', habits: '习惯', health_records: '健康记录', memo_dimensions: '备忘录维度', memos: '备忘录',
-  persona_portrait_cache: '人物画像缓存', project_categories: '项目分类', projects: '项目',
+  project_categories: '项目分类', projects: '项目',
   recipe_categories: '食谱分类', recipe_items: '食谱', review_columns: '复盘栏目', review_dimensions: '复盘维度',
   savings_plan_deposits: '储蓄存入记录', savings_plans: '储蓄计划', task_categories: '任务分类',
   task_execution_events: '任务执行事件', task_items: '任务子项', tasks: '任务',
@@ -53,7 +53,7 @@ const COLUMN_LABELS = {
   adjust_tasks:'调整任务', adjust_savings:'调整储蓄', adjust_plans:'调整计划', inbox_entered_at:'进入收件箱时间',
 };
 
-const PK = { app_meta: 'key', app_settings: 'key', persona_portrait_cache: 'slug' };
+const PK = { app_meta: 'key', app_settings: 'key' };
 const HIDDEN = { admin_users: ['password_hash'] };
 
 const MODULES = [
@@ -64,7 +64,7 @@ const MODULES = [
   { title: '健康与食谱', tables: ['health_records', 'recipe_categories', 'recipe_items'] },
   { title: '财务与账户', tables: ['accounts', 'account_transactions', 'finance_accounts', 'finance_account_types', 'finance_flow_categories', 'finance_transactions', 'cash_flow_profile', 'cash_flow_incomes', 'cash_flow_expense_lines', 'cash_flow_holdings', 'savings_plans', 'savings_plan_deposits'] },
   { title: '复盘与技能', tables: ['daily_review_journal', 'weekly_review_journal', 'review_dimensions', 'review_columns', 'user_skill_items', 'user_desired_skills', 'user_skills_meta', 'user_weaknesses', 'earned_rewards'] },
-  { title: '系统与缓存', tables: ['app_meta', 'app_settings', 'persona_portrait_cache'] },
+  { title: '系统与缓存', tables: ['app_meta', 'app_settings'] },
 ];
 
 const tables = {};

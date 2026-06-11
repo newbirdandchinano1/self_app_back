@@ -12,7 +12,6 @@ import {
   analyzeWishItemAiCommentFromText as analyzeWishItemAiCommentFromTextCore,
   analyzeWishListRationalReviewFromText as analyzeWishListRationalReviewFromTextCore,
   estimateDailyIntakeTargetsFromContext as estimateDailyIntakeTargetsFromContextCore,
-  generatePersonaPortraitFromContext as generatePersonaPortraitFromContextCore,
   generateWeeklyReviewCoachingFromText as generateWeeklyReviewCoachingFromTextCore,
   getZhipuApiKey,
   parseFinanceOneLinerFromImage as parseFinanceOneLinerFromImageCore,
@@ -203,20 +202,6 @@ export async function generateWeeklyReviewCoachingFromText(userPrompt: string) {
     await generateWeeklyReviewCoachingFromTextCore({ apiKey: apiKey(), userPrompt }),
   );
   return { text: result.text };
-}
-
-export async function generatePersonaPortraitFromContext(
-  personaSlug: string,
-  contextText: string,
-) {
-  const result = requireOk(
-    await generatePersonaPortraitFromContextCore({
-      apiKey: apiKey(),
-      personaSlug,
-      contextText,
-    }),
-  );
-  return result.data;
 }
 
 export async function analyzeVisionWallGoalsFromText(

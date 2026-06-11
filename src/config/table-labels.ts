@@ -25,7 +25,6 @@ export const TABLE_LABELS: Record<AllowedTable, string> = {
   health_records: '健康记录',
   memo_dimensions: '备忘录维度',
   memos: '备忘录',
-  persona_portrait_cache: '人物画像缓存',
   project_categories: '项目分类',
   projects: '项目',
   recipe_categories: '食谱分类',

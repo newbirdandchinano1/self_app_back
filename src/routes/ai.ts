@@ -16,7 +16,6 @@ import {
   analyzeWishItemAiCommentFromText,
   analyzeWishListRationalReviewFromText,
   estimateDailyIntakeTargetsFromContext,
-  generatePersonaPortraitFromContext,
   generateWeeklyReviewCoachingFromText,
   parseFinanceOneLinerFromImage,
   parseFinanceOneLinerFromText,
@@ -252,24 +251,6 @@ router.post('/weekly-review/coaching', async (req, res, next) => {
     if (promptErr) return fail(res, promptErr);
 
     const data = await generateWeeklyReviewCoachingFromText(String(user_prompt));
-    success(res, data);
-  } catch (err) {
-    handleAiError(err, res, next);
-  }
-});
-
-router.post('/persona/portrait', async (req, res, next) => {
-  try {
-    const { persona_slug, context_text } = req.body ?? {};
-    const slugErr = requireNonEmptyString(persona_slug, 'persona_slug');
-    if (slugErr) return fail(res, slugErr);
-    const contextErr = requireNonEmptyString(context_text, 'context_text');
-    if (contextErr) return fail(res, contextErr);
-
-    const data = await generatePersonaPortraitFromContext(
-      String(persona_slug),
-      String(context_text),
-    );
     success(res, data);
   } catch (err) {
     handleAiError(err, res, next);

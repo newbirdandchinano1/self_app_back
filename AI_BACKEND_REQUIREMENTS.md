@@ -87,7 +87,7 @@
 |---|---|---|---|---|---|
 | **文字描述估算一餐营养** | `parseFoodIntakeFromText` | glm-4-flash | `app/(tabs)/index.tsx`、`components/record-intake-sheet.tsx` | 用户提交饮食文字 | 健康记录 `intake_ai_comment` 等 |
 | **拍照识图估算营养** | `analyzeFoodNutritionFromImage` | glm-4.6v-flash | `app/(tabs)/index.tsx` | 用户选图/拍照 | 同上 |
-| **首页「智能建议」当日四项摄入目标** | `estimateDailyIntakeTargetsFromContext` | glm-4-flash | `lib/daily-intake-ai-targets.ts` ← `index.tsx`、`persona-portrait-sync.ts` | 打开首页 / 画像刷新时自动（按用户档案指纹缓存） | App Settings / SQLite |
+| **首页「智能建议」当日四项摄入目标** | `estimateDailyIntakeTargetsFromContext` | glm-4-flash | `lib/daily-intake-ai-targets.ts` ← `index.tsx` | 打开首页时自动（按用户档案指纹缓存） | App Settings / SQLite |
 | **连通性测试（食物识图）** | `analyzeFoodNutritionFromImage` | glm-4.6v-flash | `app/zhipu-api-test.tsx` | 调试页手动 | 无 |
 
 **`parseFoodIntakeFromText` 响应字段**（JSON `result` 内）：
@@ -237,31 +237,7 @@
 
 ---
 
-### 2.8 人格画像
-
-| 能力 | 智谱函数 | 调用位置 | 触发方式 | 结果存储 |
-|---|---|---|---|---|
-| **四维度 AI 人格画像** | `generatePersonaPortraitFromContext` | `lib/persona-portrait-sync.ts`（App 启动后台）、`app/persona-detail/[slug].tsx`（手动刷新） | 每日缓存；slug：`plan-completion` / `health` / `savings` / `ai-insight` | SQLite `persona_portrait_cache` |
-
-**响应**（`PersonaPortraitAiData`）：
-
-```json
-{
-  "hero_kicker": "",
-  "hero_main": "",
-  "hero_caption": "",
-  "overview": "",
-  "bullets": ["4～6 条，每条 35～90 字"],
-  "stats": [{ "label": "", "value": "", "hint": "" }],
-  "milestones": [],
-  "dims": [{ "title": "", "sub": "" }],
-  "ai_quote": ""
-}
-```
-
----
-
-### 2.9 目标墙（Vision Wall）
+### 2.8 目标墙（Vision Wall）
 
 | 能力 | 智谱函数 | 调用位置 | 触发方式 | 结果存储 |
 |---|---|---|---|---|
@@ -271,7 +247,7 @@
 
 ---
 
-### 2.10 技能档案
+### 2.9 技能档案
 
 | 能力 | 智谱函数 | 调用位置 | 触发方式 | 结果存储 |
 |---|---|---|---|---|
@@ -291,7 +267,7 @@
 
 ---
 
-### 2.11 通用底层能力（供后端实现参考）
+### 2.10 通用底层能力（供后端实现参考）
 
 | 函数 | 用途 |
 |---|---|
@@ -326,8 +302,8 @@
 
 ### 3.2 建议接口列表
 
-以下 **18 个业务接口 + 1 个探测接口** 与当前客户端能力一一对应。  
-命名可按团队规范调整；重点是 **入参上下文由 App 组装**，与现 `build*SummaryText` / `buildPersonaContextText` 等函数输出一致。
+以下 **17 个业务接口 + 1 个探测接口** 与当前客户端能力一一对应。  
+命名可按团队规范调整；重点是 **入参上下文由 App 组装**，与现 `build*SummaryText` 等函数输出一致。
 
 #### 健康
 
@@ -358,12 +334,11 @@
 | POST | `/api/ai/project/tasks-review` | `{ project_context_text }` | `{ evaluation, suggestions }` |
 | POST | `/api/ai/weakness/review` | `{ weakness_context_text }` | `{ evaluation, suggestions }` |
 
-#### 复盘 / 画像 / 目标墙 / 技能
+#### 复盘 / 目标墙 / 技能
 
 | 方法 | 路径 | 请求体要点 | 响应 `data` |
 |---|---|---|---|
 | POST | `/api/ai/weekly-review/coaching` | `{ user_prompt }` | `{ text }` 纯文本 |
-| POST | `/api/ai/persona/portrait` | `{ persona_slug, context_text }` | `PersonaPortraitAiData` |
 | POST | `/api/ai/vision-wall/assessment` | `{ user_display_name?, plan_digest_text, expected_goal_ids[] }` | `VisionWallAiAssessmentPayload` |
 | POST | `/api/ai/skills/portfolio` | `{ user_display_name, lines: [{ skill_id, dimension, name, description }] }` | `UserSkillAiPortfolioPayload` |
 
@@ -414,7 +389,6 @@ const r = await apiRequest<{ analysis: string }>('/api/ai/finance/bill-summary-a
 | `lib/memo-ai-background.ts` | 备忘后台 AI |
 | `lib/weakness-ai-background.ts` | 缺点后台 AI |
 | `lib/project-ai-review-background.ts` | 项目 AI 点评 |
-| `lib/persona-portrait-sync.ts` | 人格画像后台刷新 |
 | `lib/weekly-review-coaching.ts` | 周复盘（AI + 本地兜底） |
 | `lib/auto-ledger-runner.ts` | 截图自动记账 |
 | `lib/repositories/finance/finance-txn-ai-comment.ts` | 流水 AI 短评 |
@@ -429,7 +403,7 @@ const r = await apiRequest<{ analysis: string }>('/api/ai/finance/bill-summary-a
 ## 5. 迁移优先级建议
 
 1. **P0（密钥风险 + 高频）**：一句话记账、截图记账、流水 AI 短评、饮食识图/文字  
-2. **P1（自动后台）**：备忘、缺点、心愿短评、人格画像、首页摄入目标  
+2. **P1（自动后台）**：备忘、缺点、心愿短评、首页摄入目标  
 3. **P2（手动/低频）**：账单分析、AI 财务页、现金流分析、目标墙、技能评估、周复盘、项目点评  
 
 ---
