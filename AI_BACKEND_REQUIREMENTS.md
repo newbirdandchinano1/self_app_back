@@ -98,7 +98,7 @@
   "hydration_ml": 0,
   "protein_g": 0,
   "carbohydrate_g": 0,
-  "sodium_mg": 0,
+  "calories_kcal": 0,
   "ai_evaluation": "string（120～400字）"
 }
 ```
@@ -110,7 +110,7 @@
   "hydration_ml": 0,
   "protein_g": 0,
   "carbohydrate_g": 0,
-  "sodium_mg": 0,
+  "calories_kcal": 0,
   "rationale_zh": "string（可选）"
 }
 ```
@@ -125,7 +125,7 @@
   "ai_evaluation": "string",
   "protein_g": 0,
   "carbohydrate_g": 0,
-  "sodium_mg": 0
+  "calories_kcal": 0
 }
 ```
 

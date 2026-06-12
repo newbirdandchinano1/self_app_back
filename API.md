@@ -938,8 +938,8 @@ Token 有效期 **7 天**，过期后需重新登录。
 | `target_protein` | 目标蛋白质 | double | 是 | 0 | - |
 | `carbohydrate` | 碳水化合物 | double | 是 | 0 | - |
 | `target_carbohydrate` | 目标碳水 | double | 是 | 0 | - |
-| `sodium` | 钠 | double | 是 | 0 | - |
-| `target_sodium` | 目标钠 | double | 是 | 0 | - |
+| `calories` | 摄入热量 | double | 是 | 0 | - |
+| `target_calories` | 目标热量 | double | 是 | 0 | - |
 | `record_date` | 记录日期 | varchar | 是 | - | 索引 |
 | `quick_add_key` | 快捷添加键 | varchar | 否 | - | - |
 | `source_image_uri` | 来源图片 | text | 否 | - | - |

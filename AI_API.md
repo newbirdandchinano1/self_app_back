@@ -308,7 +308,7 @@ const { analysis } = await apiRequest<{ analysis: string }>(
   "hydration_ml": 0,
   "protein_g": 28,
   "carbohydrate_g": 65,
-  "sodium_mg": 1200,
+  "calories_kcal": 650,
   "ai_evaluation": "（120～400 字中文营养点评，自然段，无 markdown）"
 }
 ```
@@ -346,7 +346,7 @@ const { analysis } = await apiRequest<{ analysis: string }>(
   "ai_evaluation": "（120～400 字点评）",
   "protein_g": 25,
   "carbohydrate_g": 12,
-  "sodium_mg": 380
+  "calories_kcal": 420
 }
 ```
 
@@ -378,8 +378,8 @@ const { analysis } = await apiRequest<{ analysis: string }>(
   "hydration_ml": 2200,
   "protein_g": 85,
   "carbohydrate_g": 260,
-  "sodium_mg": 2200,
-  "rationale_zh": "结合近七日蛋白偏低与今日健身日，适度上调蛋白与钠。"
+  "calories_kcal": 2200,
+  "rationale_zh": "结合近七日蛋白偏低与今日健身日，适度上调蛋白与热量。"
 }
 ```
 
@@ -841,7 +841,7 @@ export type FoodTextIntakeJson = {
   hydration_ml: number;
   protein_g: number;
   carbohydrate_g: number;
-  sodium_mg: number;
+  calories_kcal: number;
   ai_evaluation: string;
 };
 
@@ -852,14 +852,14 @@ export type FoodNutritionJson = {
   ai_evaluation: string;
   protein_g: number;
   carbohydrate_g: number;
-  sodium_mg: number;
+  calories_kcal: number;
 };
 
 export type DailyIntakeTargetsEstimateJson = {
   hydration_ml: number;
   protein_g: number;
   carbohydrate_g: number;
-  sodium_mg: number;
+  calories_kcal: number;
   rationale_zh?: string;
 };
 
