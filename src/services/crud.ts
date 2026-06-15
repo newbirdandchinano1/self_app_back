@@ -196,6 +196,12 @@ async function validateForeignKeys(
           400,
         );
       }
+      if (table === 'memos' && column === 'dimension_id') {
+        throw new CrudError(
+          `备忘录维度不存在（dimension_id=${value}），请先通过 POST /api/data/memo_dimensions 同步备忘录维度`,
+          400,
+        );
+      }
       throw new CrudError(
         `${getColumnLabel(table, column)} 引用的 ${refLabel}（${refTable}）不存在，请先同步 ${refTable}`,
         400,

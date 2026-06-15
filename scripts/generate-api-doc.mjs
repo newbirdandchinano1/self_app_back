@@ -24,7 +24,7 @@ const COLUMN_LABELS = {
   id:'ID', key:'键名', slug:'标识', name:'名称', title:'标题', username:'账号', password:'密码',
   password_hash:'密码哈希', phone:'手机号', value:'值', value_json:'配置JSON', body:'内容', note:'备注', notes:'备注',
   description:'描述', detail:'详情', type:'类型', status:'状态', amount:'金额', balance:'余额', currency:'货币',
-  category:'分类', category_id:'分类ID', category_label:'分类标签', account_id:'账户ID', account_no:'账号编号',
+  category:'分类', dimension:'维度', category_id:'分类ID', category_label:'分类标签', account_id:'账户ID', account_no:'账号编号',
   account_type:'账户类型', parent_id:'父级ID', project_id:'项目ID', task_id:'任务ID', habit_id:'习惯ID',
   user_id:'用户ID', wish_item_id:'心愿ID', savings_plan_id:'储蓄计划ID', flow_category_id:'流水分类ID',
   dimension_id:'维度ID', linked_task_id:'关联任务ID', parent_task_id:'父任务ID', source_id:'来源ID',
@@ -108,6 +108,9 @@ function fieldNote(table, r) {
   else if (r.key === 'MUL') notes.push('索引');
   if (r.col === 'password_hash') notes.push('响应中不返回');
   if (table === 'admin_users' && r.col === 'password') notes.push('写入时用 password，服务端加密');
+  if (table === 'memo_dimensions' && r.col === 'title') notes.push('App 端 name 写入本字段 title');
+  if (table === 'memos' && r.col === 'dimension_id') notes.push('引用 memo_dimensions.id');
+  if (table === 'memos' && r.col === 'dimension') notes.push('与 App 端 dimension 一致');
   return notes.length ? notes.join('；') : '-';
 }
 

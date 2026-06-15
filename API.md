@@ -750,7 +750,7 @@ Token 有效期 **7 天**，过期后需重新登录。
 | 字段名 | 中文名 | 类型 | 必填 | 默认值 | 说明 |
 |--------|--------|------|------|--------|------|
 | `id` | ID | varchar | 是 | - | 主键 |
-| `title` | 标题 | varchar | 是 |  | - |
+| `title` | 名称（同 App name） | varchar | 是 |  | App 端 `name` 写入本字段 `title` |
 | `sort_order` | 排序 | int | 是 | 1000 | 索引 |
 | `created_at` | 创建时间 | datetime | 是 | - | - |
 | `updated_at` | 更新时间 | datetime | 是 | - | 索引 |
@@ -766,6 +766,7 @@ Token 有效期 **7 天**，过期后需重新登录。
 | 中文名 | 备忘录 |
 | 英文表名 | `memos` |
 | 主键字段 | `id` |
+| 同步依赖 | 需先同步 `memo_dimensions` |
 
 **接口地址：**
 
@@ -788,13 +789,15 @@ Token 有效期 **7 天**，过期后需重新登录。
 | `ai_suggestions` | AI建议 | text | 否 | - | - |
 | `ai_review_at` | AI评审时间 | datetime | 否 | - | - |
 | `linked_task_id` | 关联任务ID | varchar | 否 | - | - |
+| `dimension_id` | 备忘录维度ID | varchar | 否 | - | 索引；引用 `memo_dimensions.id` |
+| `dimension` | 维度名称（冗余） | varchar | 否 | - | 与 App 端 `dimension` 一致 |
 | `created_at` | 创建时间 | datetime | 是 | - | - |
 | `updated_at` | 更新时间 | datetime | 是 | - | - |
 | `sync_status` | 同步状态 | varchar | 是 | synced | - |
 
 **新增请求示例：**
 ```json
-{"title":"灵感","body":"记录内容"}
+{"title":"灵感","body":"记录内容","dimension_id":"<维度UUID>","dimension":"工作"}
 ```
 
 ---

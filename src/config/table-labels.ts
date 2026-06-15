@@ -71,6 +71,7 @@ export const COLUMN_LABELS: Record<string, string> = {
   balance: '余额',
   currency: '货币',
   category: '分类',
+  dimension: '维度',
   category_id: '分类ID',
   category_label: '分类标签',
   account_id: '账户ID',
@@ -201,6 +202,13 @@ export const TABLE_COLUMN_LABELS: Partial<
   },
   projects: {
     category_id: '项目分类ID',
+  },
+  memo_dimensions: {
+    title: '名称（同 App name）',
+  },
+  memos: {
+    dimension_id: '备忘录维度ID',
+    dimension: '维度名称（冗余）',
   },
 };
 

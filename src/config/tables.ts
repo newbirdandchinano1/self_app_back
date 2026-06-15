@@ -75,6 +75,9 @@ export const TABLE_FOREIGN_KEYS: Partial<
   task_items: {
     task_id: 'tasks',
   },
+  memos: {
+    dimension_id: 'memo_dimensions',
+  },
 };
 
 /** 同步上传时的前置依赖表（需先完成 POST，再上传当前表） */
@@ -82,6 +85,7 @@ export const TABLE_SYNC_DEPENDS_ON: Partial<Record<AllowedTable, AllowedTable[]>
   tasks: ['task_categories', 'project_categories', 'projects'],
   task_items: ['tasks'],
   projects: ['project_categories'],
+  memos: ['memo_dimensions'],
 };
 
 /** 响应中隐藏的字段 */

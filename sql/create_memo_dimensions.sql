@@ -1,6 +1,6 @@
 CREATE TABLE IF NOT EXISTS `memo_dimensions` (
   `id` varchar(36) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `title` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '',
+  `title` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '' COMMENT '维度名称，与 App 端 name 字段等价',
   `sort_order` int NOT NULL DEFAULT 1000,
   `created_at` datetime NOT NULL,
   `updated_at` datetime NOT NULL,
