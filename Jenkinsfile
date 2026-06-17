@@ -7,10 +7,10 @@ pipeline {
     environment {
         // 远程服务器凭据ID
         SERVER_CREDENTIAL_ID = 'yun-server'
-        SERVER_IP = '47.109.78.229'
+        SERVER_IP = '1.14.76.59'
         
         // 远程部署的目标目录
-        DEPLOY_DIR = '/home/admin/my-project'
+        DEPLOY_DIR = '/opt/self_app'
     }
 
     stages {
