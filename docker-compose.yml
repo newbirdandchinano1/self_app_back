@@ -26,7 +26,7 @@ services:
     environment:
       DB_HOST: mysql-db
       DB_USER: root
-      DB_PASSWORD: ${DB_ROOT_PASSWORD}
+      DB_PASSWORD: your_secure_password
       DB_NAME: self_app
       NODE_ENV: production
       PORT: "3000"
