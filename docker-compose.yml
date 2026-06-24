@@ -4,10 +4,8 @@ services:
     container_name: my_mysql
     restart: always
     environment:
-      MYSQL_ROOT_PASSWORD: your_secure_password 
+      MYSQL_ROOT_PASSWORD: Zhen8907146!!
       MYSQL_DATABASE: self_app
-    ports:
-      - "3306:3306"
     volumes:
       - mysql_data:/var/lib/mysql
     healthcheck:
@@ -26,7 +24,7 @@ services:
     environment:
       DB_HOST: mysql-db
       DB_USER: root
-      DB_PASSWORD: your_secure_password
+      DB_PASSWORD: Zhen8907146!!
       DB_NAME: self_app
       NODE_ENV: production
       PORT: "3000"
