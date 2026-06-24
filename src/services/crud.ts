@@ -15,6 +15,7 @@ import {
 } from '../config/tables.js';
 import { buildColumnMeta, getColumnLabel, getTableLabel } from '../config/table-labels.js';
 import { hashPassword } from '../utils/password.js';
+import { buildListQuery, type ListQueryParams } from './list-query.js';
 
 export interface TableMeta {
   primaryKey: string;
@@ -156,7 +157,33 @@ async function normalizeWriteData(
     delete result[meta.primaryKey];
   }
 
+  if (table === 'tasks' && meta.columns.includes('frog_assigned_on')) {
+    const frog = extractFrogAssignedOn(result.extra_data);
+    if (frog !== undefined) {
+      result.frog_assigned_on = frog;
+    }
+  }
+
   return result;
+}
+
+const YMD_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+function extractFrogAssignedOn(extraData: unknown): string | null | undefined {
+  if (extraData === undefined) return undefined;
+  if (extraData === null || extraData === '') return null;
+  try {
+    const parsed =
+      typeof extraData === 'string'
+        ? (JSON.parse(extraData) as { frogAssignedOn?: unknown })
+        : (extraData as { frogAssignedOn?: unknown });
+    const raw = parsed?.frogAssignedOn;
+    if (raw == null || raw === '') return null;
+    if (typeof raw === 'string' && YMD_RE.test(raw.trim())) return raw.trim();
+  } catch {
+    /* ignore */
+  }
+  return null;
 }
 
 async function validateForeignKeys(
@@ -210,34 +237,41 @@ async function validateForeignKeys(
   }
 }
 
-export interface ListOptions {
-  page?: number;
-  limit?: number;
-}
+export interface ListOptions extends ListQueryParams {}
 
 export async function listRecords(tableName: string, options: ListOptions = {}) {
   const table = assertTable(tableName);
   const meta = await getTableMeta(table);
   const page = Math.max(1, options.page ?? 1);
-  const limit = Math.min(200, Math.max(1, options.limit ?? 50));
-  const offset = (page - 1) * limit;
 
   const hidden = new Set(getHiddenColumns(table, meta));
-  const selectCols = meta.columns
-    .filter((c) => !hidden.has(c))
-    .map(quoteIdent)
-    .join(', ');
+  const visibleColumns = meta.columns.filter((c) => !hidden.has(c));
+  const built = buildListQuery(table, visibleColumns, options, {
+    hasFrogAssignedOnColumn: meta.columns.includes('frog_assigned_on'),
+  });
+  const limit = Math.min(built.maxLimit, Math.max(1, options.limit ?? 50));
+  const offset = (page - 1) * limit;
+
+  const selectCols =
+    built.selectFields && built.selectFields.length > 0
+      ? built.selectFields.map(quoteIdent).join(', ')
+      : visibleColumns.map(quoteIdent).join(', ');
+
+  const whereSql =
+    built.whereClauses.length > 0 ? `WHERE ${built.whereClauses.join(' AND ')}` : '';
 
   const [countRows] = await db.query<RowDataPacket[]>(
-    `SELECT COUNT(*) AS total FROM ${quoteIdent(table)}`,
+    `SELECT COUNT(*) AS total FROM ${quoteIdent(table)} ${whereSql}`,
+    built.whereValues,
   );
   const total = Number(countRows[0]?.total ?? 0);
 
   const [rows] = await db.query<RowDataPacket[]>(
     `SELECT ${selectCols} FROM ${quoteIdent(table)}
+     ${whereSql}
      ORDER BY ${quoteIdent(meta.primaryKey)} DESC
      LIMIT ? OFFSET ?`,
-    [limit, offset],
+    [...built.whereValues, limit, offset],
   );
 
   return {

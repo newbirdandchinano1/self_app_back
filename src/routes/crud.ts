@@ -11,6 +11,7 @@ import {
   updateRecord,
 } from '../services/crud.js';
 import { isAllowedTable } from '../config/tables.js';
+import { parseListQueryFromRequest } from '../services/list-query.js';
 
 const router = Router();
 
@@ -36,9 +37,8 @@ router.get('/data/:table', async (req, res, next) => {
       return fail(res, `表 ${table} 不存在或不允许访问`, -1, 404);
     }
 
-    const page = req.query.page ? parseInt(String(req.query.page), 10) : 1;
-    const limit = req.query.limit ? parseInt(String(req.query.limit), 10) : 50;
-    const result = await listRecords(table, { page, limit });
+    const listQuery = parseListQueryFromRequest(req.query as Record<string, unknown>);
+    const result = await listRecords(table, listQuery);
     success(res, result);
   } catch (err) {
     next(err);
