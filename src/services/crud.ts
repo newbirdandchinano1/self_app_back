@@ -280,6 +280,57 @@ export async function listRecords(tableName: string, options: ListOptions = {}) 
   };
 }
 
+export async function listAllRecords(
+  tableName: string,
+  options: ListOptions = {},
+  maxRows = 100_000,
+) {
+  const table = assertTable(tableName);
+  const meta = await getTableMeta(table);
+
+  const hidden = new Set(getHiddenColumns(table, meta));
+  const visibleColumns = meta.columns.filter((c) => !hidden.has(c));
+  const built = buildListQuery(table, visibleColumns, options, {
+    hasFrogAssignedOnColumn: meta.columns.includes('frog_assigned_on'),
+  });
+
+  const selectCols =
+    built.selectFields && built.selectFields.length > 0
+      ? built.selectFields.map(quoteIdent).join(', ')
+      : visibleColumns.map(quoteIdent).join(', ');
+
+  const whereSql =
+    built.whereClauses.length > 0 ? `WHERE ${built.whereClauses.join(' AND ')}` : '';
+
+  const [rows] = await db.query<RowDataPacket[]>(
+    `SELECT ${selectCols} FROM ${quoteIdent(table)}
+     ${whereSql}
+     ORDER BY ${quoteIdent(meta.primaryKey)} DESC
+     LIMIT ?`,
+    [...built.whereValues, maxRows],
+  );
+
+  return rows.map((row) => stripHidden(table, meta, row as Record<string, unknown>));
+}
+
+export async function getTableSnapshotMeta(tableName: string): Promise<{ count: number; maxUpdatedAt: string | null }> {
+  const table = assertTable(tableName);
+  const meta = await getTableMeta(table);
+  const hasUpdatedAt = meta.columns.includes('updated_at');
+
+  const [rows] = await db.query<RowDataPacket[]>(
+    hasUpdatedAt
+      ? `SELECT COUNT(*) AS cnt, MAX(updated_at) AS max_updated_at FROM ${quoteIdent(table)}`
+      : `SELECT COUNT(*) AS cnt, NULL AS max_updated_at FROM ${quoteIdent(table)}`,
+  );
+
+  const row = rows[0];
+  return {
+    count: Number(row?.cnt ?? 0),
+    maxUpdatedAt: row?.max_updated_at != null ? String(row.max_updated_at) : null,
+  };
+}
+
 export async function getRecord(tableName: string, pkValue: string) {
   const table = assertTable(tableName);
   const meta = await getTableMeta(table);

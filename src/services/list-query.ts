@@ -12,6 +12,10 @@ export interface ListQueryParams {
   dueDateLte?: string;
   frogAssignedOnGte?: string;
   frogAssignedOnLte?: string;
+  createdAtGte?: string;
+  createdAtLte?: string;
+  assignedYmdGte?: string;
+  assignedYmdLte?: string;
   calendarRelevant?: boolean;
   excludeArchived?: boolean;
 }
@@ -44,6 +48,31 @@ function pushYmdRange(
   }
 }
 
+function normalizeDateTimeBound(raw: string, edge: 'start' | 'end'): string {
+  const trimmed = raw.trim();
+  if (isValidYmd(trimmed)) {
+    return edge === 'start' ? `${trimmed} 00:00:00` : `${trimmed} 23:59:59`;
+  }
+  return trimmed;
+}
+
+function pushDateTimeRange(
+  clauses: string[],
+  values: unknown[],
+  columnExpr: string,
+  gte?: string,
+  lte?: string,
+): void {
+  if (gte?.trim()) {
+    clauses.push(`${columnExpr} >= ?`);
+    values.push(normalizeDateTimeBound(gte, 'start'));
+  }
+  if (lte?.trim()) {
+    clauses.push(`${columnExpr} <= ?`);
+    values.push(normalizeDateTimeBound(lte, 'end'));
+  }
+}
+
 function parseFieldsParam(fields: string[] | undefined, allowed: string[]): string[] | null {
   if (!fields || fields.length === 0) return null;
   const allowedSet = new Set(allowed);
@@ -65,7 +94,11 @@ export function buildListQuery(
     (params.startDate && isValidYmd(params.startDate)) ||
     (params.endDate && isValidYmd(params.endDate)) ||
     (params.dueDateGte && isValidYmd(params.dueDateGte)) ||
-    (params.dueDateLte && isValidYmd(params.dueDateLte));
+    (params.dueDateLte && isValidYmd(params.dueDateLte)) ||
+    params.createdAtGte?.trim() ||
+    params.createdAtLte?.trim() ||
+    (params.assignedYmdGte && isValidYmd(params.assignedYmdGte)) ||
+    (params.assignedYmdLte && isValidYmd(params.assignedYmdLte));
 
   if (hasDateRange) {
     maxLimit = 2000;
@@ -78,6 +111,14 @@ export function buildListQuery(
 
   if (table === 'habit_check_ins') {
     pushYmdRange(clauses, values, 'record_date', params.startDate, params.endDate);
+  }
+
+  if (table === 'task_execution_events') {
+    pushDateTimeRange(clauses, values, 'created_at', params.createdAtGte, params.createdAtLte);
+  }
+
+  if (table === 'frog_completion_events') {
+    pushYmdRange(clauses, values, 'assigned_ymd', params.assignedYmdGte, params.assignedYmdLte);
   }
 
   if (table === 'projects') {
@@ -156,6 +197,10 @@ export function parseListQueryFromRequest(query: Record<string, unknown>): ListQ
     dueDateLte: typeof query.dueDateLte === 'string' ? query.dueDateLte : undefined,
     frogAssignedOnGte: typeof query.frogAssignedOnGte === 'string' ? query.frogAssignedOnGte : undefined,
     frogAssignedOnLte: typeof query.frogAssignedOnLte === 'string' ? query.frogAssignedOnLte : undefined,
+    createdAtGte: typeof query.createdAtGte === 'string' ? query.createdAtGte : undefined,
+    createdAtLte: typeof query.createdAtLte === 'string' ? query.createdAtLte : undefined,
+    assignedYmdGte: typeof query.assignedYmdGte === 'string' ? query.assignedYmdGte : undefined,
+    assignedYmdLte: typeof query.assignedYmdLte === 'string' ? query.assignedYmdLte : undefined,
     calendarRelevant: query.calendarRelevant === 'true' || query.calendarRelevant === '1',
     excludeArchived: query.excludeArchived === 'true' || query.excludeArchived === '1',
   };

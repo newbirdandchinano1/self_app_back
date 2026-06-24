@@ -5,6 +5,7 @@ import healthRouter from './health.js';
 import homeRouter from './home.js';
 import crudRouter from './crud.js';
 import calendarRouter from './calendar.js';
+import pagesRouter from './pages.js';
 import authRouter from './auth.js';
 import aiRouter from './ai.js';
 
@@ -25,6 +26,7 @@ router.use(homeRouter);
 router.use(healthRouter);
 router.use('/api/auth', apiConcurrency, authRouter);
 router.use('/api/ai', aiConcurrency, aiRouter);
+router.use('/api', apiConcurrency, pagesRouter);
 router.use('/api', apiConcurrency, calendarRouter);
 router.use('/api', apiConcurrency, crudRouter);
 
