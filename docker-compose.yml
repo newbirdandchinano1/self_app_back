@@ -3,7 +3,7 @@ services:
     image: swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/mysql:8.0
     container_name: my_mysql
     restart: always
-      ports:
+    ports:
       - "3306:3306"
     environment:
       MYSQL_ROOT_PASSWORD: Zhen8907146!!
