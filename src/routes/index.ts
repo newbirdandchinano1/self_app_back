@@ -1,4 +1,6 @@
 import { Router } from 'express';
+import { concurrencyConfig } from '../config/index.js';
+import { createConcurrencyMiddleware } from '../middlewares/concurrency.js';
 import healthRouter from './health.js';
 import homeRouter from './home.js';
 import crudRouter from './crud.js';
@@ -7,10 +9,21 @@ import aiRouter from './ai.js';
 
 const router = Router();
 
+const apiConcurrency = createConcurrencyMiddleware(
+  'api',
+  concurrencyConfig.apiMax,
+  concurrencyConfig.enabled,
+);
+const aiConcurrency = createConcurrencyMiddleware(
+  'ai',
+  concurrencyConfig.aiMax,
+  concurrencyConfig.enabled,
+);
+
 router.use(homeRouter);
 router.use(healthRouter);
-router.use('/api/auth', authRouter);
-router.use('/api/ai', aiRouter);
-router.use('/api', crudRouter);
+router.use('/api/auth', apiConcurrency, authRouter);
+router.use('/api/ai', aiConcurrency, aiRouter);
+router.use('/api', apiConcurrency, crudRouter);
 
 export default router;

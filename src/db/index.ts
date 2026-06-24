@@ -7,7 +7,7 @@ export const db = mysql.createPool({
   user: dbConfig.user,
   password: dbConfig.password,
   database: dbConfig.database,
-  connectionLimit: 10,
+  connectionLimit: dbConfig.connectionLimit,
   waitForConnections: true,
   queueLimit: 0,
   idleTimeout: 60000,

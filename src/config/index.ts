@@ -13,6 +13,13 @@ export const dbConfig = {
   user: process.env.DB_USER || 'root',
   password: process.env.DB_PASSWORD || '',
   database: process.env.DB_NAME || 'self_app',
+  connectionLimit: parseInt(process.env.DB_CONNECTION_LIMIT || '20', 10),
+};
+
+export const concurrencyConfig = {
+  enabled: process.env.CONCURRENCY_LIMIT_ENABLED !== 'false',
+  apiMax: parseInt(process.env.API_CONCURRENCY_MAX || '50', 10),
+  aiMax: parseInt(process.env.AI_CONCURRENCY_MAX || '8', 10),
 };
 
 export const zhipuConfig = {
