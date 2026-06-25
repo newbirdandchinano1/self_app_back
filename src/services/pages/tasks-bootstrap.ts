@@ -1,8 +1,11 @@
+import type { RowDataPacket } from 'mysql2';
 import {
   getTableFilteredSnapshotMeta,
+  getTableMeta,
   listAllRecords,
   type ListOptions,
 } from '../crud.js';
+import { db } from '../../db/index.js';
 import { normalizeTasksDayBoundary } from '../calendar/logical-day.js';
 import type { TasksDayBoundary } from '../calendar/types.js';
 import {
@@ -81,6 +84,17 @@ export interface TasksBootstrapParams {
   habitCheckInEnd?: string;
   habitCheckInMonths?: number;
   include?: string;
+  taskView?: string;
+  taskViews?: string;
+  logicalToday?: string;
+  weekStart?: string;
+  weekEnd?: string;
+  projectIds?: string;
+  includeCompleted?: boolean;
+  includeCancelled?: boolean;
+  includeShelved?: boolean;
+  page?: number;
+  limit?: number;
 }
 
 export interface TasksBootstrapContext {
@@ -97,6 +111,213 @@ export interface TableVersionInfo {
   count: number;
   version: string | null;
   maxUpdatedAt: string | null;
+}
+
+type TaskPageView = 'standaloneTodos' | 'matrixWeek' | 'projectTrees';
+
+const TASK_PAGE_VIEWS = new Set<TaskPageView>([
+  'standaloneTodos',
+  'matrixWeek',
+  'projectTrees',
+]);
+
+function quoteIdent(name: string): string {
+  return `\`${name.replace(/`/g, '``')}\``;
+}
+
+function isBlankColumn(column: string): string {
+  const q = quoteIdent(column);
+  return `(${q} IS NULL OR ${q} = '')`;
+}
+
+function isPresentColumn(column: string): string {
+  const q = quoteIdent(column);
+  return `(${q} IS NOT NULL AND ${q} != '')`;
+}
+
+function optionalNotPendingDelete(columns: Set<string>): string[] {
+  return columns.has('sync_status') ? [`(sync_status IS NULL OR sync_status != 'pending_delete')`] : [];
+}
+
+function optionalNotDeleted(columns: Set<string>): string[] {
+  return columns.has('deleted_at') ? ['deleted_at IS NULL'] : [];
+}
+
+function parseCsv(raw?: string): string[] {
+  return raw?.split(',').map((s) => s.trim()).filter(Boolean) ?? [];
+}
+
+function parseTaskPageViews(params: TasksBootstrapParams): TaskPageView[] {
+  const tokens = parseCsv(params.taskViews ?? params.taskView);
+  if (tokens.length === 0) return [];
+  if (tokens.includes('tasksPage')) return ['standaloneTodos', 'matrixWeek', 'projectTrees'];
+  return tokens.filter((token): token is TaskPageView => TASK_PAGE_VIEWS.has(token as TaskPageView));
+}
+
+function addStatusFilters(
+  where: string[],
+  values: unknown[],
+  columns: Set<string>,
+  params: TasksBootstrapParams,
+): void {
+  if (!columns.has('status')) return;
+  const excluded = new Set<string>();
+  if (!params.includeCompleted) excluded.add('done');
+  if (!params.includeCancelled) excluded.add('cancelled');
+  if (params.includeShelved === false) excluded.add('shelved');
+  if (excluded.size === 0) return;
+  where.push(`(status IS NULL OR status NOT IN (${[...excluded].map(() => '?').join(', ')}))`);
+  values.push(...excluded);
+}
+
+function buildDueDateWindowFilter(
+  columns: Set<string>,
+  startYmd: string,
+  endYmd: string,
+  includeNoDueDate: boolean,
+): { sql: string; values: unknown[] } | null {
+  if (!columns.has('due_date')) return null;
+  const q = quoteIdent('due_date');
+  const emptyDue = `(${q} IS NULL OR ${q} = '')`;
+  const inWindow = `(LEFT(${q}, 10) BETWEEN ? AND ?)`;
+  return {
+    sql: includeNoDueDate ? `(${emptyDue} OR ${inWindow})` : inWindow,
+    values: [startYmd, endYmd],
+  };
+}
+
+function buildDueDateUntilFilter(
+  columns: Set<string>,
+  endYmd: string,
+  includeNoDueDate: boolean,
+): { sql: string; values: unknown[] } | null {
+  if (!columns.has('due_date')) return null;
+  const q = quoteIdent('due_date');
+  const emptyDue = `(${q} IS NULL OR ${q} = '')`;
+  const until = `(LEFT(${q}, 10) <= ?)`;
+  return {
+    sql: includeNoDueDate ? `(${emptyDue} OR ${until})` : until,
+    values: [endYmd],
+  };
+}
+
+async function loadFilteredTasks(params: TasksBootstrapParams, context: TasksBootstrapContext) {
+  const views = parseTaskPageViews(params);
+  if (views.length === 0) return null;
+
+  const meta = await getTableMeta('tasks');
+  const columns = new Set(meta.columns);
+  const selectCols = meta.columns.map(quoteIdent).join(', ');
+  const baseWhere = [...optionalNotDeleted(columns), ...optionalNotPendingDelete(columns)];
+  const projectIds = parseCsv(params.projectIds);
+  const byId = new Map<string, Record<string, unknown>>();
+  const grouped: Record<TaskPageView, Record<string, unknown>[]> = {
+    standaloneTodos: [],
+    matrixWeek: [],
+    projectTrees: [],
+  };
+
+  async function selectRows(where: string[], values: unknown[], orderBy = 'updated_at DESC') {
+    const whereSql = where.length > 0 ? `WHERE ${where.join(' AND ')}` : '';
+    const [rows] = await db.query<RowDataPacket[]>(
+      `SELECT ${selectCols} FROM tasks ${whereSql} ORDER BY ${orderBy}`,
+      values,
+    );
+    return rows.map((row) => row as Record<string, unknown>);
+  }
+
+  for (const view of views) {
+    if (view === 'standaloneTodos') {
+      const where = [...baseWhere, isBlankColumn('project_id'), isBlankColumn('parent_task_id')];
+      const values: unknown[] = [];
+      addStatusFilters(where, values, columns, params);
+      if (params.includeCompleted) {
+        // keep all matching standalone rows
+      }
+      const due = buildDueDateUntilFilter(columns, context.logicalToday, true);
+      if (due) {
+        where.push(due.sql);
+        values.push(...due.values);
+      }
+      grouped.standaloneTodos = await selectRows(where, values);
+    }
+
+    if (view === 'matrixWeek') {
+      const where = [...baseWhere, `(${isPresentColumn('project_id')} OR ${isPresentColumn('parent_task_id')})`];
+      const values: unknown[] = [];
+      addStatusFilters(where, values, columns, { ...params, includeCompleted: false, includeCancelled: false });
+      const start = params.weekStart?.trim() && isValidYmd(params.weekStart) ? params.weekStart.trim() : context.logicalToday;
+      const end = params.weekEnd?.trim() && isValidYmd(params.weekEnd) ? params.weekEnd.trim() : start;
+      const due = buildDueDateWindowFilter(columns, start, end, false);
+      if (due) {
+        where.push(due.sql);
+        values.push(...due.values);
+      }
+      grouped.matrixWeek = await selectRows(where, values);
+    }
+
+    if (view === 'projectTrees') {
+      const where = [...baseWhere];
+      const values: unknown[] = [];
+      if (projectIds.length > 0) {
+        where.push(`project_id IN (${projectIds.map(() => '?').join(', ')})`);
+        values.push(...projectIds);
+      } else {
+        where.push(isPresentColumn('project_id'));
+      }
+      const roots = await selectRows(where, values);
+      const treeById = new Map<string, Record<string, unknown>>();
+      const queue = [...roots];
+      for (const row of roots) {
+        treeById.set(String(row.id), row);
+      }
+      while (queue.length > 0) {
+        const batch = queue.splice(0, 200);
+        const ids = batch.map((row) => String(row.id)).filter(Boolean);
+        if (ids.length === 0) continue;
+        const childWhere = [
+          ...baseWhere,
+          `parent_task_id IN (${ids.map(() => '?').join(', ')})`,
+        ];
+        const children = await selectRows(childWhere, ids);
+        for (const child of children) {
+          const id = String(child.id);
+          if (treeById.has(id)) continue;
+          treeById.set(id, child);
+          queue.push(child);
+        }
+      }
+      grouped.projectTrees = [...treeById.values()];
+    }
+  }
+
+  for (const rows of Object.values(grouped)) {
+    for (const row of rows) {
+      byId.set(String(row.id), row);
+    }
+  }
+
+  const unionRows = [...byId.values()];
+  const page = Math.max(1, params.page ?? 1);
+  const limit = Math.min(500, Math.max(1, params.limit ?? (unionRows.length || 1)));
+  const offset = (page - 1) * limit;
+
+  return {
+    unionRows: unionRows.slice(offset, offset + limit),
+    grouped,
+    meta: {
+      tasksScope: 'tasksPageFiltered',
+      serverFiltered: true,
+      filtersVersion: 'tasks-page-v1',
+      taskViews: views,
+      weekStart: params.weekStart,
+      weekEnd: params.weekEnd,
+      page,
+      limit,
+      total: unionRows.length,
+      totalPages: Math.ceil(unionRows.length / limit),
+    },
+  };
 }
 
 function defaultInclude(): TasksBootstrapInclude {
@@ -165,9 +386,14 @@ export function resolveTasksBootstrapContext(params: TasksBootstrapParams): Task
       ? params.habitCheckInEnd.trim()
       : logicalToday;
 
+  const resolvedLogicalToday =
+    params.logicalToday?.trim() && isValidYmd(params.logicalToday)
+      ? params.logicalToday.trim()
+      : logicalToday;
+
   return {
     dayBoundary,
-    logicalToday,
+    logicalToday: resolvedLogicalToday,
     heatmapStart,
     heatmapEnd,
     habitCheckInStart,
@@ -224,7 +450,11 @@ async function loadTableVersions(
 export interface TasksBootstrapResult {
   projects: Record<string, unknown>[];
   projectCategories: Record<string, unknown>[];
-  tasks: Record<string, unknown>[];
+  tasks: Record<string, unknown>[] | {
+    standaloneTodos: Record<string, unknown>[];
+    matrixWeek: Record<string, unknown>[];
+    projectTreeTasks: Record<string, unknown>[];
+  };
   taskCategories: Record<string, unknown>[];
   taskItems: Record<string, unknown>[];
   habits: Record<string, unknown>[];
@@ -241,6 +471,17 @@ export interface TasksBootstrapResult {
     habitCheckInEnd: string;
     completionHeatmapWeeks: number;
     tablesVersion: Record<string, TableVersionInfo>;
+    tasksScope?: string;
+    serverFiltered?: boolean;
+    filtersVersion?: string;
+    taskViews?: TaskPageView[];
+    weekStart?: string;
+    weekEnd?: string;
+    page?: number;
+    limit?: number;
+    total?: number;
+    totalPages?: number;
+    snapshotAt?: string;
   };
 }
 
@@ -326,8 +567,14 @@ export async function getTasksPageBootstrap(
   }
   if (include.tasks) {
     loaders.push(
-      listAllRecords('tasks').then((rows) => {
-        result.tasks = rows;
+      loadFilteredTasks(params, context).then((filtered) => {
+        if (!filtered) {
+          return listAllRecords('tasks').then((rows) => {
+            result.tasks = rows;
+          });
+        }
+        result.tasks = filtered.unionRows;
+        Object.assign(result.meta, filtered.meta, { snapshotAt: result.meta.serverTime });
       }),
     );
   }

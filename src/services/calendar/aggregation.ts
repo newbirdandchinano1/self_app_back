@@ -739,3 +739,61 @@ export function buildTasksCalendarSummaries(params: {
 
   return days;
 }
+
+export type HabitsGridItem = {
+  id: string;
+  name: string;
+  icon: string;
+  kind: HabitKind;
+  todayCount: number;
+  dailyGoal: number | null;
+  displayCompleted: boolean;
+  hiddenOnViewDay: boolean;
+  periodProgress: number | null;
+  periodGoal: number | null;
+};
+
+export function buildHabitsGridItemsForDay(params: {
+  logicalYmd: string;
+  habits: (CalendarHabitRow & { context?: string | null })[];
+  habitCheckInsByHabit: Map<string, Record<string, number>>;
+  todayCheckIns: Map<string, number>;
+}): HabitsGridItem[] {
+  const { logicalYmd, habits, habitCheckInsByHabit, todayCheckIns } = params;
+  const items: HabitsGridItem[] = [];
+
+  for (const habit of habits) {
+    const kind = parseHabitKind(habit.extra_data);
+    if (kind === 'break' && isBreakHabitSucceeded(habit.extra_data)) continue;
+    if (kind === 'build' && isBuildHabitSucceeded(habit.extra_data)) continue;
+    const checkIns = habitCheckInsByHabit.get(habit.id) ?? {};
+    const taskViewState =
+      kind === 'task'
+        ? getTaskHabitTasksViewState({ extraData: habit.extra_data, checkIns, logicalYmd })
+        : null;
+    if (taskViewState?.hiddenOnViewDay) continue;
+    if (!isHabitScheduledOnLogicalYmd(habit.extra_data, logicalYmd)) continue;
+    const count = todayCheckIns.get(habit.id) ?? 0;
+    const dailyGoal = parseHabitDailyGoal(habit.extra_data, kind);
+    const displayCompleted =
+      kind === 'task' && taskViewState
+        ? taskViewState.showPeriodCheckOnViewDay ||
+          isHabitDayGoalMet({ kind, todayCount: count, dailyGoal })
+        : isHabitDayGoalMet({ kind, todayCount: count, dailyGoal });
+
+    items.push({
+      id: habit.id,
+      name: habit.name,
+      icon: habit.icon,
+      kind,
+      todayCount: count,
+      dailyGoal,
+      displayCompleted,
+      hiddenOnViewDay: false,
+      periodProgress: taskViewState?.periodProgress ?? null,
+      periodGoal: taskViewState?.periodGoal ?? null,
+    });
+  }
+
+  return items;
+}

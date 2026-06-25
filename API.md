@@ -182,6 +182,300 @@ Token 有效期 **7 天**，过期后需重新登录。
 
 ## 4. 通用数据接口
 
+### 4.0 任务页聚合接口：按 APP 视图筛选 tasks
+
+| 项目 | 值 |
+|------|-----|
+| **URL** | `GET /api/pages/tasks` |
+| **方法** | GET |
+| **认证** | 需要 Bearer Token |
+
+该接口原本返回任务页首屏所需聚合数据。现在支持通过 `taskView` / `taskViews` 对 `tasks` 做服务端筛选，避免 APP 拉取全量 `tasks` 后再本地过滤。
+
+**查询参数：**
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `include` | string | 全部模块 | 可传 `tasks` 或其它聚合模块名；只需要任务时建议传 `tasks` |
+| `taskView` | string | 不筛选 | 单个任务视图：`tasksPage`、`standaloneTodos`、`matrixWeek`、`projectTrees` |
+| `taskViews` | string | 不筛选 | 多个任务视图，逗号分隔，如 `standaloneTodos,matrixWeek,projectTrees` |
+| `logicalToday` | string | 服务端按日界线计算 | APP 逻辑今日，格式 `YYYY-MM-DD` |
+| `weekStart` | string | `logicalToday` | 本周开始日期，格式 `YYYY-MM-DD`，供 `matrixWeek` 使用 |
+| `weekEnd` | string | `weekStart` | 本周结束日期，格式 `YYYY-MM-DD`，供 `matrixWeek` 使用 |
+| `dayBoundaryHour` | number | 0 | 逻辑日切换小时 |
+| `dayBoundaryMinute` | number | 0 | 逻辑日切换分钟 |
+| `projectIds` | string | 全部有项目任务 | 项目 ID 列表，逗号分隔，供 `projectTrees` 使用 |
+| `includeCompleted` | boolean | false | 是否包含 `status = done` 的任务 |
+| `includeCancelled` | boolean | false | 是否包含 `status = cancelled` 的任务 |
+| `includeShelved` | boolean | true | 是否包含 `status = shelved` 的任务 |
+| `page` | number | 1 | 对筛选后 tasks 并集分页 |
+| `limit` | number | 并集总数，最大 500 | 每页数量 |
+
+**视图说明：**
+
+| 视图 | 用途 | 服务端筛选规则 |
+|------|------|----------------|
+| `standaloneTodos` | 任务页顶部“待办” | `project_id` 为空且 `parent_task_id` 为空；排除软删除和 `pending_delete`；默认排除完成/取消；返回无到期日或 `due_date <= logicalToday` 的独立待办 |
+| `matrixWeek` | 本周/四象限 | 有 `project_id` 或 `parent_task_id`；排除软删除、`pending_delete`、完成、取消；返回 `due_date` 在 `weekStart ~ weekEnd` 内的任务 |
+| `projectTrees` | 项目任务树 | 返回 `projectIds` 直属项目任务，并继续递归返回所有子孙任务；子任务即使 `project_id` 为空，只要父链属于目标项目也会返回 |
+| `tasksPage` | 任务页三类合集 | 等价于 `standaloneTodos,matrixWeek,projectTrees` |
+
+**请求示例：**
+
+```http
+GET /api/pages/tasks?include=tasks&taskViews=standaloneTodos,matrixWeek,projectTrees&logicalToday=2026-06-25&weekStart=2026-06-22&weekEnd=2026-06-28&dayBoundaryHour=0&dayBoundaryMinute=0&includeCompleted=false
+Authorization: Bearer <token>
+```
+
+**成功响应示例：**
+
+```json
+{
+  "code": 0,
+  "message": "ok",
+  "data": {
+    "projects": [],
+    "projectCategories": [],
+    "tasks": [
+      {
+        "id": "task-1",
+        "project_id": null,
+        "parent_task_id": null,
+        "title": "独立待办",
+        "status": "todo",
+        "priority": 1,
+        "due_date": "2026-06-25",
+        "updated_at": "2026-06-25T08:00:00.000Z"
+      }
+    ],
+    "taskCategories": [],
+    "taskItems": [],
+    "habits": [],
+    "habitContexts": [],
+    "habitCheckIns": [],
+    "taskExecutionEvents": [],
+    "frogCompletionEvents": [],
+    "meta": {
+      "serverTime": "2026-06-25T10:30:00.000Z",
+      "logicalToday": "2026-06-25",
+      "tasksScope": "tasksPageFiltered",
+      "serverFiltered": true,
+      "filtersVersion": "tasks-page-v1",
+      "taskViews": ["standaloneTodos", "matrixWeek", "projectTrees"],
+      "weekStart": "2026-06-22",
+      "weekEnd": "2026-06-28",
+      "page": 1,
+      "limit": 200,
+      "total": 123,
+      "totalPages": 1,
+      "snapshotAt": "2026-06-25T10:30:00.000Z"
+    }
+  }
+}
+```
+
+**APP 对接建议：**
+
+- 第一阶段建议 APP 请求 `include=tasks&taskViews=standaloneTodos,matrixWeek,projectTrees`，后端返回的是三类任务的去重并集，APP 可继续用现有本地逻辑二次分组和兜底过滤。
+- `filtersVersion = tasks-page-v1` 表示后端已完成结构化粗筛：项目/父任务/status/due_date/项目树子孙关系。复杂重复规则和 `extra_data` 内特殊排期仍建议 APP 保留二次过滤。
+- 如果不传 `taskView` / `taskViews`，接口保持兼容，仍按原逻辑返回全量 `tasks`。
+
+### 4.0.1 项目与分类专用接口
+
+| 项目 | 值 |
+|------|-----|
+| **URL** | `GET /api/pages/tasks/catalog` |
+| **方法** | GET |
+| **认证** | 需要 Bearer Token |
+
+轻量聚合接口，一次返回 `projects`、`projectCategories`、`taskCategories`（不含 tasks）。分类按 `sort_order` 升序，项目优先 `active` 状态。支持 `updatedSince`（ISO 8601）增量同步。
+
+**Query 参数：**
+
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| `updatedSince` | string | 可选，仅返回 `updated_at >= updatedSince` 的记录 |
+
+**请求示例：**
+
+```http
+GET /api/pages/tasks/catalog
+Authorization: Bearer <token>
+```
+
+**成功响应示例：**
+
+```json
+{
+  "code": 0,
+  "message": "ok",
+  "data": {
+    "projects": [],
+    "projectCategories": [],
+    "taskCategories": [],
+    "meta": {
+      "serverTime": "2026-06-25T10:30:00.000Z",
+      "tablesVersion": {
+        "projects": { "count": 0, "version": null, "maxUpdatedAt": null },
+        "project_categories": { "count": 0, "version": null, "maxUpdatedAt": null },
+        "task_categories": { "count": 0, "version": null, "maxUpdatedAt": null }
+      }
+    }
+  }
+}
+```
+
+> APP 详细接入说明见桌面文档 `项目列表与任务列表API.md`。
+
+### 4.0.2 项目列表（含任务树）
+
+| 项目 | 值 |
+|------|-----|
+| **URL** | `GET /api/pages/projects` |
+| **方法** | GET |
+| **认证** | 需要 Bearer Token |
+
+返回项目列表，每个项目内嵌完整任务树（任务 → 子任务 → 子任务的子任务 …）。子任务即使 `project_id` 为空，只要父链属于该项目也会出现在对应项目的 `tasks` 树中。
+
+**Query 参数：**
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `categoryId` | string | 不筛选 | 按单个项目分类 ID 筛选 |
+| `categoryIds` | string | 不筛选 | 多个项目分类 ID，逗号分隔；优先级高于 `categoryId` |
+| `uncategorized` | boolean | false | 为 `true` 时仅返回未分类项目（`category_id` 为空） |
+| `includeCompleted` | boolean | false | 是否包含 `status = done` 的任务 |
+| `includeCancelled` | boolean | false | 是否包含 `status = cancelled` 的任务 |
+| `includeShelved` | boolean | true | 是否包含 `status = shelved` 的任务 |
+| `page` | number | 1 | 项目分页页码 |
+| `limit` | number | 50，最大 200 | 每页项目数量 |
+| `updatedSince` | string | 不筛选 | 增量同步，仅返回 `updated_at > updatedSince` 的项目 |
+
+**请求示例：**
+
+```http
+GET /api/pages/projects?categoryId=cat-work&page=1&limit=20
+Authorization: Bearer <token>
+```
+
+**成功响应示例：**
+
+```json
+{
+  "code": 0,
+  "message": "ok",
+  "data": {
+    "list": [
+      {
+        "id": "proj-1",
+        "category_id": "cat-work",
+        "name": "产品迭代",
+        "status": "active",
+        "tasks": [
+          {
+            "id": "task-1",
+            "project_id": "proj-1",
+            "parent_task_id": null,
+            "title": "需求评审",
+            "status": "todo",
+            "children": [
+              {
+                "id": "task-2",
+                "project_id": null,
+                "parent_task_id": "task-1",
+                "title": "整理 PRD",
+                "status": "todo",
+                "children": []
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "pagination": {
+      "page": 1,
+      "limit": 20,
+      "total": 1,
+      "totalPages": 1
+    },
+    "meta": {
+      "serverTime": "2026-06-25T10:30:00.000Z",
+      "categoryId": "cat-work"
+    }
+  }
+}
+```
+
+**说明：**
+
+- 项目排序：`active` 状态优先，同状态按名称（中文 locale）升序。
+- 任务树排序：`sort_order` 升序 → `priority` 降序 → `updated_at` 降序。
+- 自动排除软删除（`deleted_at`）和 `sync_status = pending_delete` 的任务。
+
+### 4.0.3 任务列表（按分类筛选）
+
+| 项目 | 值 |
+|------|-----|
+| **URL** | `GET /api/pages/tasks/list` |
+| **方法** | GET |
+| **认证** | 需要 Bearer Token |
+
+返回扁平任务列表，支持按任务分类筛选与分页。适用于「按分类浏览全部任务」场景（与项目内嵌任务树互补）。
+
+**Query 参数：**
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `categoryId` | string | 不筛选 | 按单个任务分类 ID 筛选 |
+| `categoryIds` | string | 不筛选 | 多个任务分类 ID，逗号分隔；优先级高于 `categoryId` |
+| `uncategorized` | boolean | false | 为 `true` 时仅返回未分类任务（`category_id` 为空） |
+| `includeCompleted` | boolean | false | 是否包含 `status = done` 的任务 |
+| `includeCancelled` | boolean | false | 是否包含 `status = cancelled` 的任务 |
+| `includeShelved` | boolean | true | 是否包含 `status = shelved` 的任务 |
+| `page` | number | 1 | 页码 |
+| `limit` | number | 50，最大 500 | 每页条数 |
+| `updatedSince` | string | 不筛选 | 增量同步，仅返回 `updated_at > updatedSince` 的任务 |
+
+**请求示例：**
+
+```http
+GET /api/pages/tasks/list?categoryId=cat-inbox&page=1&limit=50
+Authorization: Bearer <token>
+```
+
+**成功响应示例：**
+
+```json
+{
+  "code": 0,
+  "message": "ok",
+  "data": {
+    "list": [
+      {
+        "id": "task-10",
+        "category_id": "cat-inbox",
+        "project_id": null,
+        "parent_task_id": null,
+        "title": "回复邮件",
+        "status": "todo",
+        "priority": 1,
+        "due_date": "2026-06-25"
+      }
+    ],
+    "pagination": {
+      "page": 1,
+      "limit": 50,
+      "total": 1,
+      "totalPages": 1
+    },
+    "meta": {
+      "serverTime": "2026-06-25T10:30:00.000Z",
+      "categoryId": "cat-inbox"
+    }
+  }
+}
+```
+
 ### 4.1 获取所有表元信息
 
 | 项目 | 值 |

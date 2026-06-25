@@ -48,6 +48,33 @@ function pushYmdRange(
   }
 }
 
+const FROG_ASSIGNED_YMD_RE = '^[0-9]{4}-[0-9]{2}-[0-9]{2}$';
+
+function pushFrogAssignedOnRange(
+  clauses: string[],
+  values: unknown[],
+  hasFrogAssignedOnColumn: boolean,
+  gte?: string,
+  lte?: string,
+): void {
+  const hasGte = Boolean(gte && isValidYmd(gte));
+  const hasLte = Boolean(lte && isValidYmd(lte));
+  if (!hasGte && !hasLte) return;
+
+  if (hasFrogAssignedOnColumn) {
+    clauses.push('frog_assigned_on IS NOT NULL');
+    pushYmdRange(clauses, values, 'frog_assigned_on', gte, lte);
+    return;
+  }
+
+  const jsonExpr = 'JSON_UNQUOTE(JSON_EXTRACT(extra_data, \'$.frogAssignedOn\'))';
+  clauses.push(`JSON_EXTRACT(extra_data, '$.frogAssignedOn') IS NOT NULL`);
+  clauses.push(`${jsonExpr} != ''`);
+  clauses.push(`${jsonExpr} REGEXP ?`);
+  values.push(FROG_ASSIGNED_YMD_RE);
+  pushYmdRange(clauses, values, jsonExpr, gte, lte);
+}
+
 function normalizeDateTimeBound(raw: string, edge: 'start' | 'end'): string {
   const trimmed = raw.trim();
   if (isValidYmd(trimmed)) {
@@ -156,10 +183,10 @@ export function buildListQuery(
         params.dueDateGte,
         params.dueDateLte,
       );
-      pushYmdRange(
+      pushFrogAssignedOnRange(
         clauses,
         values,
-        context.hasFrogAssignedOnColumn ? 'frog_assigned_on' : 'JSON_UNQUOTE(JSON_EXTRACT(extra_data, \'$.frogAssignedOn\'))',
+        Boolean(context.hasFrogAssignedOnColumn),
         params.frogAssignedOnGte,
         params.frogAssignedOnLte,
       );
