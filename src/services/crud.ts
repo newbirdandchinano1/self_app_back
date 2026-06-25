@@ -1,4 +1,4 @@
-import { randomUUID } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import type { ResultSetHeader, RowDataPacket } from 'mysql2';
 import { db } from '../db/index.js';
 import {
@@ -313,22 +313,60 @@ export async function listAllRecords(
   return rows.map((row) => stripHidden(table, meta, row as Record<string, unknown>));
 }
 
-export async function getTableSnapshotMeta(tableName: string): Promise<{ count: number; maxUpdatedAt: string | null }> {
+export interface TableSnapshotMeta {
+  count: number;
+  maxUpdatedAt: string | null;
+  version: string | null;
+}
+
+function buildSnapshotVersion(
+  count: number,
+  maxUpdatedAt: string | null,
+  minUpdatedAt: string | null,
+): string | null {
+  if (count === 0) return null;
+  const input = `${maxUpdatedAt ?? ''}|${minUpdatedAt ?? ''}|${count}`;
+  return createHash('md5').update(input).digest('hex').slice(0, 8);
+}
+
+export async function getTableFilteredSnapshotMeta(
+  tableName: string,
+  options: ListOptions = {},
+): Promise<TableSnapshotMeta> {
   const table = assertTable(tableName);
   const meta = await getTableMeta(table);
+  const hidden = new Set(getHiddenColumns(table, meta));
+  const visibleColumns = meta.columns.filter((c) => !hidden.has(c));
+  const built = buildListQuery(table, visibleColumns, options, {
+    hasFrogAssignedOnColumn: meta.columns.includes('frog_assigned_on'),
+  });
+  const whereSql =
+    built.whereClauses.length > 0 ? `WHERE ${built.whereClauses.join(' AND ')}` : '';
   const hasUpdatedAt = meta.columns.includes('updated_at');
 
   const [rows] = await db.query<RowDataPacket[]>(
     hasUpdatedAt
-      ? `SELECT COUNT(*) AS cnt, MAX(updated_at) AS max_updated_at FROM ${quoteIdent(table)}`
-      : `SELECT COUNT(*) AS cnt, NULL AS max_updated_at FROM ${quoteIdent(table)}`,
+      ? `SELECT COUNT(*) AS cnt, MAX(updated_at) AS max_updated_at, MIN(updated_at) AS min_updated_at
+         FROM ${quoteIdent(table)} ${whereSql}`
+      : `SELECT COUNT(*) AS cnt, NULL AS max_updated_at, NULL AS min_updated_at
+         FROM ${quoteIdent(table)} ${whereSql}`,
+    built.whereValues,
   );
 
   const row = rows[0];
+  const count = Number(row?.cnt ?? 0);
+  const maxUpdatedAt = row?.max_updated_at != null ? String(row.max_updated_at) : null;
+  const minUpdatedAt = row?.min_updated_at != null ? String(row.min_updated_at) : null;
+
   return {
-    count: Number(row?.cnt ?? 0),
-    maxUpdatedAt: row?.max_updated_at != null ? String(row.max_updated_at) : null,
+    count,
+    maxUpdatedAt,
+    version: buildSnapshotVersion(count, maxUpdatedAt, minUpdatedAt),
   };
+}
+
+export async function getTableSnapshotMeta(tableName: string): Promise<TableSnapshotMeta> {
+  return getTableFilteredSnapshotMeta(tableName);
 }
 
 export async function getRecord(tableName: string, pkValue: string) {
