@@ -2,7 +2,10 @@ FROM swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/node:18-alpine AS builde
 
 WORKDIR /app
 
-RUN npm config set registry https://registry.npmmirror.com
+RUN apk add --no-cache tzdata \
+  && npm config set registry https://registry.npmmirror.com
+
+ENV TZ=Asia/Shanghai
 
 COPY package*.json ./
 RUN npm install --no-package-lock
@@ -15,7 +18,10 @@ FROM swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/node:18-alpine
 
 WORKDIR /app
 
-RUN npm config set registry https://registry.npmmirror.com
+RUN apk add --no-cache tzdata \
+  && npm config set registry https://registry.npmmirror.com
+
+ENV TZ=Asia/Shanghai
 
 COPY package*.json ./
 RUN npm install --omit=dev --no-package-lock

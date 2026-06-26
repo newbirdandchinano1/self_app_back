@@ -1,3 +1,4 @@
+import './bootstrap/timezone.js';
 import app from './app.js';
 import { config } from './config/index.js';
 import { testConnection } from './db/index.js';

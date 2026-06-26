@@ -8,6 +8,8 @@ services:
     environment:
       MYSQL_ROOT_PASSWORD: Zhen8907146!!
       MYSQL_DATABASE: self_app
+      TZ: Asia/Shanghai
+    command: --default-time-zone=+08:00
     volumes:
       - mysql_data:/var/lib/mysql
     healthcheck:
@@ -30,6 +32,7 @@ services:
       DB_NAME: self_app
       NODE_ENV: production
       PORT: "3000"
+      TZ: Asia/Shanghai
       JWT_SECRET: ${JWT_SECRET:-self_app_dev_secret}
       ZHIPU_API_KEY: ${ZHIPU_API_KEY:-}
       ZHIPU_TEXT_MODEL: ${ZHIPU_TEXT_MODEL:-glm-4-flash}

@@ -1,8 +1,8 @@
 import type { TasksDayBoundary } from './types.js';
 import { DEFAULT_TASKS_DAY_BOUNDARY } from './types.js';
+import { APP_MYSQL_TIMEZONE, APP_TIME_ZONE } from '../../config/timezone.js';
 
-/** APP 逻辑日按东八区墙钟计算（与客户端/数据库存储习惯一致） */
-export const APP_TIME_ZONE = 'Asia/Shanghai';
+export { APP_TIME_ZONE };
 
 export type WallClockParts = {
   year: number;
@@ -10,6 +10,7 @@ export type WallClockParts = {
   day: number;
   hour: number;
   minute: number;
+  second?: number;
 };
 
 function pad2(n: number): string {
@@ -62,6 +63,7 @@ export function getWallClockInAppTimeZone(date: Date): WallClockParts {
     day: 'numeric',
     hour: 'numeric',
     minute: 'numeric',
+    second: 'numeric',
     hour12: false,
   }).formatToParts(date);
   const pick = (type: Intl.DateTimeFormatPartTypes) =>
@@ -74,7 +76,22 @@ export function getWallClockInAppTimeZone(date: Date): WallClockParts {
     day: pick('day'),
     hour,
     minute: pick('minute'),
+    second: pick('second'),
   };
+}
+
+export function formatMySQLWallClockDateTime(date: Date): string {
+  const wc = getWallClockInAppTimeZone(date);
+  return `${formatYmd(wc.year, wc.month, wc.day)} ${pad2(wc.hour)}:${pad2(wc.minute)}:${pad2(wc.second ?? 0)}`;
+}
+
+export function formatMySQLWallClockDateTimeFromParts(
+  ymd: string,
+  hour: number,
+  minute: number,
+  second = 0,
+): string {
+  return `${ymd} ${pad2(hour)}:${pad2(minute)}:${pad2(second)}`;
 }
 
 export function getLogicalYmdFromWallClock(
@@ -105,8 +122,8 @@ export function formatLocalYmdFromDate(date: Date): string {
 }
 
 /**
- * 将 DB / mysql2 的 created_at 解析为 UTC 时刻。
- * MySQL DATETIME 无时区，按 UTC 墙钟存储（Docker 默认）；再换算为东八区逻辑日。
+ * 解析 DB / API 的 datetime 为时刻。
+ * 无时区的 MySQL DATETIME 按东八区墙钟理解（与全局 TZ、MySQL session 一致）。
  */
 export function parseDbDateTimeToInstant(raw: unknown): Date | null {
   if (raw instanceof Date) {
@@ -122,7 +139,7 @@ export function parseDbDateTimeToInstant(raw: unknown): Date | null {
   }
 
   const normalized = text.includes('T') ? text : text.replace(' ', 'T');
-  const ms = Date.parse(`${normalized}Z`);
+  const ms = Date.parse(`${normalized}${APP_MYSQL_TIMEZONE}`);
   return Number.isNaN(ms) ? null : new Date(ms);
 }
 
@@ -135,8 +152,9 @@ export function getLogicalYmdFromCreatedAt(
   return getLogicalYmdFromInstant(instant, boundary);
 }
 
+/** @deprecated 使用 formatMySQLWallClockDateTime */
 export function formatUtcMySQLDateTime(date: Date): string {
-  return `${date.getUTCFullYear()}-${pad2(date.getUTCMonth() + 1)}-${pad2(date.getUTCDate())} ${pad2(date.getUTCHours())}:${pad2(date.getUTCMinutes())}:${pad2(date.getUTCSeconds())}`;
+  return formatMySQLWallClockDateTime(date);
 }
 
 export function shanghaiWallClockToUtcDate(
@@ -148,7 +166,7 @@ export function shanghaiWallClockToUtcDate(
   const parsed = parseYmd(ymd);
   if (!parsed) return null;
   const ms = Date.parse(
-    `${formatYmd(parsed.year, parsed.month, parsed.day)}T${pad2(hour)}:${pad2(minute)}:${pad2(second)}+08:00`,
+    `${formatYmd(parsed.year, parsed.month, parsed.day)}T${pad2(hour)}:${pad2(minute)}:${pad2(second)}${APP_MYSQL_TIMEZONE}`,
   );
   return Number.isNaN(ms) ? null : new Date(ms);
 }
