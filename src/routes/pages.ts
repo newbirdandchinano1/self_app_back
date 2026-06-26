@@ -7,10 +7,11 @@ import {
   getTasksPageSummary,
   type TasksBootstrapParams,
 } from '../services/pages/tasks-bootstrap.js';
-import { getTasksCatalog } from '../services/pages/tasks-catalog.js';
+import { CatalogIntegrityError, getTasksCatalog } from '../services/pages/tasks-catalog.js';
 import { getTodayFrogTasks } from '../services/pages/today-frogs.js';
 import { getHabitsGrid } from '../services/pages/habits-grid.js';
 import { getCompletionHeatmap } from '../services/pages/completion-heatmap.js';
+import { getTasksOverview } from '../services/pages/tasks-overview.js';
 import { success } from '../utils/response.js';
 
 const router = Router();
@@ -124,6 +125,24 @@ router.get('/pages/tasks/completion-heatmap', async (req, res, next) => {
   }
 });
 
+router.get('/pages/tasks/tasks-overview', async (req, res, next) => {
+  try {
+    const data = await getTasksOverview({
+      ...parseTasksBootstrapParams(req),
+      eventsPage: parseIntQuery(req.query.eventsPage),
+      eventsLimit: parseIntQuery(req.query.eventsLimit),
+      statKey: parseStringQuery(req.query.statKey),
+      statPage: parseIntQuery(req.query.statPage),
+      statLimit: parseIntQuery(req.query.statLimit),
+      day: parseStringQuery(req.query.day),
+      includeDayDetail: parseBoolQuery(req.query.includeDayDetail),
+    });
+    success(res, data);
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.get('/pages/tasks/catalog', async (req, res, next) => {
   try {
     const data = await getTasksCatalog({
@@ -131,6 +150,11 @@ router.get('/pages/tasks/catalog', async (req, res, next) => {
     });
     success(res, data);
   } catch (err) {
+    if (err instanceof CatalogIntegrityError) {
+      console.error('[catalog] integrity check failed:', err.message, {
+        adminId: req.admin?.id,
+      });
+    }
     next(err);
   }
 });

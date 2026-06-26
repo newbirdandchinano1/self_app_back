@@ -2,6 +2,7 @@ import app from './app.js';
 import { config } from './config/index.js';
 import { testConnection } from './db/index.js';
 import { initAdminTable } from './db/init-admin.js';
+import { ensureInboxCatalogSeed } from './services/pages/catalog-inbox-seed.js';
 
 async function waitForDb(maxAttempts = 30, intervalMs = 2000): Promise<void> {
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -22,6 +23,7 @@ async function waitForDb(maxAttempts = 30, intervalMs = 2000): Promise<void> {
 async function bootstrap() {
   await waitForDb();
   await initAdminTable();
+  await ensureInboxCatalogSeed();
 }
 
 bootstrap()

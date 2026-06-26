@@ -1,6 +1,20 @@
 import { getTableFilteredSnapshotMeta, listAllRecords, type ListOptions } from '../crud.js';
+import { ensureInboxCatalogSeed, INBOX_PROJECT_CATEGORY_ID } from './catalog-inbox-seed.js';
 
 const CATALOG_TABLES = ['projects', 'project_categories', 'task_categories'] as const;
+
+const TABLE_ROWS_KEYS = [
+  ['project_categories', 'projectCategories'],
+  ['projects', 'projects'],
+  ['task_categories', 'taskCategories'],
+] as const;
+
+export class CatalogIntegrityError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'CatalogIntegrityError';
+  }
+}
 
 export interface TasksCatalogParams {
   updatedSince?: string;
@@ -18,6 +32,8 @@ export interface TasksCatalogResult {
   taskCategories: Record<string, unknown>[];
   meta: {
     serverTime: string;
+    syncMode: 'full' | 'delta';
+    catalogComplete: boolean;
     tablesVersion: Record<string, TableVersionInfo>;
   };
 }
@@ -43,12 +59,11 @@ function sortProjects(rows: Record<string, unknown>[]): Record<string, unknown>[
   });
 }
 
-async function loadTableVersions(
-  listOptions: ListOptions,
-): Promise<Record<string, TableVersionInfo>> {
+/** tablesVersion.count 始终为全表总行数，不受 updatedSince 影响 */
+async function loadTableVersions(): Promise<Record<string, TableVersionInfo>> {
   const entries = await Promise.all(
     CATALOG_TABLES.map(async (table) => {
-      const snap = await getTableFilteredSnapshotMeta(table, listOptions);
+      const snap = await getTableFilteredSnapshotMeta(table);
       return [
         table,
         {
@@ -62,25 +77,60 @@ async function loadTableVersions(
   return Object.fromEntries(entries);
 }
 
+function assertCatalogIntegrity(payload: TasksCatalogResult, mode: 'full' | 'delta'): void {
+  if (mode === 'full') {
+    for (const [tableKey, rowsKey] of TABLE_ROWS_KEYS) {
+      const expected = payload.meta.tablesVersion[tableKey]?.count;
+      const actual = payload[rowsKey].length;
+      if (expected != null && actual !== expected) {
+        throw new CatalogIntegrityError(`${tableKey}: rows=${actual}, count=${expected}`);
+      }
+    }
+
+    const categoryIds = new Set(payload.projectCategories.map((c) => String(c.id)));
+    if (!categoryIds.has(INBOX_PROJECT_CATEGORY_ID)) {
+      throw new CatalogIntegrityError('missing inbox category');
+    }
+
+    for (const project of payload.projects) {
+      const categoryId = project.category_id;
+      if (
+        categoryId &&
+        String(categoryId) !== INBOX_PROJECT_CATEGORY_ID &&
+        !categoryIds.has(String(categoryId))
+      ) {
+        throw new CatalogIntegrityError(`orphan project.category_id=${categoryId}`);
+      }
+    }
+  }
+}
+
 export async function getTasksCatalog(params: TasksCatalogParams): Promise<TasksCatalogResult> {
-  const listOptions: ListOptions = params.updatedSince
-    ? { updatedSince: params.updatedSince }
-    : {};
+  await ensureInboxCatalogSeed();
+
+  const isDelta = Boolean(params.updatedSince?.trim());
+  const listOptions: ListOptions = isDelta ? { updatedSince: params.updatedSince!.trim() } : {};
 
   const [projects, projectCategories, taskCategories, tablesVersion] = await Promise.all([
     listAllRecords('projects', listOptions),
     listAllRecords('project_categories', listOptions),
     listAllRecords('task_categories', listOptions),
-    loadTableVersions(listOptions),
+    loadTableVersions(),
   ]);
 
-  return {
+  const payload: TasksCatalogResult = {
     projects: sortProjects(projects),
     projectCategories: sortBySortOrderThenName(projectCategories),
     taskCategories: sortBySortOrderThenName(taskCategories),
     meta: {
       serverTime: new Date().toISOString(),
+      syncMode: isDelta ? 'delta' : 'full',
+      catalogComplete: true,
       tablesVersion,
     },
   };
+
+  assertCatalogIntegrity(payload, isDelta ? 'delta' : 'full');
+
+  return payload;
 }
