@@ -4,9 +4,37 @@ import {
   normalizeTasksDayBoundary,
   startOfWeekMonday,
   formatLocalYmdFromDate,
+  logicalYmdToLocalDate,
 } from '../calendar/logical-day.js';
 import type { TasksDayBoundary } from '../calendar/types.js';
 import { isValidYmd } from '../../utils/ymd.js';
+
+function pad2(n: number): string {
+  return String(n).padStart(2, '0');
+}
+
+/** 逻辑日区间对应的 task_execution_events.created_at 查询边界（含日界线偏移） */
+export function resolveHeatmapEventCreatedAtBounds(
+  startYmd: string,
+  endYmd: string,
+  boundary: TasksDayBoundary,
+): { createdAtGte: string; createdAtLte: string } {
+  const { hour: bh, minute: bm } = boundary;
+  const rangeStart = logicalYmdToLocalDate(startYmd);
+  rangeStart.setHours(bh, bm, 0, 0);
+
+  const rangeEndExclusive = logicalYmdToLocalDate(addDaysToLogicalYmd(endYmd, 1));
+  rangeEndExclusive.setHours(bh, bm, 0, 0);
+  const rangeEndInclusive = new Date(rangeEndExclusive.getTime() - 1000);
+
+  const formatLocalDateTime = (date: Date): string =>
+    `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())} ${pad2(date.getHours())}:${pad2(date.getMinutes())}:${pad2(date.getSeconds())}`;
+
+  return {
+    createdAtGte: formatLocalDateTime(rangeStart),
+    createdAtLte: formatLocalDateTime(rangeEndInclusive),
+  };
+}
 
 export const COMPLETION_HEATMAP_WEEKS = 15;
 export const TASKS_OVERVIEW_HEATMAP_WEEKS = 14;

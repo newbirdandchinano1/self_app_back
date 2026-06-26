@@ -16,6 +16,7 @@ import {
   COMPLETION_HEATMAP_WEEKS,
   resolveHeatmapRange,
   resolveHabitCheckInStartYmd,
+  resolveHeatmapEventCreatedAtBounds,
 } from './heatmap-range.js';
 import { isValidYmd } from '../../utils/ymd.js';
 
@@ -430,10 +431,11 @@ export function getBootstrapListOptions(
     };
   }
   if (table === 'task_execution_events') {
-    return {
-      createdAtGte: context.heatmapStart,
-      createdAtLte: context.heatmapEnd,
-    };
+    return resolveHeatmapEventCreatedAtBounds(
+      context.heatmapStart,
+      context.heatmapEnd,
+      context.dayBoundary,
+    );
   }
   if (table === 'frog_completion_events') {
     return {
