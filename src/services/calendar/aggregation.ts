@@ -615,7 +615,7 @@ function standaloneTodoPassesScheduleWindowFilter(task: CalendarTaskRow, logical
   return true;
 }
 
-function isStandaloneTodoVisibleOnDay(
+export function isStandaloneTodoVisibleOnDay(
   task: CalendarTaskRow,
   logicalViewYmd: string,
   boundary: TasksDayBoundary,
@@ -626,6 +626,30 @@ function isStandaloneTodoVisibleOnDay(
     standaloneTodoPassesRepeatDayFilter(task, logicalViewYmd) &&
     standaloneTodoPassesScheduleWindowFilter(task, logicalViewYmd)
   );
+}
+
+/** 与客户端 sortStandaloneTodosLocally 一致：活跃 → 搁置 → 终态，组内 created_at ASC */
+export function sortStandaloneTodos<T extends { status?: string; created_at?: string; id?: string }>(
+  rows: T[],
+): T[] {
+  const isDoneRow = (t: T) => t.status === 'done' || t.status === 'cancelled';
+  const createdMs = (t: T) => Date.parse(t.created_at ?? '') || 0;
+
+  return rows.slice().sort((a, b) => {
+    const da = isDoneRow(a);
+    const db = isDoneRow(b);
+    if (da !== db) return da ? 1 : -1;
+
+    const sa = a.status === 'shelved';
+    const sb = b.status === 'shelved';
+    if (sa !== sb) return sa ? 1 : -1;
+
+    const ca = createdMs(a);
+    const cb = createdMs(b);
+    if (ca !== cb) return ca - cb;
+
+    return String(a.id ?? '').localeCompare(String(b.id ?? ''));
+  });
 }
 
 export function buildTasksCalendarSummaries(params: {

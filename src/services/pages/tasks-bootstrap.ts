@@ -6,8 +6,12 @@ import {
   type ListOptions,
 } from '../crud.js';
 import { db } from '../../db/index.js';
+import {
+  isStandaloneTodoVisibleOnDay,
+  sortStandaloneTodos,
+} from '../calendar/aggregation.js';
 import { normalizeTasksDayBoundary } from '../calendar/logical-day.js';
-import type { TasksDayBoundary } from '../calendar/types.js';
+import type { CalendarTaskRow, TasksDayBoundary } from '../calendar/types.js';
 import {
   COMPLETION_HEATMAP_WEEKS,
   resolveHeatmapRange,
@@ -186,19 +190,35 @@ function buildDueDateWindowFilter(
   };
 }
 
-function buildDueDateUntilFilter(
-  columns: Set<string>,
-  endYmd: string,
-  includeNoDueDate: boolean,
-): { sql: string; values: unknown[] } | null {
-  if (!columns.has('due_date')) return null;
-  const q = quoteIdent('due_date');
-  const emptyDue = `(${q} IS NULL OR ${q} = '')`;
-  const until = `(LEFT(${q}, 10) <= ?)`;
+function toCalendarTaskRow(row: Record<string, unknown>): CalendarTaskRow {
   return {
-    sql: includeNoDueDate ? `(${emptyDue} OR ${until})` : until,
-    values: [endYmd],
+    id: String(row.id ?? ''),
+    project_id: (row.project_id as string | null) ?? null,
+    parent_task_id: (row.parent_task_id as string | null) ?? null,
+    title: String(row.title ?? ''),
+    status: String(row.status ?? ''),
+    priority: Number(row.priority ?? 0),
+    due_date: (row.due_date as string | null) ?? null,
+    completed_at: (row.completed_at as string | null) ?? null,
+    created_at: String(row.created_at ?? ''),
+    updated_at: String(row.updated_at ?? ''),
+    extra_data: (row.extra_data as string | null) ?? null,
+    frog_assigned_on: (row.frog_assigned_on as string | null) ?? null,
   };
+}
+
+function filterStandaloneTodosRows(
+  rows: Record<string, unknown>[],
+  context: TasksBootstrapContext,
+  params: TasksBootstrapParams,
+): Record<string, unknown>[] {
+  let filtered = rows.filter((row) =>
+    isStandaloneTodoVisibleOnDay(toCalendarTaskRow(row), context.logicalToday, context.dayBoundary),
+  );
+  if (params.includeShelved === false) {
+    filtered = filtered.filter((row) => row.status !== 'shelved');
+  }
+  return sortStandaloneTodos(filtered);
 }
 
 async function loadFilteredTasks(params: TasksBootstrapParams, context: TasksBootstrapContext) {
@@ -230,16 +250,8 @@ async function loadFilteredTasks(params: TasksBootstrapParams, context: TasksBoo
     if (view === 'standaloneTodos') {
       const where = [...baseWhere, isBlankColumn('project_id'), isBlankColumn('parent_task_id')];
       const values: unknown[] = [];
-      addStatusFilters(where, values, columns, params);
-      if (params.includeCompleted) {
-        // keep all matching standalone rows
-      }
-      const due = buildDueDateUntilFilter(columns, context.logicalToday, true);
-      if (due) {
-        where.push(due.sql);
-        values.push(...due.values);
-      }
-      grouped.standaloneTodos = await selectRows(where, values);
+      const rawRows = await selectRows(where, values);
+      grouped.standaloneTodos = filterStandaloneTodosRows(rawRows, context, params);
     }
 
     if (view === 'matrixWeek') {
@@ -297,25 +309,30 @@ async function loadFilteredTasks(params: TasksBootstrapParams, context: TasksBoo
     }
   }
 
-  const unionRows = [...byId.values()];
+  const singleView = views.length === 1 ? views[0] : null;
+  const allRows =
+    singleView === 'standaloneTodos'
+      ? grouped.standaloneTodos
+      : [...byId.values()];
   const page = Math.max(1, params.page ?? 1);
-  const limit = Math.min(500, Math.max(1, params.limit ?? (unionRows.length || 1)));
+  const limit = Math.min(500, Math.max(1, params.limit ?? (allRows.length || 1)));
   const offset = (page - 1) * limit;
 
   return {
-    unionRows: unionRows.slice(offset, offset + limit),
+    unionRows: allRows.slice(offset, offset + limit),
     grouped,
     meta: {
-      tasksScope: 'tasksPageFiltered',
+      tasksScope: singleView ?? 'tasksPageFiltered',
       serverFiltered: true,
       filtersVersion: 'tasks-page-v1',
       taskViews: views,
+      logicalToday: context.logicalToday,
       weekStart: params.weekStart,
       weekEnd: params.weekEnd,
       page,
       limit,
-      total: unionRows.length,
-      totalPages: Math.ceil(unionRows.length / limit),
+      total: allRows.length,
+      totalPages: Math.ceil(allRows.length / limit),
     },
   };
 }
