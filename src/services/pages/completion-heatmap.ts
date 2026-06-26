@@ -1,5 +1,5 @@
 import { listAllRecords } from '../crud.js';
-import { getLogicalLocalYmd, addDaysToLogicalYmd } from '../calendar/logical-day.js';
+import { addDaysToLogicalYmd, getLogicalYmdFromCreatedAt } from '../calendar/logical-day.js';
 import type { TasksDayBoundary } from '../calendar/types.js';
 import { isValidYmd } from '../../utils/ymd.js';
 import {
@@ -31,23 +31,6 @@ export interface CompletionHeatmapResult {
   };
   countsByDay: Record<string, DayCount>;
   dayDetail?: CompletionHeatmapDayDetail;
-}
-
-function coerceCreatedAtMillis(raw: unknown): number | null {
-  if (raw instanceof Date) {
-    const ms = raw.getTime();
-    return Number.isNaN(ms) ? null : ms;
-  }
-  const text = String(raw ?? '').trim();
-  if (!text) return null;
-  const ms = Date.parse(text);
-  return Number.isNaN(ms) ? null : ms;
-}
-
-function eventLogicalYmd(createdAt: unknown, boundary: TasksDayBoundary): string | null {
-  const ms = coerceCreatedAtMillis(createdAt);
-  if (ms === null) return null;
-  return getLogicalLocalYmd(new Date(ms), boundary);
 }
 
 function normalizeAction(raw: unknown): string {
@@ -115,7 +98,7 @@ function aggregateTodoEvents(
     const action = normalizeAction(event.action);
     if (action !== 'completed' && action !== 'reopened') continue;
 
-    const logicalYmd = eventLogicalYmd(event.created_at, boundary);
+    const logicalYmd = getLogicalYmdFromCreatedAt(event.created_at, boundary);
     if (!logicalYmd || logicalYmd < startYmd || logicalYmd > endYmd) continue;
 
     const taskId = String(event.task_id ?? '').trim();

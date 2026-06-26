@@ -5,7 +5,7 @@ import { addDaysToYmd, dueDateYmd, formatLocalYmd, ymdToLocalDate } from '../../
 import {
   addDaysToLogicalYmd,
   formatLocalYmdFromDate,
-  getLogicalLocalYmd,
+  getLogicalYmdFromCreatedAt,
   logicalYmdToLocalDate,
   startOfWeekMonday,
 } from './logical-day.js';
@@ -580,9 +580,8 @@ function standaloneTodoPassesDayBoundaryFilter(
   if (task.status !== 'done' && task.status !== 'cancelled') return true;
   const raw = task.completed_at?.trim() || task.updated_at?.trim();
   if (!raw) return true;
-  const ms = Date.parse(raw);
-  if (Number.isNaN(ms)) return true;
-  const doneLogicalYmd = getLogicalLocalYmd(new Date(ms), boundary);
+  const doneLogicalYmd = getLogicalYmdFromCreatedAt(raw, boundary);
+  if (!doneLogicalYmd) return true;
   return doneLogicalYmd >= logicalTodayYmd;
 }
 

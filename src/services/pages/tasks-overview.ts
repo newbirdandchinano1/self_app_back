@@ -1,7 +1,7 @@
 import type { RowDataPacket } from 'mysql2';
 import { getTableMeta } from '../crud.js';
 import { db } from '../../db/index.js';
-import { getLogicalLocalYmd, normalizeTasksDayBoundary } from '../calendar/logical-day.js';
+import { getLogicalYmdFromCreatedAt, normalizeTasksDayBoundary } from '../calendar/logical-day.js';
 import type { TasksDayBoundary } from '../calendar/types.js';
 import { isValidYmd } from '../../utils/ymd.js';
 import { resolveOverviewHeatmapRange } from './heatmap-range.js';
@@ -69,12 +69,8 @@ function buildPagination<T>(list: T[], page: number, limit: number, total: numbe
   };
 }
 
-function eventLogicalYmd(createdAt: string, boundary: TasksDayBoundary): string | null {
-  const raw = createdAt.trim();
-  if (!raw) return null;
-  const ms = Date.parse(raw);
-  if (Number.isNaN(ms)) return null;
-  return getLogicalLocalYmd(new Date(ms), boundary);
+function eventLogicalYmd(createdAt: unknown, boundary: TasksDayBoundary): string | null {
+  return getLogicalYmdFromCreatedAt(createdAt, boundary);
 }
 
 function formatEvent(row: Record<string, unknown>): TaskOverviewEvent {
@@ -195,7 +191,7 @@ async function loadScopedEvents(
   for (const row of rows) {
     const taskId = String(row.task_id ?? '').trim();
     if (!isOverviewScopeEvent(taskId, scopeTaskIds, allTaskIds)) continue;
-    const logicalYmd = eventLogicalYmd(String(row.created_at ?? ''), boundary);
+    const logicalYmd = eventLogicalYmd(row.created_at, boundary);
     if (!logicalYmd) continue;
     out.push({
       ...formatEvent(row as Record<string, unknown>),
