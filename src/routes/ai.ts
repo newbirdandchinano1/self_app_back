@@ -10,7 +10,6 @@ import {
   analyzeFoodNutritionFromImage,
   analyzeMemoReviewFromText,
   analyzeProjectTasksReviewFromText,
-  analyzeUserSkillsPortfolioFromText,
   analyzeVisionWallGoalsFromText,
   analyzeWeaknessReviewFromText,
   analyzeWishItemAiCommentFromText,
@@ -275,49 +274,6 @@ router.post('/vision-wall/assessment', async (req, res, next) => {
       String(plan_digest_text),
       goalIds,
       user_display_name ? String(user_display_name) : undefined,
-    );
-    success(res, data);
-  } catch (err) {
-    handleAiError(err, res, next);
-  }
-});
-
-router.post('/skills/portfolio', async (req, res, next) => {
-  try {
-    const { user_display_name, lines } = req.body ?? {};
-    const nameErr = requireNonEmptyString(user_display_name, 'user_display_name');
-    if (nameErr) return fail(res, nameErr);
-    if (!Array.isArray(lines) || lines.length === 0) {
-      return fail(res, 'lines 必须为非空数组');
-    }
-
-    const normalizedLines = lines
-      .map((line) => {
-        if (!line || typeof line !== 'object') return null;
-        const obj = line as Record<string, unknown>;
-        const skillId = typeof obj.skill_id === 'string' ? obj.skill_id.trim() : '';
-        if (!skillId) return null;
-        return {
-          skill_id: skillId,
-          dimension: typeof obj.dimension === 'string' ? obj.dimension : '',
-          name: typeof obj.name === 'string' ? obj.name : '',
-          description: typeof obj.description === 'string' ? obj.description : '',
-        };
-      })
-      .filter(Boolean) as Array<{
-      skill_id: string;
-      dimension: string;
-      name: string;
-      description: string;
-    }>;
-
-    if (normalizedLines.length === 0) {
-      return fail(res, 'lines 中至少包含一条有效 skill_id');
-    }
-
-    const data = await analyzeUserSkillsPortfolioFromText(
-      String(user_display_name),
-      normalizedLines,
     );
     success(res, data);
   } catch (err) {

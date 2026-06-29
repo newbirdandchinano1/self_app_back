@@ -16,7 +16,6 @@ const TABLE_LABELS = {
   recipe_categories: '食谱分类', recipe_items: '食谱', review_columns: '复盘栏目', review_dimensions: '复盘维度',
   savings_plan_deposits: '储蓄存入记录', savings_plans: '储蓄计划', task_categories: '任务分类',
   task_execution_events: '任务执行事件', task_items: '任务子项', tasks: '任务',
-  user_desired_skills: '期望技能', user_skill_items: '技能条目', user_skills_meta: '技能元数据',
   user_weaknesses: '待提升项', users: '用户', visions: '愿景', weekly_review_journal: '每周复盘', wish_items: '心愿单',
 };
 
@@ -63,7 +62,7 @@ const MODULES = [
   { title: '备忘录与愿景', tables: ['memo_dimensions', 'memos', 'visions', 'goal_dimensions', 'wish_items'] },
   { title: '健康与食谱', tables: ['health_records', 'recipe_categories', 'recipe_items'] },
   { title: '财务与账户', tables: ['accounts', 'account_transactions', 'finance_accounts', 'finance_account_types', 'finance_flow_categories', 'finance_transactions', 'cash_flow_profile', 'cash_flow_incomes', 'cash_flow_expense_lines', 'cash_flow_holdings', 'savings_plans', 'savings_plan_deposits'] },
-  { title: '复盘与技能', tables: ['daily_review_journal', 'weekly_review_journal', 'review_dimensions', 'review_columns', 'user_skill_items', 'user_desired_skills', 'user_skills_meta', 'user_weaknesses', 'earned_rewards'] },
+  { title: '复盘与缺点', tables: ['daily_review_journal', 'weekly_review_journal', 'review_dimensions', 'review_columns', 'user_weaknesses', 'earned_rewards'] },
   { title: '系统与缓存', tables: ['app_meta', 'app_settings'] },
 ];
 
@@ -146,7 +145,7 @@ let out = `# selfApp 数据库接口使用说明书
 
 ## 1. 概述
 
-本后端提供 **RESTful JSON API**，对数据库 **43 张表** 提供统一的增删改查（CRUD）能力。
+本后端提供 **RESTful JSON API**，对数据库 **40 张表** 提供统一的增删改查（CRUD）能力。
 
 - **基础地址**：\`http://<服务器IP>:3000\`
 - **数据格式**：\`application/json\`
@@ -378,7 +377,7 @@ Token 有效期 **7 天**，过期后需重新登录。
 
 > 以下每张表均支持第 4 节中的全部 CRUD 操作。
 
-### 表索引（43 张）
+### 表索引（40 张）
 
 | 英文表名 | 中文名 | 主键 |
 |---------|--------|------|

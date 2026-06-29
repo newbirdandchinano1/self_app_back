@@ -247,27 +247,7 @@
 
 ---
 
-### 2.9 技能档案
-
-| 能力 | 智谱函数 | 调用位置 | 触发方式 | 结果存储 |
-|---|---|---|---|---|
-| **技能组合 AI 评估** | `analyzeUserSkillsPortfolioFromText` | `app/my-skills.tsx` | 用户手动触发 | 页面 state / 本地持久化（见该页实现） |
-
-**响应**：
-
-```json
-{
-  "per_skill": [
-    { "skill_id": "", "evaluation": "150～220字", "suggestions": "120～200字" }
-  ],
-  "overall_suggestions": "280～400字",
-  "profile_analysis": "300～400字"
-}
-```
-
----
-
-### 2.10 通用底层能力（供后端实现参考）
+### 2.9 通用底层能力（供后端实现参考）
 
 | 函数 | 用途 |
 |---|---|
@@ -302,7 +282,7 @@
 
 ### 3.2 建议接口列表
 
-以下 **17 个业务接口 + 1 个探测接口** 与当前客户端能力一一对应。  
+以下 **16 个业务接口 + 1 个探测接口** 与当前客户端能力一一对应。  
 命名可按团队规范调整；重点是 **入参上下文由 App 组装**，与现 `build*SummaryText` 等函数输出一致。
 
 #### 健康
@@ -334,13 +314,12 @@
 | POST | `/api/ai/project/tasks-review` | `{ project_context_text }` | `{ evaluation, suggestions }` |
 | POST | `/api/ai/weakness/review` | `{ weakness_context_text }` | `{ evaluation, suggestions }` |
 
-#### 复盘 / 目标墙 / 技能
+#### 复盘 / 目标墙
 
 | 方法 | 路径 | 请求体要点 | 响应 `data` |
 |---|---|---|---|
 | POST | `/api/ai/weekly-review/coaching` | `{ user_prompt }` | `{ text }` 纯文本 |
 | POST | `/api/ai/vision-wall/assessment` | `{ user_display_name?, plan_digest_text, expected_goal_ids[] }` | `VisionWallAiAssessmentPayload` |
-| POST | `/api/ai/skills/portfolio` | `{ user_display_name, lines: [{ skill_id, dimension, name, description }] }` | `UserSkillAiPortfolioPayload` |
 
 #### 运维
 
@@ -404,7 +383,7 @@ const r = await apiRequest<{ analysis: string }>('/api/ai/finance/bill-summary-a
 
 1. **P0（密钥风险 + 高频）**：一句话记账、截图记账、流水 AI 短评、饮食识图/文字  
 2. **P1（自动后台）**：备忘、缺点、心愿短评、首页摄入目标  
-3. **P2（手动/低频）**：账单分析、AI 财务页、现金流分析、目标墙、技能评估、周复盘、项目点评  
+3. **P2（手动/低频）**：账单分析、AI 财务页、现金流分析、目标墙、周复盘、项目点评  
 
 ---
 

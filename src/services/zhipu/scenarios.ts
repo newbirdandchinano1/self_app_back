@@ -6,7 +6,6 @@ import {
   analyzeFoodNutritionFromImage as analyzeFoodNutritionFromImageCore,
   analyzeMemoReviewFromText as analyzeMemoReviewFromTextCore,
   analyzeProjectTasksReviewFromText as analyzeProjectTasksReviewFromTextCore,
-  analyzeUserSkillsPortfolioFromText as analyzeUserSkillsPortfolioFromTextCore,
   analyzeVisionWallGoalsFromText as analyzeVisionWallGoalsFromTextCore,
   analyzeWeaknessReviewFromText as analyzeWeaknessReviewFromTextCore,
   analyzeWishItemAiCommentFromText as analyzeWishItemAiCommentFromTextCore,
@@ -215,20 +214,6 @@ export async function analyzeVisionWallGoalsFromText(
       planDigestText,
       expectedGoalIds,
       userDisplayName,
-    }),
-  );
-  return result.data;
-}
-
-export async function analyzeUserSkillsPortfolioFromText(
-  userDisplayName: string,
-  lines: Array<{ skill_id: string; dimension: string; name: string; description: string }>,
-) {
-  const result = requireOk(
-    await analyzeUserSkillsPortfolioFromTextCore({
-      apiKey: apiKey(),
-      userDisplayName,
-      lines,
     }),
   );
   return result.data;

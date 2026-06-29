@@ -20,7 +20,7 @@
 
 ## 1. 概述
 
-本后端提供 **RESTful JSON API**，对数据库 **43 张表** 提供统一的增删改查（CRUD）能力。
+本后端提供 **RESTful JSON API**，对数据库 **40 张表** 提供统一的增删改查（CRUD）能力。
 
 - **基础地址**：`http://<服务器IP>:3000`
 - **数据格式**：`application/json`
@@ -546,7 +546,7 @@ Authorization: Bearer <token>
 
 > 以下每张表均支持第 4 节中的全部 CRUD 操作。
 
-### 表索引（43 张）
+### 表索引（40 张）
 
 | 英文表名 | 中文名 | 主键 |
 |---------|--------|------|
@@ -585,9 +585,6 @@ Authorization: Bearer <token>
 | `task_execution_events` | 任务执行事件 | `id` |
 | `task_items` | 任务子项 | `id` |
 | `tasks` | 任务 | `id` |
-| `user_desired_skills` | 期望技能 | `id` |
-| `user_skill_items` | 技能条目 | `id` |
-| `user_skills_meta` | 技能元数据 | `id` |
 | `user_weaknesses` | 待提升项 | `id` |
 | `users` | 用户 | `id` |
 | `visions` | 愿景 | `id` |
@@ -1729,7 +1726,7 @@ Authorization: Bearer <token>
 
 ---
 
-### 复盘与技能
+### 复盘与缺点
 
 #### 每日复盘（`daily_review_journal`）
 
@@ -1868,102 +1865,6 @@ Authorization: Bearer <token>
 | `updated_at` | 更新时间 | datetime | 是 | - | 索引 |
 | `sync_status` | 同步状态 | varchar | 是 | pending_create | - |
 | `extra_data` | 扩展数据 | text | 否 | - | - |
-
----
-
-#### 技能条目（`user_skill_items`）
-
-| 属性 | 值 |
-|------|-----|
-| 中文名 | 技能条目 |
-| 英文表名 | `user_skill_items` |
-| 主键字段 | `id` |
-
-**接口地址：**
-
-| 操作 | 方法 | URL |
-|------|------|-----|
-| 列表 | GET | `/api/data/user_skill_items` |
-| 详情 | GET | `/api/data/user_skill_items/:id` |
-| 新增 | POST | `/api/data/user_skill_items` |
-| 更新 | PUT | `/api/data/user_skill_items/:id` |
-| 删除 | DELETE | `/api/data/user_skill_items/:id` |
-
-**字段说明：**
-
-| 字段名 | 中文名 | 类型 | 必填 | 默认值 | 说明 |
-|--------|--------|------|------|--------|------|
-| `id` | ID | varchar | 是 | - | 主键 |
-| `name` | 名称 | varchar | 是 |  | - |
-| `description` | 描述 | text | 是 | - | - |
-| `last_evaluation` | 最近评估 | text | 否 | - | - |
-| `last_suggestions` | 最近建议 | text | 否 | - | - |
-| `sort_order` | 排序 | int | 否 | - | - |
-| `created_at` | 创建时间 | datetime | 是 | - | - |
-| `updated_at` | 更新时间 | datetime | 是 | - | - |
-| `sync_status` | 同步状态 | varchar | 是 | synced | - |
-
----
-
-#### 期望技能（`user_desired_skills`）
-
-| 属性 | 值 |
-|------|-----|
-| 中文名 | 期望技能 |
-| 英文表名 | `user_desired_skills` |
-| 主键字段 | `id` |
-
-**接口地址：**
-
-| 操作 | 方法 | URL |
-|------|------|-----|
-| 列表 | GET | `/api/data/user_desired_skills` |
-| 详情 | GET | `/api/data/user_desired_skills/:id` |
-| 新增 | POST | `/api/data/user_desired_skills` |
-| 更新 | PUT | `/api/data/user_desired_skills/:id` |
-| 删除 | DELETE | `/api/data/user_desired_skills/:id` |
-
-**字段说明：**
-
-| 字段名 | 中文名 | 类型 | 必填 | 默认值 | 说明 |
-|--------|--------|------|------|--------|------|
-| `id` | ID | varchar | 是 | - | 主键 |
-| `name` | 名称 | varchar | 是 |  | - |
-| `target_level` | 目标等级 | varchar | 是 |  | - |
-| `sort_order` | 排序 | int | 否 | - | - |
-| `created_at` | 创建时间 | datetime | 是 | - | - |
-| `updated_at` | 更新时间 | datetime | 是 | - | - |
-| `sync_status` | 同步状态 | varchar | 是 | synced | - |
-
----
-
-#### 技能元数据（`user_skills_meta`）
-
-| 属性 | 值 |
-|------|-----|
-| 中文名 | 技能元数据 |
-| 英文表名 | `user_skills_meta` |
-| 主键字段 | `id` |
-
-**接口地址：**
-
-| 操作 | 方法 | URL |
-|------|------|-----|
-| 列表 | GET | `/api/data/user_skills_meta` |
-| 详情 | GET | `/api/data/user_skills_meta/:id` |
-| 新增 | POST | `/api/data/user_skills_meta` |
-| 更新 | PUT | `/api/data/user_skills_meta/:id` |
-| 删除 | DELETE | `/api/data/user_skills_meta/:id` |
-
-**字段说明：**
-
-| 字段名 | 中文名 | 类型 | 必填 | 默认值 | 说明 |
-|--------|--------|------|------|--------|------|
-| `id` | ID | varchar | 是 | - | 主键 |
-| `last_ai_at` | 最近AI时间 | datetime | 否 | - | - |
-| `last_overall_suggestions` | 最近综合建议 | text | 否 | - | - |
-| `last_profile_analysis` | 最近画像分析 | text | 否 | - | - |
-| `updated_at` | 更新时间 | datetime | 是 | - | - |
 
 ---
 
@@ -2200,9 +2101,6 @@ async function request(path, options = {}) {
 | `task_execution_events` | 任务执行事件 |
 | `task_items` | 任务子项 |
 | `tasks` | 任务 |
-| `user_desired_skills` | 期望技能 |
-| `user_skill_items` | 技能条目 |
-| `user_skills_meta` | 技能元数据 |
 | `user_weaknesses` | 待提升项 |
 | `users` | 用户 |
 | `visions` | 愿景 |
