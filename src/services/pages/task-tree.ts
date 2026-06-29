@@ -48,9 +48,9 @@ export function taskMatchesStatusFilter(
   if (!columns.has('status')) return true;
   if (task.status == null) return true;
   const status = String(task.status);
-  if (status === 'done' && options.includeCompleted !== true) return false;
-  if (status === 'cancelled' && options.includeCancelled !== true) return false;
-  if (status === 'shelved' && options.includeShelved === false) return false;
+  if (status === 'done' && !options.includeCompleted) return false;
+  if (status === 'cancelled' && !options.includeCancelled) return false;
+  if (options.includeShelved === false && status === 'shelved') return false;
   return true;
 }
 
@@ -62,12 +62,23 @@ export function addStatusFilters(
 ): void {
   if (!columns.has('status')) return;
   const excluded = new Set<string>();
-  if (options.includeCompleted !== true) excluded.add('done');
-  if (options.includeCancelled !== true) excluded.add('cancelled');
+  if (!options.includeCompleted) excluded.add('done');
+  if (!options.includeCancelled) excluded.add('cancelled');
   if (options.includeShelved === false) excluded.add('shelved');
   if (excluded.size === 0) return;
   where.push(`(status IS NULL OR status NOT IN (${[...excluded].map(() => '?').join(', ')}))`);
   values.push(...excluded);
+}
+
+/** 项目列表：默认返回已完成/已取消；仅显式传 false 时排除 */
+export function resolveProjectListStatusFilters(
+  params: TaskStatusFilterOptions = {},
+): Required<Pick<TaskStatusFilterOptions, 'includeCompleted' | 'includeCancelled' | 'includeShelved'>> {
+  return {
+    includeCompleted: params.includeCompleted !== false,
+    includeCancelled: params.includeCancelled !== false,
+    includeShelved: params.includeShelved !== false,
+  };
 }
 
 async function selectTaskRows(

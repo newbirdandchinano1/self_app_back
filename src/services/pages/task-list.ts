@@ -57,8 +57,8 @@ export async function getTaskList(params: TaskListParams): Promise<TaskListResul
   const values: unknown[] = [];
 
   addStatusFilters(where, values, columns, {
-    includeCompleted: params.includeCompleted,
-    includeCancelled: params.includeCancelled,
+    includeCompleted: params.includeCompleted === true,
+    includeCancelled: params.includeCancelled === true,
     includeShelved: params.includeShelved,
   });
 

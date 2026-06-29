@@ -3,6 +3,7 @@ import {
   buildNestedTaskTree,
   loadProjectTaskRowsWithStructure,
   parseCsv,
+  resolveProjectListStatusFilters,
   sortProjects,
   type TaskTreeNode,
 } from './task-tree.js';
@@ -73,11 +74,9 @@ export async function getProjectList(params: ProjectListParams): Promise<Project
   const pageProjects = allProjects.slice(offset, offset + limit);
   const projectIds = pageProjects.map((row) => String(row.id)).filter(Boolean);
 
-  const taskLoad = await loadProjectTaskRowsWithStructure(projectIds, {
-    includeCompleted: params.includeCompleted,
-    includeCancelled: params.includeCancelled,
-    includeShelved: params.includeShelved,
-  });
+  const statusFilters = resolveProjectListStatusFilters(params);
+
+  const taskLoad = await loadProjectTaskRowsWithStructure(projectIds, statusFilters);
 
   const list: ProjectListItem[] = pageProjects.map((project) => {
     const projectId = String(project.id);
@@ -99,9 +98,9 @@ export async function getProjectList(params: ProjectListParams): Promise<Project
     },
     meta: {
       serverTime: new Date().toISOString(),
-      ...(params.includeCompleted === true ? { includeCompleted: true } : {}),
-      ...(params.includeCancelled === true ? { includeCancelled: true } : {}),
-      ...(params.includeShelved === false ? { includeShelved: false } : {}),
+      includeCompleted: statusFilters.includeCompleted,
+      includeCancelled: statusFilters.includeCancelled,
+      includeShelved: statusFilters.includeShelved,
       ...(params.categoryId?.trim() ? { categoryId: params.categoryId.trim() } : {}),
       ...(categoryIds ? { categoryIds } : {}),
       ...(params.uncategorized ? { uncategorized: true } : {}),
