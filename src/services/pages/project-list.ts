@@ -1,7 +1,7 @@
 import { listAllRecords } from '../crud.js';
 import {
   buildNestedTaskTree,
-  loadProjectTaskRows,
+  loadProjectTaskRowsWithStructure,
   parseCsv,
   sortProjects,
   type TaskTreeNode,
@@ -36,6 +36,9 @@ export interface ProjectListResult {
     categoryId?: string;
     categoryIds?: string[];
     uncategorized?: boolean;
+    includeCompleted?: boolean;
+    includeCancelled?: boolean;
+    includeShelved?: boolean;
   };
 }
 
@@ -70,7 +73,7 @@ export async function getProjectList(params: ProjectListParams): Promise<Project
   const pageProjects = allProjects.slice(offset, offset + limit);
   const projectIds = pageProjects.map((row) => String(row.id)).filter(Boolean);
 
-  const taskRows = await loadProjectTaskRows(projectIds, {
+  const taskLoad = await loadProjectTaskRowsWithStructure(projectIds, {
     includeCompleted: params.includeCompleted,
     includeCancelled: params.includeCancelled,
     includeShelved: params.includeShelved,
@@ -80,7 +83,7 @@ export async function getProjectList(params: ProjectListParams): Promise<Project
     const projectId = String(project.id);
     return {
       ...project,
-      tasks: buildNestedTaskTree(taskRows, projectId),
+      tasks: buildNestedTaskTree(taskLoad.filtered, projectId, taskLoad.structuralById),
     };
   });
 
@@ -96,6 +99,9 @@ export async function getProjectList(params: ProjectListParams): Promise<Project
     },
     meta: {
       serverTime: new Date().toISOString(),
+      ...(params.includeCompleted === true ? { includeCompleted: true } : {}),
+      ...(params.includeCancelled === true ? { includeCancelled: true } : {}),
+      ...(params.includeShelved === false ? { includeShelved: false } : {}),
       ...(params.categoryId?.trim() ? { categoryId: params.categoryId.trim() } : {}),
       ...(categoryIds ? { categoryIds } : {}),
       ...(params.uncategorized ? { uncategorized: true } : {}),

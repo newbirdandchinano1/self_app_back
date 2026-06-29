@@ -88,7 +88,17 @@ export async function loadProjectTaskRows(
   projectIds: string[],
   options: TaskStatusFilterOptions = {},
 ): Promise<TaskRow[]> {
-  if (projectIds.length === 0) return [];
+  const { filtered } = await loadProjectTaskRowsWithStructure(projectIds, options);
+  return filtered;
+}
+
+export async function loadProjectTaskRowsWithStructure(
+  projectIds: string[],
+  options: TaskStatusFilterOptions = {},
+): Promise<{ structural: TaskRow[]; filtered: TaskRow[]; structuralById: Map<string, TaskRow> }> {
+  if (projectIds.length === 0) {
+    return { structural: [], filtered: [], structuralById: new Map() };
+  }
 
   const meta = await getTableMeta('tasks');
   const columns = new Set(meta.columns);
@@ -128,9 +138,13 @@ export async function loadProjectTaskRows(
     }
   }
 
-  return [...treeById.values()].filter((task) =>
+  const structural = [...treeById.values()];
+  const structuralById = new Map(structural.map((task) => [String(task.id), task]));
+  const filtered = structural.filter((task) =>
     taskMatchesStatusFilter(task, columns, options),
   );
+
+  return { structural, filtered, structuralById };
 }
 
 export function resolveTaskProjectId(task: TaskRow, byId: Map<string, TaskRow>): string | null {
@@ -162,8 +176,12 @@ function sortTaskRows(a: TaskRow, b: TaskRow): number {
   return String(b.updated_at ?? '').localeCompare(String(a.updated_at ?? ''));
 }
 
-export function buildNestedTaskTree(tasks: TaskRow[], projectId: string): TaskTreeNode[] {
-  const allById = new Map(tasks.map((task) => [String(task.id), task]));
+export function buildNestedTaskTree(
+  tasks: TaskRow[],
+  projectId: string,
+  structuralById?: Map<string, TaskRow>,
+): TaskTreeNode[] {
+  const allById = structuralById ?? new Map(tasks.map((task) => [String(task.id), task]));
   const scoped = tasks.filter((task) => resolveTaskProjectId(task, allById) === projectId);
   if (scoped.length === 0) return [];
 
