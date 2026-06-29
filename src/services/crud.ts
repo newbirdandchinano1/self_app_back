@@ -460,6 +460,12 @@ export async function updateRecord(
 
 export async function deleteRecord(tableName: string, pkValue: string) {
   const table = assertTable(tableName);
+
+  if (table === 'tasks') {
+    const { deleteTaskCascade } = await import('./task-delete.js');
+    return deleteTaskCascade(pkValue);
+  }
+
   const pk = getPrimaryKey(table);
 
   const [result] = await db.query<ResultSetHeader>(

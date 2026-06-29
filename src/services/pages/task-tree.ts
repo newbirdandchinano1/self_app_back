@@ -34,20 +34,36 @@ export function parseCsv(raw?: string): string[] {
   return raw?.split(',').map((s) => s.trim()).filter(Boolean) ?? [];
 }
 
+export type TaskStatusFilterOptions = {
+  includeCompleted?: boolean;
+  includeCancelled?: boolean;
+  includeShelved?: boolean;
+};
+
+export function taskMatchesStatusFilter(
+  task: TaskRow,
+  columns: Set<string>,
+  options: TaskStatusFilterOptions,
+): boolean {
+  if (!columns.has('status')) return true;
+  if (task.status == null) return true;
+  const status = String(task.status);
+  if (status === 'done' && options.includeCompleted !== true) return false;
+  if (status === 'cancelled' && options.includeCancelled !== true) return false;
+  if (status === 'shelved' && options.includeShelved === false) return false;
+  return true;
+}
+
 export function addStatusFilters(
   where: string[],
   values: unknown[],
   columns: Set<string>,
-  options: {
-    includeCompleted?: boolean;
-    includeCancelled?: boolean;
-    includeShelved?: boolean;
-  },
+  options: TaskStatusFilterOptions,
 ): void {
   if (!columns.has('status')) return;
   const excluded = new Set<string>();
-  if (!options.includeCompleted) excluded.add('done');
-  if (!options.includeCancelled) excluded.add('cancelled');
+  if (options.includeCompleted !== true) excluded.add('done');
+  if (options.includeCancelled !== true) excluded.add('cancelled');
   if (options.includeShelved === false) excluded.add('shelved');
   if (excluded.size === 0) return;
   where.push(`(status IS NULL OR status NOT IN (${[...excluded].map(() => '?').join(', ')}))`);
@@ -70,11 +86,7 @@ async function selectTaskRows(
 
 export async function loadProjectTaskRows(
   projectIds: string[],
-  options: {
-    includeCompleted?: boolean;
-    includeCancelled?: boolean;
-    includeShelved?: boolean;
-  } = {},
+  options: TaskStatusFilterOptions = {},
 ): Promise<TaskRow[]> {
   if (projectIds.length === 0) return [];
 
@@ -87,7 +99,6 @@ export async function loadProjectTaskRows(
   const rootValues: unknown[] = [];
   rootWhere.push(`project_id IN (${projectIds.map(() => '?').join(', ')})`);
   rootValues.push(...projectIds);
-  addStatusFilters(rootWhere, rootValues, columns, options);
 
   const roots = await selectTaskRows(selectCols, rootWhere, rootValues);
   const treeById = new Map<string, TaskRow>();
@@ -107,7 +118,6 @@ export async function loadProjectTaskRows(
       `parent_task_id IN (${ids.map(() => '?').join(', ')})`,
     ];
     const childValues = [...ids];
-    addStatusFilters(childWhere, childValues, columns, options);
     const children = await selectTaskRows(selectCols, childWhere, childValues);
 
     for (const child of children) {
@@ -118,7 +128,9 @@ export async function loadProjectTaskRows(
     }
   }
 
-  return [...treeById.values()];
+  return [...treeById.values()].filter((task) =>
+    taskMatchesStatusFilter(task, columns, options),
+  );
 }
 
 export function resolveTaskProjectId(task: TaskRow, byId: Map<string, TaskRow>): string | null {

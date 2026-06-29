@@ -19,9 +19,12 @@ const router = Router();
 router.use(requireAuth);
 
 function parseBoolQuery(value: unknown): boolean | undefined {
-  if (typeof value !== 'string') return undefined;
-  if (value === 'true' || value === '1') return true;
-  if (value === 'false' || value === '0') return false;
+  const raw = Array.isArray(value) ? value[0] : value;
+  if (typeof raw === 'boolean') return raw;
+  if (typeof raw !== 'string') return undefined;
+  const normalized = raw.trim().toLowerCase();
+  if (normalized === 'true' || normalized === '1') return true;
+  if (normalized === 'false' || normalized === '0') return false;
   return undefined;
 }
 
