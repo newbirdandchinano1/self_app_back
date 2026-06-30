@@ -1,7 +1,7 @@
 import type { RowDataPacket } from 'mysql2';
 import { getTableMeta } from '../crud.js';
 import { db } from '../../db/index.js';
-import { getLogicalYmdFromCreatedAt, normalizeTasksDayBoundary } from '../calendar/logical-day.js';
+import { getLogicalYmdFromCreatedAt, normalizeTasksDayBoundary, formatDbDateTimeForApi, formatRecordDateTimesForApi } from '../calendar/logical-day.js';
 import type { TasksDayBoundary } from '../calendar/types.js';
 import { isValidYmd } from '../../utils/ymd.js';
 import { resolveOverviewHeatmapRange } from './heatmap-range.js';
@@ -75,11 +75,12 @@ function eventLogicalYmd(createdAt: unknown, boundary: TasksDayBoundary): string
 
 function formatEvent(row: Record<string, unknown>): TaskOverviewEvent {
   const taskIdRaw = row.task_id;
+  const createdAtRaw = row.created_at;
   return {
     id: String(row.id ?? ''),
     task_id: taskIdRaw == null || String(taskIdRaw).trim() === '' ? null : String(taskIdRaw),
     action: String(row.action ?? ''),
-    created_at: String(row.created_at ?? ''),
+    created_at: formatDbDateTimeForApi(createdAtRaw) ?? String(createdAtRaw ?? ''),
     task_title: row.task_title == null ? null : String(row.task_title),
   };
 }
@@ -317,7 +318,12 @@ async function queryStatDetailTasks(
     [limit, offset],
   );
 
-  return buildPagination(rows.map((row) => row as Record<string, unknown>), page, limit, total);
+  return buildPagination(
+    rows.map((row) => formatRecordDateTimesForApi(row as Record<string, unknown>)),
+    page,
+    limit,
+    total,
+  );
 }
 
 async function queryStatDetailEvents(

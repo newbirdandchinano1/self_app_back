@@ -6,6 +6,7 @@ import {
   getLogicalYmdFromCreatedAt,
   getWallClockInAppTimeZone,
   parseDbDateTimeToInstant,
+  formatDbDateTimeForApi,
 } from '../src/services/calendar/logical-day.js';
 import { resolveHeatmapEventCreatedAtBounds } from '../src/services/pages/heatmap-range.js';
 
@@ -94,6 +95,21 @@ const boundsOk =
 console.log(boundsOk ? '✓ 边界为东八区 6/26 对应的 UTC 区间' : '✗ 边界异常');
 if (boundsOk) passed += 1;
 else failed += 1;
+
+console.log('=== API 响应：DB UTC → ISO Z ===\n');
+const apiCases = [
+  { db: '2026-06-29 16:00:00', expect: '2026-06-29T16:00:00.000Z' },
+  { db: '2026-06-30 06:00:00', expect: '2026-06-30T06:00:00.000Z' },
+];
+for (const c of apiCases) {
+  const got = formatDbDateTimeForApi(c.db);
+  const ok = got === c.expect;
+  if (ok) passed += 1;
+  else failed += 1;
+  console.log(`${ok ? '✓' : '✗'} ${c.db} → ${got ?? '(null)'}`);
+  if (!ok) console.log(`  期望: ${c.expect}`);
+}
+console.log('');
 
 console.log(`\n结果: ${passed} 通过, ${failed} 失败`);
 process.exit(failed > 0 ? 1 : 0);

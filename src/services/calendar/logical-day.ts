@@ -151,6 +151,41 @@ export function normalizeDbDateTimeForStorage(raw: unknown): string | null {
   return formatUtcMySQLDateTime(instant);
 }
 
+const API_DATETIME_FIELD_RE = /_at$/;
+
+/** 是否为 API 响应中的 datetime 字段（以 _at 结尾，如 created_at、happened_at） */
+export function isApiDateTimeField(field: string): boolean {
+  return API_DATETIME_FIELD_RE.test(field);
+}
+
+/**
+ * 将 DB 中的 UTC 墙钟 DATETIME 转为 ISO 8601（Z），供前端正确解析。
+ * 已是 ISO / 带时区偏移的值会先归一化再输出。
+ */
+export function formatDbDateTimeForApi(raw: unknown): string | null {
+  if (raw == null || raw === '') return null;
+  const instant = parseDbDateTimeToInstant(raw);
+  if (!instant) return String(raw).trim() || null;
+  return instant.toISOString();
+}
+
+/** 格式化单条记录中所有 datetime 字段，用于 API 响应 */
+export function formatRecordDateTimesForApi<T extends Record<string, unknown>>(row: T): T {
+  const result: Record<string, unknown> = { ...row };
+  for (const key of Object.keys(result)) {
+    if (!isApiDateTimeField(key)) continue;
+    const value = result[key];
+    if (value == null || value === '') continue;
+    const formatted = formatDbDateTimeForApi(value);
+    if (formatted) result[key] = formatted;
+  }
+  return result as T;
+}
+
+export function formatRowsDateTimesForApi<T extends Record<string, unknown>>(rows: T[]): T[] {
+  return rows.map((row) => formatRecordDateTimesForApi(row));
+}
+
 export function getLogicalYmdFromCreatedAt(
   raw: unknown,
   boundary: TasksDayBoundary,

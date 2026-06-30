@@ -1,5 +1,6 @@
 import type { AllowedTable } from '../config/tables.js';
 import { isValidYmd } from '../utils/ymd.js';
+import { normalizeDbDateTimeForStorage } from './calendar/logical-day.js';
 
 export interface ListQueryParams {
   page?: number;
@@ -132,8 +133,10 @@ export function buildListQuery(
   }
 
   if (params.updatedSince?.trim()) {
+    const since =
+      normalizeDbDateTimeForStorage(params.updatedSince.trim()) ?? params.updatedSince.trim();
     clauses.push('updated_at > ?');
-    values.push(params.updatedSince.trim());
+    values.push(since);
   }
 
   if (table === 'habit_check_ins') {

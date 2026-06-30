@@ -10,7 +10,7 @@ import {
   isStandaloneTodoVisibleOnDay,
   sortStandaloneTodos,
 } from '../calendar/aggregation.js';
-import { normalizeTasksDayBoundary } from '../calendar/logical-day.js';
+import { formatRowsDateTimesForApi, normalizeTasksDayBoundary } from '../calendar/logical-day.js';
 import type { CalendarTaskRow, TasksDayBoundary } from '../calendar/types.js';
 import {
   COMPLETION_HEATMAP_WEEKS,
@@ -320,7 +320,7 @@ async function loadFilteredTasks(params: TasksBootstrapParams, context: TasksBoo
   const offset = (page - 1) * limit;
 
   return {
-    unionRows: allRows.slice(offset, offset + limit),
+    unionRows: formatRowsDateTimesForApi(allRows.slice(offset, offset + limit)),
     grouped,
     meta: {
       tasksScope: singleView ?? 'tasksPageFiltered',

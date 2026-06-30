@@ -16,7 +16,12 @@ import {
 import { buildColumnMeta, getColumnLabel, getTableLabel } from '../config/table-labels.js';
 import { hashPassword } from '../utils/password.js';
 import { buildListQuery, type ListQueryParams } from './list-query.js';
-import { formatUtcMySQLDateTime, normalizeDbDateTimeForStorage } from './calendar/logical-day.js';
+import {
+  formatDbDateTimeForApi,
+  formatUtcMySQLDateTime,
+  normalizeDbDateTimeForStorage,
+  formatRecordDateTimesForApi,
+} from './calendar/logical-day.js';
 
 const DB_DATETIME_COLUMNS = new Set(['created_at', 'updated_at', 'completed_at']);
 
@@ -105,7 +110,7 @@ function stripHidden<T extends Record<string, unknown>>(
   for (const col of getHiddenColumns(table, meta)) {
     delete result[col];
   }
-  return result;
+  return formatRecordDateTimesForApi(result) as T;
 }
 
 async function normalizeWriteData(
@@ -371,13 +376,13 @@ export async function getTableFilteredSnapshotMeta(
 
   const row = rows[0];
   const count = Number(row?.cnt ?? 0);
-  const maxUpdatedAt = row?.max_updated_at != null ? String(row.max_updated_at) : null;
-  const minUpdatedAt = row?.min_updated_at != null ? String(row.min_updated_at) : null;
+  const maxUpdatedAtRaw = row?.max_updated_at != null ? String(row.max_updated_at) : null;
+  const minUpdatedAtRaw = row?.min_updated_at != null ? String(row.min_updated_at) : null;
 
   return {
     count,
-    maxUpdatedAt,
-    version: buildSnapshotVersion(count, maxUpdatedAt, minUpdatedAt),
+    maxUpdatedAt: maxUpdatedAtRaw ? formatDbDateTimeForApi(maxUpdatedAtRaw) : null,
+    version: buildSnapshotVersion(count, maxUpdatedAtRaw, minUpdatedAtRaw),
   };
 }
 

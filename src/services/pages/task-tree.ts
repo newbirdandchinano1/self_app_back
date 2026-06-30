@@ -1,6 +1,7 @@
 import type { RowDataPacket } from 'mysql2';
 import { getTableMeta } from '../crud.js';
 import { db } from '../../db/index.js';
+import { formatRecordDateTimesForApi } from '../calendar/logical-day.js';
 
 export type TaskRow = Record<string, unknown>;
 
@@ -92,7 +93,7 @@ async function selectTaskRows(
     `SELECT ${selectCols} FROM tasks ${whereSql} ORDER BY ${orderBy}`,
     values,
   );
-  return rows.map((row) => row as TaskRow);
+  return rows.map((row) => formatRecordDateTimesForApi(row as TaskRow));
 }
 
 export async function loadProjectTaskRows(

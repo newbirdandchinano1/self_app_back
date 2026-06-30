@@ -2,6 +2,10 @@ import type { RowDataPacket } from 'mysql2';
 import { getTableMeta } from '../crud.js';
 import { db } from '../../db/index.js';
 import {
+  formatRecordDateTimesForApi,
+  normalizeDbDateTimeForStorage,
+} from '../calendar/logical-day.js';
+import {
   addStatusFilters,
   isBlankColumn,
   optionalNotDeleted,
@@ -64,7 +68,9 @@ export async function getTaskList(params: TaskListParams): Promise<TaskListResul
 
   if (params.updatedSince?.trim()) {
     where.push('updated_at > ?');
-    values.push(params.updatedSince.trim());
+    values.push(
+      normalizeDbDateTimeForStorage(params.updatedSince.trim()) ?? params.updatedSince.trim(),
+    );
   }
 
   const categoryIds = resolveCategoryIds(params);
@@ -94,7 +100,7 @@ export async function getTaskList(params: TaskListParams): Promise<TaskListResul
     [...values, limit, offset],
   );
 
-  const list = rows.map((row) => row as Record<string, unknown>);
+  const list = rows.map((row) => formatRecordDateTimesForApi(row as Record<string, unknown>));
 
   return {
     list,
