@@ -1,6 +1,6 @@
 import type { AllowedTable } from '../config/tables.js';
 import { isValidYmd } from '../utils/ymd.js';
-import { normalizeDbDateTimeForStorage } from './calendar/logical-day.js';
+import { normalizeDbDateTimeForTableStorage } from './calendar/logical-day.js';
 
 export interface ListQueryParams {
   page?: number;
@@ -134,7 +134,8 @@ export function buildListQuery(
 
   if (params.updatedSince?.trim()) {
     const since =
-      normalizeDbDateTimeForStorage(params.updatedSince.trim()) ?? params.updatedSince.trim();
+      normalizeDbDateTimeForTableStorage(table, params.updatedSince.trim()) ??
+      params.updatedSince.trim();
     clauses.push('updated_at > ?');
     values.push(since);
   }

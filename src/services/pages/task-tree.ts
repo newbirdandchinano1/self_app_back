@@ -93,7 +93,7 @@ async function selectTaskRows(
     `SELECT ${selectCols} FROM tasks ${whereSql} ORDER BY ${orderBy}`,
     values,
   );
-  return rows.map((row) => formatRecordDateTimesForApi(row as TaskRow));
+  return rows.map((row) => formatRecordDateTimesForApi(row as TaskRow, 'tasks'));
 }
 
 export async function loadProjectTaskRows(

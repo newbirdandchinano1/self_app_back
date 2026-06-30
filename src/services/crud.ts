@@ -18,20 +18,34 @@ import { hashPassword } from '../utils/password.js';
 import { buildListQuery, type ListQueryParams } from './list-query.js';
 import {
   formatDbDateTimeForApi,
+  formatMySQLWallClockDateTime,
   formatUtcMySQLDateTime,
-  normalizeDbDateTimeForStorage,
+  getDbNaiveDateTimeModeForTable,
+  looksLikeDateTimeValue,
+  normalizeDbDateTimeForTableStorage,
   formatRecordDateTimesForApi,
 } from './calendar/logical-day.js';
 
 const DB_DATETIME_COLUMNS = new Set(['created_at', 'updated_at', 'completed_at']);
 
-function normalizeStoredDateTimeFields(payload: Record<string, unknown>): void {
+function formatNowForTable(table: AllowedTable): string {
+  const now = new Date();
+  return getDbNaiveDateTimeModeForTable(table) === 'shanghai'
+    ? formatMySQLWallClockDateTime(now)
+    : formatUtcMySQLDateTime(now);
+}
+
+function normalizeStoredDateTimeFields(table: AllowedTable, payload: Record<string, unknown>): void {
   for (const column of DB_DATETIME_COLUMNS) {
     if (!(column in payload)) continue;
     const raw = payload[column];
     if (raw == null || raw === '') continue;
-    const normalized = normalizeDbDateTimeForStorage(raw);
+    const normalized = normalizeDbDateTimeForTableStorage(table, raw);
     if (normalized) payload[column] = normalized;
+  }
+  if ('record_date' in payload && looksLikeDateTimeValue(payload.record_date)) {
+    const normalized = normalizeDbDateTimeForTableStorage(table, payload.record_date);
+    if (normalized) payload.record_date = normalized;
   }
 }
 
@@ -110,7 +124,7 @@ function stripHidden<T extends Record<string, unknown>>(
   for (const col of getHiddenColumns(table, meta)) {
     delete result[col];
   }
-  return formatRecordDateTimesForApi(result) as T;
+  return formatRecordDateTimesForApi(result, table) as T;
 }
 
 async function normalizeWriteData(
@@ -137,7 +151,7 @@ async function normalizeWriteData(
   }
 
   const now = new Date();
-  const nowUtcMySQL = formatUtcMySQLDateTime(now);
+  const nowForTable = formatNowForTable(table);
   if (isCreate) {
     const needsClientId = requiresClientId(table);
     if (meta.columns.includes('id')) {
@@ -156,23 +170,23 @@ async function normalizeWriteData(
     }
     if (adminPanel) {
       if (meta.columns.includes('created_at')) {
-        result.created_at = nowUtcMySQL;
+        result.created_at = nowForTable;
       }
       if (meta.columns.includes('sync_status')) {
         result.sync_status = ADMIN_DEFAULT_SYNC_STATUS;
       }
     } else if (meta.columns.includes('created_at') && result.created_at == null) {
-      result.created_at = nowUtcMySQL;
+      result.created_at = nowForTable;
     }
   }
 
   if (meta.columns.includes('updated_at')) {
     if (adminPanel || result.updated_at == null) {
-      result.updated_at = nowUtcMySQL;
+      result.updated_at = nowForTable;
     }
   }
 
-  normalizeStoredDateTimeFields(result);
+  normalizeStoredDateTimeFields(table, result);
 
   if (!isCreate) {
     delete result[meta.primaryKey];
@@ -378,10 +392,11 @@ export async function getTableFilteredSnapshotMeta(
   const count = Number(row?.cnt ?? 0);
   const maxUpdatedAtRaw = row?.max_updated_at != null ? String(row.max_updated_at) : null;
   const minUpdatedAtRaw = row?.min_updated_at != null ? String(row.min_updated_at) : null;
+  const mode = getDbNaiveDateTimeModeForTable(table);
 
   return {
     count,
-    maxUpdatedAt: maxUpdatedAtRaw ? formatDbDateTimeForApi(maxUpdatedAtRaw) : null,
+    maxUpdatedAt: maxUpdatedAtRaw ? formatDbDateTimeForApi(maxUpdatedAtRaw, mode) : null,
     version: buildSnapshotVersion(count, maxUpdatedAtRaw, minUpdatedAtRaw),
   };
 }

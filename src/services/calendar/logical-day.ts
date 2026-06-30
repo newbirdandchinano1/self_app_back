@@ -121,12 +121,18 @@ export function formatLocalYmdFromDate(date: Date): string {
   return formatYmd(wc.year, wc.month, wc.day);
 }
 
+/** 无时区 DATETIME 字符串的墙钟语义 */
+export type DbNaiveDateTimeMode = 'utc' | 'shanghai';
+
 /**
  * 解析 DB / API 的 datetime 为 UTC 时刻。
- * 无时区的 MySQL DATETIME 按 UTC 墙钟理解（客户端 sync 写入 toISOString 去掉 Z 后的惯例）；
- * 再换算为东八区逻辑日。
+ * - `utc`：无时区字符串按 UTC 墙钟（task_execution_events 等 sync 惯例）
+ * - `shanghai`：无时区字符串按东八区墙钟（health_records 等本地记录惯例）
  */
-export function parseDbDateTimeToInstant(raw: unknown): Date | null {
+export function parseDbDateTimeToInstantInMode(
+  raw: unknown,
+  mode: DbNaiveDateTimeMode,
+): Date | null {
   if (raw instanceof Date) {
     const ms = raw.getTime();
     return Number.isNaN(ms) ? null : raw;
@@ -140,50 +146,98 @@ export function parseDbDateTimeToInstant(raw: unknown): Date | null {
   }
 
   const normalized = text.includes('T') ? text : text.replace(' ', 'T');
-  const ms = Date.parse(`${normalized}Z`);
+  const suffix = mode === 'shanghai' ? APP_MYSQL_TIMEZONE : 'Z';
+  const ms = Date.parse(`${normalized}${suffix}`);
   return Number.isNaN(ms) ? null : new Date(ms);
 }
 
-/** 将任意 datetime 输入规范化为 MySQL UTC 墙钟字符串（与 parseDbDateTimeToInstant 互逆） */
-export function normalizeDbDateTimeForStorage(raw: unknown): string | null {
-  const instant = parseDbDateTimeToInstant(raw);
+/** @see parseDbDateTimeToInstantInMode — 默认 UTC 墙钟（任务事件 sync） */
+export function parseDbDateTimeToInstant(raw: unknown): Date | null {
+  return parseDbDateTimeToInstantInMode(raw, 'utc');
+}
+
+export function getDbNaiveDateTimeModeForTable(table: string): DbNaiveDateTimeMode {
+  if (table === 'health_records') return 'shanghai';
+  return 'utc';
+}
+
+/** 将任意 datetime 输入规范化为 MySQL 存库字符串（与表墙钟语义一致） */
+export function normalizeDbDateTimeForStorage(
+  raw: unknown,
+  mode: DbNaiveDateTimeMode = 'utc',
+): string | null {
+  const instant = parseDbDateTimeToInstantInMode(raw, mode);
   if (!instant) return null;
-  return formatUtcMySQLDateTime(instant);
+  return mode === 'shanghai'
+    ? formatMySQLWallClockDateTime(instant)
+    : formatUtcMySQLDateTime(instant);
+}
+
+export function normalizeDbDateTimeForTableStorage(
+  table: string,
+  raw: unknown,
+): string | null {
+  return normalizeDbDateTimeForStorage(raw, getDbNaiveDateTimeModeForTable(table));
 }
 
 const API_DATETIME_FIELD_RE = /_at$/;
 
-/** 是否为 API 响应中的 datetime 字段（以 _at 结尾，如 created_at、happened_at） */
-export function isApiDateTimeField(field: string): boolean {
-  return API_DATETIME_FIELD_RE.test(field);
+/** 值是否含时刻（非纯 YYYY-MM-DD 日期） */
+export function looksLikeDateTimeValue(raw: unknown): boolean {
+  if (raw == null || raw === '') return false;
+  const text = String(raw).trim();
+  if (!text) return false;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return false;
+  if (/[Zz]$/.test(text) || /[+-]\d{2}:?\d{2}$/.test(text)) return true;
+  if (/^\d{4}-\d{2}-\d{2}[ T]\d{1,2}:\d{2}/.test(text)) return true;
+  if (/^\d{4}-\d{2}-\d{2}T/.test(text)) return true;
+  return false;
+}
+
+/** 是否为 API 响应中的 datetime 字段 */
+export function isApiDateTimeField(field: string, value?: unknown): boolean {
+  if (API_DATETIME_FIELD_RE.test(field)) return true;
+  // health_records.record_date 可存具体摄入时刻
+  if (field === 'record_date' && looksLikeDateTimeValue(value)) return true;
+  return false;
 }
 
 /**
- * 将 DB 中的 UTC 墙钟 DATETIME 转为 ISO 8601（Z），供前端正确解析。
+ * 将 DB DATETIME 转为 ISO 8601（Z），供前端正确解析。
  * 已是 ISO / 带时区偏移的值会先归一化再输出。
  */
-export function formatDbDateTimeForApi(raw: unknown): string | null {
+export function formatDbDateTimeForApi(
+  raw: unknown,
+  mode: DbNaiveDateTimeMode = 'utc',
+): string | null {
   if (raw == null || raw === '') return null;
-  const instant = parseDbDateTimeToInstant(raw);
+  const instant = parseDbDateTimeToInstantInMode(raw, mode);
   if (!instant) return String(raw).trim() || null;
   return instant.toISOString();
 }
 
 /** 格式化单条记录中所有 datetime 字段，用于 API 响应 */
-export function formatRecordDateTimesForApi<T extends Record<string, unknown>>(row: T): T {
+export function formatRecordDateTimesForApi<T extends Record<string, unknown>>(
+  row: T,
+  table?: string,
+): T {
+  const mode = table ? getDbNaiveDateTimeModeForTable(table) : 'utc';
   const result: Record<string, unknown> = { ...row };
   for (const key of Object.keys(result)) {
-    if (!isApiDateTimeField(key)) continue;
     const value = result[key];
+    if (!isApiDateTimeField(key, value)) continue;
     if (value == null || value === '') continue;
-    const formatted = formatDbDateTimeForApi(value);
+    const formatted = formatDbDateTimeForApi(value, mode);
     if (formatted) result[key] = formatted;
   }
   return result as T;
 }
 
-export function formatRowsDateTimesForApi<T extends Record<string, unknown>>(rows: T[]): T[] {
-  return rows.map((row) => formatRecordDateTimesForApi(row));
+export function formatRowsDateTimesForApi<T extends Record<string, unknown>>(
+  rows: T[],
+  table?: string,
+): T[] {
+  return rows.map((row) => formatRecordDateTimesForApi(row, table));
 }
 
 export function getLogicalYmdFromCreatedAt(

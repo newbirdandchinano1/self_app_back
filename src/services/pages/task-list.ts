@@ -3,7 +3,7 @@ import { getTableMeta } from '../crud.js';
 import { db } from '../../db/index.js';
 import {
   formatRecordDateTimesForApi,
-  normalizeDbDateTimeForStorage,
+  normalizeDbDateTimeForTableStorage,
 } from '../calendar/logical-day.js';
 import {
   addStatusFilters,
@@ -69,7 +69,8 @@ export async function getTaskList(params: TaskListParams): Promise<TaskListResul
   if (params.updatedSince?.trim()) {
     where.push('updated_at > ?');
     values.push(
-      normalizeDbDateTimeForStorage(params.updatedSince.trim()) ?? params.updatedSince.trim(),
+      normalizeDbDateTimeForTableStorage('tasks', params.updatedSince.trim()) ??
+        params.updatedSince.trim(),
     );
   }
 
@@ -100,7 +101,7 @@ export async function getTaskList(params: TaskListParams): Promise<TaskListResul
     [...values, limit, offset],
   );
 
-  const list = rows.map((row) => formatRecordDateTimesForApi(row as Record<string, unknown>));
+  const list = rows.map((row) => formatRecordDateTimesForApi(row as Record<string, unknown>, 'tasks'));
 
   return {
     list,
