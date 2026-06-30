@@ -16,6 +16,19 @@ import {
 import { buildColumnMeta, getColumnLabel, getTableLabel } from '../config/table-labels.js';
 import { hashPassword } from '../utils/password.js';
 import { buildListQuery, type ListQueryParams } from './list-query.js';
+import { formatUtcMySQLDateTime, normalizeDbDateTimeForStorage } from './calendar/logical-day.js';
+
+const DB_DATETIME_COLUMNS = new Set(['created_at', 'updated_at', 'completed_at']);
+
+function normalizeStoredDateTimeFields(payload: Record<string, unknown>): void {
+  for (const column of DB_DATETIME_COLUMNS) {
+    if (!(column in payload)) continue;
+    const raw = payload[column];
+    if (raw == null || raw === '') continue;
+    const normalized = normalizeDbDateTimeForStorage(raw);
+    if (normalized) payload[column] = normalized;
+  }
+}
 
 export interface TableMeta {
   primaryKey: string;
@@ -119,6 +132,7 @@ async function normalizeWriteData(
   }
 
   const now = new Date();
+  const nowUtcMySQL = formatUtcMySQLDateTime(now);
   if (isCreate) {
     const needsClientId = requiresClientId(table);
     if (meta.columns.includes('id')) {
@@ -137,21 +151,23 @@ async function normalizeWriteData(
     }
     if (adminPanel) {
       if (meta.columns.includes('created_at')) {
-        result.created_at = now;
+        result.created_at = nowUtcMySQL;
       }
       if (meta.columns.includes('sync_status')) {
         result.sync_status = ADMIN_DEFAULT_SYNC_STATUS;
       }
     } else if (meta.columns.includes('created_at') && result.created_at == null) {
-      result.created_at = now;
+      result.created_at = nowUtcMySQL;
     }
   }
 
   if (meta.columns.includes('updated_at')) {
     if (adminPanel || result.updated_at == null) {
-      result.updated_at = now;
+      result.updated_at = nowUtcMySQL;
     }
   }
+
+  normalizeStoredDateTimeFields(result);
 
   if (!isCreate) {
     delete result[meta.primaryKey];

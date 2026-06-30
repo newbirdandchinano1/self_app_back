@@ -21,14 +21,14 @@ const boundary4 = { hour: 4, minute: 0 };
 
 const cases: Case[] = [
   {
-    name: 'MySQL 东八区墙钟 6/26 01:00（全局 TZ 下的标准存法）',
+    name: 'MySQL UTC 墙钟 6/26 01:00（= 东八区 6/26 09:00）',
     createdAt: '2026-06-26 01:00:00',
     boundary: boundary0,
     expectLogicalYmd: '2026-06-26',
   },
   {
-    name: 'MySQL 东八区墙钟 6/26 14:00',
-    createdAt: '2026-06-26 14:00:00',
+    name: 'MySQL UTC 墙钟 6/26 06:00（= 东八区 6/26 14:00）',
+    createdAt: '2026-06-26 06:00:00',
     boundary: boundary0,
     expectLogicalYmd: '2026-06-26',
   },
@@ -39,14 +39,20 @@ const cases: Case[] = [
     expectLogicalYmd: '2026-06-26',
   },
   {
-    name: '日界 4:00 — 东八区 6/26 02:00 属逻辑 6/25',
-    createdAt: '2026-06-26 02:00:00',
+    name: '6/30 凌晨完成：UTC 6/29 16:00 = 东八区 6/30 00:00',
+    createdAt: '2026-06-29 16:00:00',
+    boundary: boundary0,
+    expectLogicalYmd: '2026-06-30',
+  },
+  {
+    name: '日界 4:00 — UTC 6/25 18:00 = 东八区 6/26 02:00 属逻辑 6/25',
+    createdAt: '2026-06-25 18:00:00',
     boundary: boundary4,
     expectLogicalYmd: '2026-06-25',
   },
   {
-    name: '日界 4:00 — 东八区 6/26 10:00 属逻辑 6/26',
-    createdAt: '2026-06-26 10:00:00',
+    name: '日界 4:00 — UTC 6/26 02:00 = 东八区 6/26 10:00 属逻辑 6/26',
+    createdAt: '2026-06-26 02:00:00',
     boundary: boundary4,
     expectLogicalYmd: '2026-06-26',
   },
@@ -79,13 +85,13 @@ for (const c of cases) {
 console.log('=== 青蛙 assigned_ymd（纯字符串，无时区）===\n');
 console.log("assigned_ymd = '2026-06-26' → 格子 2026-06-26\n");
 
-console.log('=== SQL 查询边界（逻辑日 6/26，日界 0:00，东八区 DATETIME）===\n');
+console.log('=== SQL 查询边界（逻辑日 6/26，日界 0:00，UTC DATETIME）===\n');
 const bounds = resolveHeatmapEventCreatedAtBounds('2026-06-26', '2026-06-26', boundary0);
 console.log(`created_at >= ${bounds.createdAtGte}`);
 console.log(`created_at <= ${bounds.createdAtLte}`);
 const boundsOk =
-  bounds.createdAtGte === '2026-06-26 00:00:00' && bounds.createdAtLte === '2026-06-26 23:59:59';
-console.log(boundsOk ? '✓ 边界为东八区自然日' : '✗ 边界异常');
+  bounds.createdAtGte === '2026-06-25 16:00:00' && bounds.createdAtLte === '2026-06-26 15:59:59';
+console.log(boundsOk ? '✓ 边界为东八区 6/26 对应的 UTC 区间' : '✗ 边界异常');
 if (boundsOk) passed += 1;
 else failed += 1;
 

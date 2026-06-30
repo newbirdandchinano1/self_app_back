@@ -122,8 +122,9 @@ export function formatLocalYmdFromDate(date: Date): string {
 }
 
 /**
- * 解析 DB / API 的 datetime 为时刻。
- * 无时区的 MySQL DATETIME 按东八区墙钟理解（与全局 TZ、MySQL session 一致）。
+ * 解析 DB / API 的 datetime 为 UTC 时刻。
+ * 无时区的 MySQL DATETIME 按 UTC 墙钟理解（客户端 sync 写入 toISOString 去掉 Z 后的惯例）；
+ * 再换算为东八区逻辑日。
  */
 export function parseDbDateTimeToInstant(raw: unknown): Date | null {
   if (raw instanceof Date) {
@@ -139,8 +140,15 @@ export function parseDbDateTimeToInstant(raw: unknown): Date | null {
   }
 
   const normalized = text.includes('T') ? text : text.replace(' ', 'T');
-  const ms = Date.parse(`${normalized}${APP_MYSQL_TIMEZONE}`);
+  const ms = Date.parse(`${normalized}Z`);
   return Number.isNaN(ms) ? null : new Date(ms);
+}
+
+/** 将任意 datetime 输入规范化为 MySQL UTC 墙钟字符串（与 parseDbDateTimeToInstant 互逆） */
+export function normalizeDbDateTimeForStorage(raw: unknown): string | null {
+  const instant = parseDbDateTimeToInstant(raw);
+  if (!instant) return null;
+  return formatUtcMySQLDateTime(instant);
 }
 
 export function getLogicalYmdFromCreatedAt(
@@ -152,9 +160,9 @@ export function getLogicalYmdFromCreatedAt(
   return getLogicalYmdFromInstant(instant, boundary);
 }
 
-/** @deprecated 使用 formatMySQLWallClockDateTime */
+/** MySQL DATETIME 字符串：UTC 墙钟分量（与客户端 sync 存库格式一致） */
 export function formatUtcMySQLDateTime(date: Date): string {
-  return formatMySQLWallClockDateTime(date);
+  return `${formatYmd(date.getUTCFullYear(), date.getUTCMonth() + 1, date.getUTCDate())} ${pad2(date.getUTCHours())}:${pad2(date.getUTCMinutes())}:${pad2(date.getUTCSeconds())}`;
 }
 
 export function shanghaiWallClockToUtcDate(
