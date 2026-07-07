@@ -255,6 +255,8 @@ Authorization: Bearer <token>
     "habitCheckIns": [],
     "taskExecutionEvents": [],
     "frogCompletionEvents": [],
+    "weeklyTaskScheduleSlots": [],
+    "weeklyTaskScheduleCells": [],
     "meta": {
       "serverTime": "2026-06-25T10:30:00.000Z",
       "logicalToday": "2026-06-25",
@@ -589,6 +591,8 @@ Authorization: Bearer <token>
 | `users` | 用户 | `id` |
 | `visions` | 愿景 | `id` |
 | `weekly_review_journal` | 每周复盘 | `id` |
+| `weekly_task_schedule_cells` | 本周任务表格子 | `id` |
+| `weekly_task_schedule_slots` | 本周任务表时段 | `id` |
 | `wish_items` | 心愿单 | `id` |
 
 ---
@@ -905,6 +909,78 @@ Authorization: Bearer <token>
 | `action` | 操作 | varchar | 是 | - | - |
 | `created_at` | 创建时间 | datetime | 是 | - | - |
 | `task_title` | 任务标题 | varchar | 否 | - | - |
+
+---
+
+#### 本周任务表时段（`weekly_task_schedule_slots`）
+
+| 属性 | 值 |
+|------|-----|
+| 中文名 | 本周任务表时段 |
+| 英文表名 | `weekly_task_schedule_slots` |
+| 主键字段 | `id` |
+| 同步依赖 | 无（需先于 `weekly_task_schedule_cells` 上传） |
+
+**接口地址：**
+
+| 操作 | 方法 | URL |
+|------|------|-----|
+| 列表 | GET | `/api/data/weekly_task_schedule_slots` |
+| 详情 | GET | `/api/data/weekly_task_schedule_slots/:id` |
+| 新增 | POST | `/api/data/weekly_task_schedule_slots` |
+| 更新 | PUT | `/api/data/weekly_task_schedule_slots/:id` |
+| 删除 | DELETE | `/api/data/weekly_task_schedule_slots/:id` |
+
+**字段说明：**
+
+| 字段名 | 中文名 | 类型 | 必填 | 默认值 | 说明 |
+|--------|--------|------|------|--------|------|
+| `id` | ID | varchar | 是 | - | 主键；App 端生成，如 `wtss_6_7` |
+| `start_hour` | 起始小时（24 小时制） | tinyint | 是 | - | 如 `6` 表示 06:00 |
+| `end_hour` | 结束小时（开区间右端点） | tinyint | 是 | - | 如 `7` 表示 06:00–07:00 |
+| `sort_order` | 排序 | int | 是 | 1000 | 越小越靠上 |
+| `created_at` | 创建时间 | datetime | 是 | - | - |
+| `updated_at` | 更新时间 | datetime | 是 | - | 索引；用于 `updatedSince` 增量 |
+| `sync_status` | 同步状态 | varchar | 是 | pending_create | App 上传时不传 |
+| `extra_data` | 扩展数据 | text | 否 | - | - |
+
+**写入校验：** `end_hour > start_hour`；时段范围 0–24；最小时长 1 小时；同一用户时段不得重叠（409）。
+
+---
+
+#### 本周任务表格子（`weekly_task_schedule_cells`）
+
+| 属性 | 值 |
+|------|-----|
+| 中文名 | 本周任务表格子 |
+| 英文表名 | `weekly_task_schedule_cells` |
+| 主键字段 | `id` |
+| 同步依赖 | 需先同步 `weekly_task_schedule_slots` |
+
+**接口地址：**
+
+| 操作 | 方法 | URL |
+|------|------|-----|
+| 列表 | GET | `/api/data/weekly_task_schedule_cells` |
+| 详情 | GET | `/api/data/weekly_task_schedule_cells/:id` |
+| 新增 | POST | `/api/data/weekly_task_schedule_cells` |
+| 更新 | PUT | `/api/data/weekly_task_schedule_cells/:id` |
+| 删除 | DELETE | `/api/data/weekly_task_schedule_cells/:id` |
+
+**字段说明：**
+
+| 字段名 | 中文名 | 类型 | 必填 | 默认值 | 说明 |
+|--------|--------|------|------|--------|------|
+| `id` | ID | varchar | 是 | - | 主键；如 `wtsc_a1b2c3d4_0` |
+| `slot_id` | 时段ID | varchar | 是 | - | 索引；引用 `weekly_task_schedule_slots.id` |
+| `day_of_week` | 星期几（0=周一 … 6=周日） | tinyint | 是 | - | 与 App 一致，非 JS `Date.getDay()` |
+| `content` | 计划内容 | text | 是 | - | 空内容时 App 会 DELETE 行 |
+| `created_at` | 创建时间 | datetime | 是 | - | - |
+| `updated_at` | 更新时间 | datetime | 是 | - | 索引 |
+| `sync_status` | 同步状态 | varchar | 是 | pending_create | App 上传时不传 |
+| `extra_data` | 扩展数据 | text | 否 | - | - |
+
+**写入校验：** `day_of_week` 必须在 0–6；`content` 最长 2000 字；`slot_id` 必须存在。删除 slot 时 cells 随外键级联删除。
 
 ---
 
@@ -2105,6 +2181,8 @@ async function request(path, options = {}) {
 | `users` | 用户 |
 | `visions` | 愿景 |
 | `weekly_review_journal` | 每周复盘 |
+| `weekly_task_schedule_cells` | 本周任务表格子 |
+| `weekly_task_schedule_slots` | 本周任务表时段 |
 | `wish_items` | 心愿单 |
 
 ---

@@ -16,7 +16,8 @@ const TABLE_LABELS = {
   recipe_categories: '食谱分类', recipe_items: '食谱', review_columns: '复盘栏目', review_dimensions: '复盘维度',
   savings_plan_deposits: '储蓄存入记录', savings_plans: '储蓄计划', task_categories: '任务分类',
   task_execution_events: '任务执行事件', task_items: '任务子项', tasks: '任务',
-  user_weaknesses: '待提升项', users: '用户', visions: '愿景', weekly_review_journal: '每周复盘', wish_items: '心愿单',
+  user_weaknesses: '待提升项', users: '用户', visions: '愿景', weekly_review_journal: '每周复盘',
+  weekly_task_schedule_cells: '本周任务表格子', weekly_task_schedule_slots: '本周任务表时段', wish_items: '心愿单',
 };
 
 const COLUMN_LABELS = {
@@ -50,6 +51,7 @@ const COLUMN_LABELS = {
   ingredients_json:'食材JSON', steps_json:'步骤JSON', section_summary:'本周总结', section_plans:'本周计划',
   section_reflect:'本周反思', section_learnings:'本周收获', section_next_week:'下周安排', execution_score:'执行评分',
   adjust_tasks:'调整任务', adjust_savings:'调整储蓄', adjust_plans:'调整计划', inbox_entered_at:'进入收件箱时间',
+  start_hour:'起始小时', end_hour:'结束小时', slot_id:'时段ID', day_of_week:'星期几', content:'计划内容',
 };
 
 const PK = { app_meta: 'key', app_settings: 'key' };
@@ -57,7 +59,7 @@ const HIDDEN = { admin_users: ['password_hash'] };
 
 const MODULES = [
   { title: '用户与管理员', tables: ['users', 'admin_users'] },
-  { title: '任务与项目', tables: ['task_categories', 'tasks', 'task_items', 'task_execution_events', 'project_categories', 'projects', 'frog_completion_events'] },
+  { title: '任务与项目', tables: ['task_categories', 'tasks', 'task_items', 'task_execution_events', 'project_categories', 'projects', 'frog_completion_events', 'weekly_task_schedule_slots', 'weekly_task_schedule_cells'] },
   { title: '习惯', tables: ['habits', 'habit_check_ins', 'habit_contexts'] },
   { title: '备忘录与愿景', tables: ['memo_dimensions', 'memos', 'visions', 'goal_dimensions', 'wish_items'] },
   { title: '健康与食谱', tables: ['health_records', 'recipe_categories', 'recipe_items'] },

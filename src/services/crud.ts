@@ -199,7 +199,64 @@ async function normalizeWriteData(
     }
   }
 
+  if (table === 'weekly_task_schedule_cells' && isCreate && result.content == null) {
+    result.content = '';
+  }
+
   return result;
+}
+
+const WEEKLY_CELL_CONTENT_MAX = 2000;
+
+async function validateWeeklyTaskScheduleWrite(
+  table: AllowedTable,
+  data: Record<string, unknown>,
+  excludeId?: string,
+): Promise<void> {
+  if (table === 'weekly_task_schedule_slots') {
+    const startHour = Number(data.start_hour);
+    const endHour = Number(data.end_hour);
+    if (!Number.isInteger(startHour) || !Number.isInteger(endHour)) {
+      throw new CrudError('start_hour 与 end_hour 必须为整数', 400);
+    }
+    if (endHour <= startHour) {
+      throw new CrudError('end_hour 必须大于 start_hour', 400);
+    }
+    if (startHour < 0 || endHour > 24) {
+      throw new CrudError('时段必须在 0–24 小时范围内', 400);
+    }
+    if (endHour - startHour < 1) {
+      throw new CrudError('时段最小时长为 1 小时', 400);
+    }
+
+    const overlapSql = excludeId
+      ? `SELECT id FROM weekly_task_schedule_slots
+         WHERE id != ? AND start_hour < ? AND end_hour > ?
+         LIMIT 1`
+      : `SELECT id FROM weekly_task_schedule_slots
+         WHERE start_hour < ? AND end_hour > ?
+         LIMIT 1`;
+    const overlapValues = excludeId
+      ? [excludeId, endHour, startHour]
+      : [endHour, startHour];
+    const [overlapRows] = await db.query<RowDataPacket[]>(overlapSql, overlapValues);
+    if (overlapRows.length > 0) {
+      throw new CrudError('时段与已有记录时间重叠', 409);
+    }
+    return;
+  }
+
+  if (table === 'weekly_task_schedule_cells') {
+    if (data.day_of_week != null) {
+      const dayOfWeek = Number(data.day_of_week);
+      if (!Number.isInteger(dayOfWeek) || dayOfWeek < 0 || dayOfWeek > 6) {
+        throw new CrudError('day_of_week 必须在 0（周一）到 6（周日）之间', 400);
+      }
+    }
+    if (typeof data.content === 'string' && data.content.length > WEEKLY_CELL_CONTENT_MAX) {
+      throw new CrudError(`content 长度不能超过 ${WEEKLY_CELL_CONTENT_MAX} 字`, 400);
+    }
+  }
 }
 
 const YMD_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -261,6 +318,12 @@ async function validateForeignKeys(
       if (table === 'memos' && column === 'dimension_id') {
         throw new CrudError(
           `备忘录维度不存在（dimension_id=${value}），请先通过 POST /api/data/memo_dimensions 同步备忘录维度`,
+          400,
+        );
+      }
+      if (table === 'weekly_task_schedule_cells' && column === 'slot_id') {
+        throw new CrudError(
+          `时段不存在（slot_id=${value}），请先通过 POST /api/data/weekly_task_schedule_slots 同步时段`,
           400,
         );
       }
@@ -444,6 +507,10 @@ export async function createRecord(
 
   await validateForeignKeys(table, payload);
 
+  if (table === 'weekly_task_schedule_slots' || table === 'weekly_task_schedule_cells') {
+    await validateWeeklyTaskScheduleWrite(table, payload);
+  }
+
   const keys = Object.keys(payload);
   if (keys.length === 0) {
     throw new CrudError('请求体不能为空');
@@ -478,6 +545,14 @@ export async function updateRecord(
   }
 
   await validateForeignKeys(table, payload);
+
+  if (table === 'weekly_task_schedule_slots' || table === 'weekly_task_schedule_cells') {
+    const existing = await getRecord(table, pkValue);
+    if (!existing) {
+      return null;
+    }
+    await validateWeeklyTaskScheduleWrite(table, { ...existing, ...payload }, pkValue);
+  }
 
   const sets = keys.map((k) => `${quoteIdent(k)} = ?`).join(', ');
   const values = [...keys.map((k) => payload[k]), pkValue];

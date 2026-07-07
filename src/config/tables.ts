@@ -39,6 +39,8 @@ export const ALLOWED_TABLES = [
   'users',
   'visions',
   'weekly_review_journal',
+  'weekly_task_schedule_cells',
+  'weekly_task_schedule_slots',
   'wish_items',
 ] as const;
 
@@ -55,6 +57,8 @@ export const CLIENT_ID_TABLES: readonly AllowedTable[] = [
   'project_categories',
   'projects',
   'task_categories',
+  'weekly_task_schedule_cells',
+  'weekly_task_schedule_slots',
 ];
 
 /** 外键字段 -> 引用表（用于写入校验与 /api/tables 元数据） */
@@ -75,6 +79,9 @@ export const TABLE_FOREIGN_KEYS: Partial<
   memos: {
     dimension_id: 'memo_dimensions',
   },
+  weekly_task_schedule_cells: {
+    slot_id: 'weekly_task_schedule_slots',
+  },
 };
 
 /** 同步上传时的前置依赖表（需先完成 POST，再上传当前表） */
@@ -83,6 +90,7 @@ export const TABLE_SYNC_DEPENDS_ON: Partial<Record<AllowedTable, AllowedTable[]>
   task_items: ['tasks'],
   projects: ['project_categories'],
   memos: ['memo_dimensions'],
+  weekly_task_schedule_cells: ['weekly_task_schedule_slots'],
 };
 
 /** 响应中隐藏的字段 */

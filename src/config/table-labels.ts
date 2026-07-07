@@ -41,6 +41,8 @@ export const TABLE_LABELS: Record<AllowedTable, string> = {
   users: '用户',
   visions: '愿景',
   weekly_review_journal: '每周复盘',
+  weekly_task_schedule_cells: '本周任务表格子',
+  weekly_task_schedule_slots: '本周任务表时段',
   wish_items: '心愿单',
 };
 
@@ -188,6 +190,11 @@ export const COLUMN_LABELS: Record<string, string> = {
   adjust_savings: '调整储蓄',
   adjust_plans: '调整计划',
   inbox_entered_at: '进入收件箱时间',
+  start_hour: '起始小时',
+  end_hour: '结束小时',
+  slot_id: '时段ID',
+  day_of_week: '星期几',
+  content: '计划内容',
 };
 
 /** 表级字段中文名覆盖 */
@@ -206,6 +213,14 @@ export const TABLE_COLUMN_LABELS: Partial<
   memos: {
     dimension_id: '备忘录维度ID',
     dimension: '维度名称（冗余）',
+  },
+  weekly_task_schedule_cells: {
+    slot_id: '时段ID',
+    day_of_week: '星期几（0=周一 … 6=周日）',
+  },
+  weekly_task_schedule_slots: {
+    start_hour: '起始小时（24 小时制）',
+    end_hour: '结束小时（开区间右端点）',
   },
 };
 
