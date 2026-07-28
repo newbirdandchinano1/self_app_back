@@ -12,12 +12,13 @@ const TABLE_LABELS = {
   finance_accounts: '财务账户', finance_flow_categories: '财务流水分类', finance_transactions: '财务交易',
   frog_completion_events: '青蛙完成事件', goal_dimensions: '目标维度', habit_check_ins: '习惯打卡',
   habit_contexts: '习惯场景', habits: '习惯', health_records: '健康记录', memo_dimensions: '备忘录维度', memos: '备忘录',
+  monthly_review_journal: '每月复盘',
   project_categories: '项目分类', projects: '项目',
   recipe_categories: '食谱分类', recipe_items: '食谱', review_columns: '复盘栏目', review_dimensions: '复盘维度',
   savings_plan_deposits: '储蓄存入记录', savings_plans: '储蓄计划', task_categories: '任务分类',
   task_execution_events: '任务执行事件', task_items: '任务子项', tasks: '任务',
-  user_weaknesses: '待提升项', users: '用户', visions: '愿景', weekly_review_journal: '每周复盘',
-  weekly_task_schedule_cells: '本周任务表格子', weekly_task_schedule_slots: '本周任务表时段', wish_items: '心愿单',
+  users: '用户', visions: '愿景', weekly_review_journal: '每周复盘',
+  wish_items: '心愿单',
 };
 
 const COLUMN_LABELS = {
@@ -33,7 +34,7 @@ const COLUMN_LABELS = {
   workout_days:'训练日', rest_days:'休息日', birthday:'生日', height:'身高', weight:'体重', age:'年龄',
   avatar_uri:'头像', reference_image_uri:'参考图片', finished_image_uri:'成品图片', source_image_uri:'来源图片',
   happened_at:'发生时间', earned_at:'获得时间', redeemed_at:'兑换时间', completed_at:'完成时间', due_date:'截止日期',
-  record_date:'记录日期', record_date_ymd:'记录日期', week_start_ymd:'周起始日期', cache_date_ymd:'缓存日期',
+  record_date:'记录日期', record_date_ymd:'记录日期', week_start_ymd:'周起始日期', month_start_ymd:'月起始日期', cache_date_ymd:'缓存日期',
   assigned_ymd:'分配日期', start_date:'开始日期', end_date:'结束日期', created_at:'创建时间', updated_at:'更新时间',
   sync_status:'同步状态', extra_data:'扩展数据', payload_json:'缓存数据',
   sort_order:'排序', is_done:'是否完成', is_builtin:'是否内置', is_liability:'是否负债', sign_rule:'符号规则',
@@ -59,12 +60,12 @@ const HIDDEN = { admin_users: ['password_hash'] };
 
 const MODULES = [
   { title: '用户与管理员', tables: ['users', 'admin_users'] },
-  { title: '任务与项目', tables: ['task_categories', 'tasks', 'task_items', 'task_execution_events', 'project_categories', 'projects', 'frog_completion_events', 'weekly_task_schedule_slots', 'weekly_task_schedule_cells'] },
+  { title: '任务与项目', tables: ['task_categories', 'tasks', 'task_items', 'task_execution_events', 'project_categories', 'projects', 'frog_completion_events'] },
   { title: '习惯', tables: ['habits', 'habit_check_ins', 'habit_contexts'] },
   { title: '备忘录与愿景', tables: ['memo_dimensions', 'memos', 'visions', 'goal_dimensions', 'wish_items'] },
   { title: '健康与食谱', tables: ['health_records', 'recipe_categories', 'recipe_items'] },
   { title: '财务与账户', tables: ['accounts', 'account_transactions', 'finance_accounts', 'finance_account_types', 'finance_flow_categories', 'finance_transactions', 'cash_flow_profile', 'cash_flow_incomes', 'cash_flow_expense_lines', 'cash_flow_holdings', 'savings_plans', 'savings_plan_deposits'] },
-  { title: '复盘与缺点', tables: ['daily_review_journal', 'weekly_review_journal', 'review_dimensions', 'review_columns', 'user_weaknesses', 'earned_rewards'] },
+  { title: '复盘与奖励', tables: ['daily_review_journal', 'weekly_review_journal', 'monthly_review_journal', 'review_dimensions', 'review_columns', 'earned_rewards'] },
   { title: '系统与缓存', tables: ['app_meta', 'app_settings'] },
 ];
 

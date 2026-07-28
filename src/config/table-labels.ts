@@ -25,6 +25,7 @@ export const TABLE_LABELS: Record<AllowedTable, string> = {
   health_records: '健康记录',
   memo_dimensions: '备忘录维度',
   memos: '备忘录',
+  monthly_review_journal: '每月复盘',
   project_categories: '项目分类',
   projects: '项目',
   recipe_categories: '食谱分类',
@@ -37,12 +38,9 @@ export const TABLE_LABELS: Record<AllowedTable, string> = {
   task_execution_events: '任务执行事件',
   task_items: '任务子项',
   tasks: '任务',
-  user_weaknesses: '待提升项',
   users: '用户',
   visions: '愿景',
   weekly_review_journal: '每周复盘',
-  weekly_task_schedule_cells: '本周任务表格子',
-  weekly_task_schedule_slots: '本周任务表时段',
   wish_items: '心愿单',
 };
 
@@ -118,6 +116,7 @@ export const COLUMN_LABELS: Record<string, string> = {
   record_date: '记录日期',
   record_date_ymd: '记录日期',
   week_start_ymd: '周起始日期',
+  month_start_ymd: '月起始日期',
   cache_date_ymd: '缓存日期',
   assigned_ymd: '分配日期',
   start_date: '开始日期',
@@ -213,14 +212,6 @@ export const TABLE_COLUMN_LABELS: Partial<
   memos: {
     dimension_id: '备忘录维度ID',
     dimension: '维度名称（冗余）',
-  },
-  weekly_task_schedule_cells: {
-    slot_id: '时段ID',
-    day_of_week: '星期几（0=周一 … 6=周日）',
-  },
-  weekly_task_schedule_slots: {
-    start_hour: '起始小时（24 小时制）',
-    end_hour: '结束小时（开区间右端点）',
   },
 };
 

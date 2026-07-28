@@ -11,7 +11,6 @@ import {
   analyzeMemoReviewFromText,
   analyzeProjectTasksReviewFromText,
   analyzeVisionWallGoalsFromText,
-  analyzeWeaknessReviewFromText,
   analyzeWishItemAiCommentFromText,
   analyzeWishListRationalReviewFromText,
   estimateDailyIntakeTargetsFromContext,
@@ -224,19 +223,6 @@ router.post('/project/tasks-review', async (req, res, next) => {
     if (contextErr) return fail(res, contextErr);
 
     const data = await analyzeProjectTasksReviewFromText(String(project_context_text));
-    success(res, data);
-  } catch (err) {
-    handleAiError(err, res, next);
-  }
-});
-
-router.post('/weakness/review', async (req, res, next) => {
-  try {
-    const { weakness_context_text } = req.body ?? {};
-    const contextErr = requireNonEmptyString(weakness_context_text, 'weakness_context_text');
-    if (contextErr) return fail(res, contextErr);
-
-    const data = await analyzeWeaknessReviewFromText(String(weakness_context_text));
     success(res, data);
   } catch (err) {
     handleAiError(err, res, next);

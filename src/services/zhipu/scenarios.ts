@@ -7,7 +7,6 @@ import {
   analyzeMemoReviewFromText as analyzeMemoReviewFromTextCore,
   analyzeProjectTasksReviewFromText as analyzeProjectTasksReviewFromTextCore,
   analyzeVisionWallGoalsFromText as analyzeVisionWallGoalsFromTextCore,
-  analyzeWeaknessReviewFromText as analyzeWeaknessReviewFromTextCore,
   analyzeWishItemAiCommentFromText as analyzeWishItemAiCommentFromTextCore,
   analyzeWishListRationalReviewFromText as analyzeWishListRationalReviewFromTextCore,
   estimateDailyIntakeTargetsFromContext as estimateDailyIntakeTargetsFromContextCore,
@@ -185,13 +184,6 @@ export async function analyzeMemoReviewFromText(memoContextText: string) {
 export async function analyzeProjectTasksReviewFromText(projectContextText: string) {
   const result = requireOk(
     await analyzeProjectTasksReviewFromTextCore({ apiKey: apiKey(), projectContextText }),
-  );
-  return { evaluation: result.evaluation, suggestions: result.suggestions };
-}
-
-export async function analyzeWeaknessReviewFromText(weaknessContextText: string) {
-  const result = requireOk(
-    await analyzeWeaknessReviewFromTextCore({ apiKey: apiKey(), weaknessContextText }),
   );
   return { evaluation: result.evaluation, suggestions: result.suggestions };
 }

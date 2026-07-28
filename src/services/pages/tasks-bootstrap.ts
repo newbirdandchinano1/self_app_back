@@ -28,8 +28,6 @@ const FULL_TABLES = [
   'task_items',
   'habits',
   'habit_contexts',
-  'weekly_task_schedule_slots',
-  'weekly_task_schedule_cells',
 ] as const;
 
 export const TASKS_BOOTSTRAP_TABLES = [
@@ -66,12 +64,6 @@ const INCLUDE_ALIASES: Record<string, keyof TasksBootstrapInclude | 'heatmap'> =
   frogcompletionevents: 'frogCompletionEvents',
   frog_completion_events: 'frogCompletionEvents',
   frogCompletionEvents: 'frogCompletionEvents',
-  weeklytaskscheduleslots: 'weeklyTaskScheduleSlots',
-  weekly_task_schedule_slots: 'weeklyTaskScheduleSlots',
-  weeklyTaskScheduleSlots: 'weeklyTaskScheduleSlots',
-  weeklytaskschedulecells: 'weeklyTaskScheduleCells',
-  weekly_task_schedule_cells: 'weeklyTaskScheduleCells',
-  weeklyTaskScheduleCells: 'weeklyTaskScheduleCells',
   heatmap: 'heatmap',
 };
 
@@ -86,8 +78,6 @@ export type TasksBootstrapInclude = {
   habitCheckIns: boolean;
   taskExecutionEvents: boolean;
   frogCompletionEvents: boolean;
-  weeklyTaskScheduleSlots: boolean;
-  weeklyTaskScheduleCells: boolean;
 };
 
 export interface TasksBootstrapParams {
@@ -360,8 +350,6 @@ function defaultInclude(): TasksBootstrapInclude {
     habitCheckIns: true,
     taskExecutionEvents: true,
     frogCompletionEvents: true,
-    weeklyTaskScheduleSlots: true,
-    weeklyTaskScheduleCells: true,
   };
 }
 
@@ -493,8 +481,6 @@ export interface TasksBootstrapResult {
   habitCheckIns: Record<string, unknown>[];
   taskExecutionEvents: Record<string, unknown>[];
   frogCompletionEvents: Record<string, unknown>[];
-  weeklyTaskScheduleSlots: Record<string, unknown>[];
-  weeklyTaskScheduleCells: Record<string, unknown>[];
   meta: {
     serverTime: string;
     logicalToday: string;
@@ -572,8 +558,6 @@ export async function getTasksPageBootstrap(
     habitCheckIns: [],
     taskExecutionEvents: [],
     frogCompletionEvents: [],
-    weeklyTaskScheduleSlots: [],
-    weeklyTaskScheduleCells: [],
     meta: {
       serverTime: new Date().toISOString(),
       logicalToday: context.logicalToday,
@@ -670,20 +654,6 @@ export async function getTasksPageBootstrap(
       }),
     );
   }
-  if (include.weeklyTaskScheduleSlots) {
-    loaders.push(
-      listAllRecords('weekly_task_schedule_slots').then((rows) => {
-        result.weeklyTaskScheduleSlots = rows;
-      }),
-    );
-  }
-  if (include.weeklyTaskScheduleCells) {
-    loaders.push(
-      listAllRecords('weekly_task_schedule_cells').then((rows) => {
-        result.weeklyTaskScheduleCells = rows;
-      }),
-    );
-  }
 
   await Promise.all(loaders);
 
@@ -698,8 +668,6 @@ export async function getTasksPageBootstrap(
   if (include.habitCheckIns) versionTables.push('habit_check_ins');
   if (include.taskExecutionEvents) versionTables.push('task_execution_events');
   if (include.frogCompletionEvents) versionTables.push('frog_completion_events');
-  if (include.weeklyTaskScheduleSlots) versionTables.push('weekly_task_schedule_slots');
-  if (include.weeklyTaskScheduleCells) versionTables.push('weekly_task_schedule_cells');
 
   result.meta.tablesVersion = await loadTableVersions(versionTables, context);
 

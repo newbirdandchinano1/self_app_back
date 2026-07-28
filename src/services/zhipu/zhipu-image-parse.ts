@@ -1518,14 +1518,6 @@ export async function generateWeeklyReviewCoachingFromText(
   return { ok: true, text: pr.text, attempts: pr.attempts };
 }
 
-export type AnalyzeWeaknessReviewFromTextOptions = {
-  apiKey: string;
-  /** 缺点名称与详情的格式化文本，由调用方生成 */
-  weaknessContextText: string;
-  maxAttempts?: number;
-  retryDelayMs?: number;
-};
-
 export type AnalyzeProjectTasksReviewFromTextOptions = {
   apiKey: string;
   /** 项目与下属全部任务的格式化摘要，由调用方生成 */
@@ -1553,32 +1545,6 @@ export async function analyzeProjectTasksReviewFromText(
 
 输出形状示例（内容须替换为你的生成）：${MEMO_REVIEW_JSON_HINT}`,
     userMessage: `请根据以下项目与任务摘要生成 evaluation 与 suggestions 字段：\n\n${text}`,
-    maxAttempts: options.maxAttempts,
-    retryDelayMs: options.retryDelayMs,
-    reviewJsonNormalize: 'full',
-    maxTokens: 8192,
-  });
-}
-
-/**
- * 根据用户自述的缺点名称与详情生成中文「分析回应」与「改进建议」（智谱 glm-4-flash，JSON；字段名与备忘评价一致：evaluation / suggestions）。
- */
-export async function analyzeWeaknessReviewFromText(
-  options: AnalyzeWeaknessReviewFromTextOptions,
-): Promise<AnalyzeMemoReviewFromTextResult> {
-  const text = options.weaknessContextText.trim();
-  return runZhipuJsonEvaluationSuggestionsReview({
-    apiKey: options.apiKey,
-    contextText: text,
-    emptyContextError: '缺点描述为空',
-    systemInstruction: `你是个人成长应用中的「自我觉察」陪练。用户会自愿写下自己认为的一个缺点名称与详细说明（含元信息），用于自我梳理，数据仅存于用户本机。
-只输出一个标准 JSON 对象，不要 markdown 代码块、不要任何 JSON 以外的文字。
-必须包含两个字符串字段：
-- evaluation：对用户自述的善意、深度回应，须 300～400 个汉字（含标点；低于 280 字视为不合格）。分 3～5 段展开，可涉及触发情境、常见心理机制、认知重构、自我同情与优势资源等；禁止羞辱、贴负面人格标签或绝对化评判；不编造用户未写明的经历；若可能涉及临床心理健康问题，不下诊断，可温和提醒寻求专业支持。
-- suggestions：给出多条可执行的改进或应对策略（微习惯、环境设计、沟通、边界、时间管理等），用换行或分号分隔，总字数约 250～400 字；须写完整、勿用「见上文」等省略。
-
-输出形状示例（内容须替换为你的生成）：${MEMO_REVIEW_JSON_HINT}`,
-    userMessage: `请根据以下用户自述的缺点信息生成 evaluation 与 suggestions；evaluation 须 300～400 汉字：\n\n${text}`,
     maxAttempts: options.maxAttempts,
     retryDelayMs: options.retryDelayMs,
     reviewJsonNormalize: 'full',
