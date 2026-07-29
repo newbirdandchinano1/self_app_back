@@ -231,6 +231,9 @@ export function sortProjects(rows: Record<string, unknown>[]): Record<string, un
       if (aStatus === 'active') return -1;
       if (bStatus === 'active') return 1;
     }
+    const aPri = Number(a.priority ?? 0);
+    const bPri = Number(b.priority ?? 0);
+    if (aPri !== bPri) return bPri - aPri;
     return String(a.name ?? '').localeCompare(String(b.name ?? ''), 'zh-CN');
   });
 }

@@ -199,7 +199,24 @@ async function normalizeWriteData(
     }
   }
 
+  if (
+    (table === 'tasks' || table === 'projects') &&
+    meta.columns.includes('priority') &&
+    'priority' in result
+  ) {
+    result.priority = clampEisenhowerPriority(result.priority);
+  }
+
   return result;
+}
+
+/** 艾森豪威尔优先级：0 未设，1–4 四象限；非法值钳制到 0 */
+function clampEisenhowerPriority(value: unknown): number {
+  const n = typeof value === 'number' ? value : Number(value);
+  if (!Number.isFinite(n)) return 0;
+  const i = Math.trunc(n);
+  if (i < 0 || i > 4) return 0;
+  return i;
 }
 
 const YMD_RE = /^\d{4}-\d{2}-\d{2}$/;

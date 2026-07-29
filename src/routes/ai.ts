@@ -9,7 +9,6 @@ import {
   analyzeFinanceTxnCommentFromText,
   analyzeFoodNutritionFromImage,
   analyzeMemoReviewFromText,
-  analyzeProjectTasksReviewFromText,
   analyzeVisionWallGoalsFromText,
   analyzeWishItemAiCommentFromText,
   analyzeWishListRationalReviewFromText,
@@ -210,19 +209,6 @@ router.post('/memo/review', async (req, res, next) => {
     if (contextErr) return fail(res, contextErr);
 
     const data = await analyzeMemoReviewFromText(String(memo_context_text));
-    success(res, data);
-  } catch (err) {
-    handleAiError(err, res, next);
-  }
-});
-
-router.post('/project/tasks-review', async (req, res, next) => {
-  try {
-    const { project_context_text } = req.body ?? {};
-    const contextErr = requireNonEmptyString(project_context_text, 'project_context_text');
-    if (contextErr) return fail(res, contextErr);
-
-    const data = await analyzeProjectTasksReviewFromText(String(project_context_text));
     success(res, data);
   } catch (err) {
     handleAiError(err, res, next);

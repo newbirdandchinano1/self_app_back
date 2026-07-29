@@ -2,6 +2,7 @@ import './bootstrap/timezone.js';
 import app from './app.js';
 import { config } from './config/index.js';
 import { testConnection } from './db/index.js';
+import { ensureProjectsPriorityColumn } from './db/ensure-projects-priority.js';
 import { initAdminTable } from './db/init-admin.js';
 import { ensureInboxCatalogSeed } from './services/pages/catalog-inbox-seed.js';
 
@@ -24,6 +25,7 @@ async function waitForDb(maxAttempts = 30, intervalMs = 2000): Promise<void> {
 async function bootstrap() {
   await waitForDb();
   await initAdminTable();
+  await ensureProjectsPriorityColumn();
   await ensureInboxCatalogSeed();
 }
 

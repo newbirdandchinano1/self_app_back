@@ -9,6 +9,7 @@
     "start": "node dist/index.js",
     "lint": "eslint src/",
     "db:drop-deleted-version": "node scripts/drop-deleted-at-version.mjs",
+    "db:add-projects-priority": "node scripts/add-projects-priority.mjs",
     "docs:api": "node scripts/generate-api-doc.mjs",
     "test:tz": "tsx scripts/logical-day-selftest.ts"
   },

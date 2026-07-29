@@ -1518,40 +1518,6 @@ export async function generateWeeklyReviewCoachingFromText(
   return { ok: true, text: pr.text, attempts: pr.attempts };
 }
 
-export type AnalyzeProjectTasksReviewFromTextOptions = {
-  apiKey: string;
-  /** 项目与下属全部任务的格式化摘要，由调用方生成 */
-  projectContextText: string;
-  maxAttempts?: number;
-  retryDelayMs?: number;
-};
-
-/**
- * 根据项目及其全部任务摘要生成中文「整体点评」与「行动建议」（智谱 glm-4-flash，JSON：evaluation / suggestions）。
- */
-export async function analyzeProjectTasksReviewFromText(
-  options: AnalyzeProjectTasksReviewFromTextOptions,
-): Promise<AnalyzeMemoReviewFromTextResult> {
-  const text = options.projectContextText.trim();
-  return runZhipuJsonEvaluationSuggestionsReview({
-    apiKey: options.apiKey,
-    contextText: text,
-    emptyContextError: '项目任务摘要为空',
-    systemInstruction: `你是个人效率与项目管理应用中的项目教练。用户会提供某个本地项目的名称、状态、备注，以及该项目下全部任务（含子任务）的清单摘要，数据仅存于用户本机。
-只输出一个标准 JSON 对象，不要 markdown 代码块、不要任何 JSON 以外的文字。
-必须包含两个字符串字段：
-- evaluation：对项目整体推进情况的点评（进度健康度、优先级分布是否合理、是否存在明显风险或瓶颈、任务拆解是否清晰等），3～6 句中文，总字数约 100～280 字；语气具体、友善，不羞辱用户；不要编造摘要中未出现的任务或日期。
-- suggestions：给出 3～8 条可执行建议（下一步优先做什么、如何调整优先级/截止日期、是否需要拆分或合并任务、如何降低拖延风险等），用中文分号或换行分隔，总字数建议 120～500 字。
-
-输出形状示例（内容须替换为你的生成）：${MEMO_REVIEW_JSON_HINT}`,
-    userMessage: `请根据以下项目与任务摘要生成 evaluation 与 suggestions 字段：\n\n${text}`,
-    maxAttempts: options.maxAttempts,
-    retryDelayMs: options.retryDelayMs,
-    reviewJsonNormalize: 'full',
-    maxTokens: 8192,
-  });
-}
-
 export const VISION_WALL_AI_SECTION_BODY_MIN_LEN = 220;
 export const VISION_WALL_AI_SECTION_BODY_TARGET_MIN_TOTAL = 1600;
 
