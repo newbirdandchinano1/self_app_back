@@ -105,10 +105,13 @@ export async function ensureWishBoardTables(): Promise<void> {
         extra_data JSON NULL,
         PRIMARY KEY (id),
         KEY idx_points_ledger_created_at (created_at),
-        KEY idx_points_ledger_ref (ref_type, ref_id)
+        KEY idx_points_ledger_ref (ref_type, ref_id),
+        KEY idx_points_ledger_reason (reason, created_at)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     `);
     console.log('[DB] 已创建表 points_ledger');
+  } else {
+    await ensurePointsLedgerIndexes();
   }
 
   const [result] = await db.query<ResultSetHeader>(
@@ -118,6 +121,16 @@ export async function ensureWishBoardTables(): Promise<void> {
   );
   if (result.affectedRows === 1) {
     console.log('[DB] 已初始化 points_wallet.default');
+  }
+}
+
+/** 流水按 reason / 时间查询（已兑换 = wish_redeem） */
+async function ensurePointsLedgerIndexes(): Promise<void> {
+  if (!(await indexExists('points_ledger', 'idx_points_ledger_reason'))) {
+    await db.query(
+      `CREATE INDEX idx_points_ledger_reason ON points_ledger (reason, created_at)`,
+    );
+    console.log('[DB] 已创建索引 idx_points_ledger_reason');
   }
 }
 

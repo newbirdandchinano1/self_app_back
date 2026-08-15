@@ -53,7 +53,7 @@ export interface RedeemResult {
   ok: true;
   balance: number;
   ledger_id: string;
-  /** 便于客户端合并本地状态（已兑换列表依赖 status / redeemed_at） */
+  /** 合并本地心愿行；「已兑换」列表以 wish_redeem 流水为准（含 repeat 每次兑换） */
   item: RedeemResultItem;
 }
 

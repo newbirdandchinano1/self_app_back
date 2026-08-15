@@ -229,13 +229,15 @@ export const TABLE_COLUMN_LABELS: Partial<
     cost_points: '兑换所需积分',
     icon_key: '图标',
     wish_type: '心愿类型（once/repeat）',
-    status: '状态（active=列表 / redeemed=已兑换）',
+    status: '状态（active=心愿列表 / redeemed=一次性已兑完）',
     redeemed_at: '最近兑换时间',
   },
   points_ledger: {
-    reason: '变动原因（habit/task/project_complete / wish_redeem / points_reset 等）',
+    reason: '变动原因（wish_redeem=已兑换记录来源；另有 habit/task/project_complete / points_reset 等）',
     ref_type: '关联类型（habit/task/project/wish_board_item / points_wallet）',
-    ref_id: '关联实体ID',
+    ref_id: '关联实体ID（兑换时为心愿 id）',
+    delta: '积分变动（兑换为负）',
+    balance_after: '变动后余额',
   },
 };
 

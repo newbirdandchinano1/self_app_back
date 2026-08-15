@@ -486,6 +486,14 @@ async function validateForeignKeys(
 
 export interface ListOptions extends ListQueryParams {}
 
+function listOrderBySql(table: AllowedTable, primaryKey: string): string {
+  // 流水按时间倒序，便于客户端拼「已兑换」；UUID 主键无时间语义
+  if (table === 'points_ledger') {
+    return `${quoteIdent('created_at')} DESC, ${quoteIdent(primaryKey)} DESC`;
+  }
+  return `${quoteIdent(primaryKey)} DESC`;
+}
+
 export async function listRecords(tableName: string, options: ListOptions = {}) {
   const table = assertTable(tableName);
   const meta = await getTableMeta(table);
@@ -516,7 +524,7 @@ export async function listRecords(tableName: string, options: ListOptions = {}) 
   const [rows] = await db.query<RowDataPacket[]>(
     `SELECT ${selectCols} FROM ${quoteIdent(table)}
      ${whereSql}
-     ORDER BY ${quoteIdent(meta.primaryKey)} DESC
+     ORDER BY ${listOrderBySql(table, meta.primaryKey)}
      LIMIT ? OFFSET ?`,
     [...built.whereValues, limit, offset],
   );
@@ -552,7 +560,7 @@ export async function listAllRecords(
   const [rows] = await db.query<RowDataPacket[]>(
     `SELECT ${selectCols} FROM ${quoteIdent(table)}
      ${whereSql}
-     ORDER BY ${quoteIdent(meta.primaryKey)} DESC
+     ORDER BY ${listOrderBySql(table, meta.primaryKey)}
      LIMIT ?`,
     [...built.whereValues, maxRows],
   );
