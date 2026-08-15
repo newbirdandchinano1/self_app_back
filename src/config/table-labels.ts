@@ -12,7 +12,6 @@ export const TABLE_LABELS: Record<AllowedTable, string> = {
   cash_flow_incomes: '现金流收入',
   cash_flow_profile: '现金流配置',
   daily_review_journal: '每日复盘',
-  earned_rewards: '已获得奖励',
   finance_account_types: '财务账户类型',
   finance_accounts: '财务账户',
   finance_flow_categories: '财务流水分类',
@@ -26,6 +25,8 @@ export const TABLE_LABELS: Record<AllowedTable, string> = {
   memo_dimensions: '备忘录维度',
   memos: '备忘录',
   monthly_review_journal: '每月复盘',
+  points_ledger: '积分流水',
+  points_wallet: '积分钱包',
   project_categories: '项目分类',
   projects: '项目',
   recipe_categories: '食谱分类',
@@ -41,6 +42,7 @@ export const TABLE_LABELS: Record<AllowedTable, string> = {
   users: '用户',
   visions: '愿景',
   weekly_review_journal: '每周复盘',
+  wish_board_items: '心愿板',
   wish_items: '心愿单',
 };
 
@@ -80,6 +82,13 @@ export const COLUMN_LABELS: Record<string, string> = {
   habit_id: '习惯ID',
   user_id: '用户ID',
   wish_item_id: '心愿ID',
+  wish_board_item_id: '心愿板条目ID',
+  cost_points: '所需积分',
+  wish_type: '心愿类型',
+  delta: '积分变动',
+  balance_after: '变动后余额',
+  ref_type: '关联类型',
+  ref_id: '关联ID',
   savings_plan_id: '储蓄计划ID',
   flow_category_id: '流水分类ID',
   dimension_id: '维度ID',
@@ -105,6 +114,7 @@ export const COLUMN_LABELS: Record<string, string> = {
   weight: '体重',
   age: '年龄',
   avatar_uri: '头像',
+  persona_portrait: '人物画像',
   reference_image_uri: '参考图片',
   finished_image_uri: '成品图片',
   source_image_uri: '来源图片',
@@ -212,6 +222,19 @@ export const TABLE_COLUMN_LABELS: Partial<
   memos: {
     dimension_id: '备忘录维度ID',
     dimension: '维度名称（冗余）',
+  },
+  wish_board_items: {
+    title: '心愿标题',
+    description: '描述',
+    cost_points: '兑换所需积分',
+    icon_key: '图标',
+    wish_type: '心愿类型（once/repeat）',
+    status: '状态（active/redeemed）',
+  },
+  points_ledger: {
+    reason: '变动原因（habit/task/project_complete 等）',
+    ref_type: '关联类型（habit/task/project/wish_board_item）',
+    ref_id: '关联实体ID',
   },
 };
 

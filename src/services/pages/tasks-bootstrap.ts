@@ -64,6 +64,9 @@ const INCLUDE_ALIASES: Record<string, keyof TasksBootstrapInclude | 'heatmap'> =
   frogcompletionevents: 'frogCompletionEvents',
   frog_completion_events: 'frogCompletionEvents',
   frogCompletionEvents: 'frogCompletionEvents',
+  pointswallet: 'pointsWallet',
+  points_wallet: 'pointsWallet',
+  pointsWallet: 'pointsWallet',
   heatmap: 'heatmap',
 };
 
@@ -78,6 +81,7 @@ export type TasksBootstrapInclude = {
   habitCheckIns: boolean;
   taskExecutionEvents: boolean;
   frogCompletionEvents: boolean;
+  pointsWallet: boolean;
 };
 
 export interface TasksBootstrapParams {
@@ -350,6 +354,7 @@ function defaultInclude(): TasksBootstrapInclude {
     habitCheckIns: true,
     taskExecutionEvents: true,
     frogCompletionEvents: true,
+    pointsWallet: true,
   };
 }
 
@@ -481,6 +486,8 @@ export interface TasksBootstrapResult {
   habitCheckIns: Record<string, unknown>[];
   taskExecutionEvents: Record<string, unknown>[];
   frogCompletionEvents: Record<string, unknown>[];
+  /** 缺省积分钱包；未 include 时为 null */
+  pointsWallet: Record<string, unknown> | null;
   meta: {
     serverTime: string;
     logicalToday: string;
@@ -558,6 +565,7 @@ export async function getTasksPageBootstrap(
     habitCheckIns: [],
     taskExecutionEvents: [],
     frogCompletionEvents: [],
+    pointsWallet: null,
     meta: {
       serverTime: new Date().toISOString(),
       logicalToday: context.logicalToday,
@@ -652,6 +660,15 @@ export async function getTasksPageBootstrap(
       ).then((rows) => {
         result.frogCompletionEvents = rows;
       }),
+    );
+  }
+  if (include.pointsWallet) {
+    loaders.push(
+      import('../wish-board.js').then(({ getOrCreateDefaultWallet }) =>
+        getOrCreateDefaultWallet().then((wallet) => {
+          result.pointsWallet = wallet as unknown as Record<string, unknown>;
+        }),
+      ),
     );
   }
 

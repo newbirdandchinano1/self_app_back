@@ -8,6 +8,7 @@ import calendarRouter from './calendar.js';
 import pagesRouter from './pages.js';
 import authRouter from './auth.js';
 import aiRouter from './ai.js';
+import wishBoardRouter from './wish-board.js';
 
 const router = Router();
 
@@ -28,6 +29,7 @@ router.use('/api/auth', apiConcurrency, authRouter);
 router.use('/api/ai', aiConcurrency, aiRouter);
 router.use('/api', apiConcurrency, pagesRouter);
 router.use('/api', apiConcurrency, calendarRouter);
+router.use('/api', apiConcurrency, wishBoardRouter);
 router.use('/api', apiConcurrency, crudRouter);
 
 export default router;

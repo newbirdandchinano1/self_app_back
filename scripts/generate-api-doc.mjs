@@ -8,17 +8,18 @@ const TABLE_LABELS = {
   account_transactions: '账户流水', accounts: '账户', admin_users: '管理员',
   app_meta: '应用元数据', app_settings: '应用设置', cash_flow_expense_lines: '现金流支出项',
   cash_flow_holdings: '现金流持仓', cash_flow_incomes: '现金流收入', cash_flow_profile: '现金流配置',
-  daily_review_journal: '每日复盘', earned_rewards: '已获得奖励', finance_account_types: '财务账户类型',
+  daily_review_journal: '每日复盘', finance_account_types: '财务账户类型',
   finance_accounts: '财务账户', finance_flow_categories: '财务流水分类', finance_transactions: '财务交易',
   frog_completion_events: '青蛙完成事件', goal_dimensions: '目标维度', habit_check_ins: '习惯打卡',
   habit_contexts: '习惯场景', habits: '习惯', health_records: '健康记录', memo_dimensions: '备忘录维度', memos: '备忘录',
   monthly_review_journal: '每月复盘',
+  points_ledger: '积分流水', points_wallet: '积分钱包',
   project_categories: '项目分类', projects: '项目',
   recipe_categories: '食谱分类', recipe_items: '食谱', review_columns: '复盘栏目', review_dimensions: '复盘维度',
   savings_plan_deposits: '储蓄存入记录', savings_plans: '储蓄计划', task_categories: '任务分类',
   task_execution_events: '任务执行事件', task_items: '任务子项', tasks: '任务',
   users: '用户', visions: '愿景', weekly_review_journal: '每周复盘',
-  wish_items: '心愿单',
+  wish_board_items: '心愿板', wish_items: '心愿单',
 };
 
 const COLUMN_LABELS = {
@@ -27,7 +28,9 @@ const COLUMN_LABELS = {
   description:'描述', detail:'详情', type:'类型', status:'状态', amount:'金额', balance:'余额', currency:'货币',
   category:'分类', dimension:'维度', category_id:'分类ID', category_label:'分类标签', account_id:'账户ID', account_no:'账号编号',
   account_type:'账户类型', parent_id:'父级ID', project_id:'项目ID', task_id:'任务ID', habit_id:'习惯ID',
-  user_id:'用户ID', wish_item_id:'心愿ID', savings_plan_id:'储蓄计划ID', flow_category_id:'流水分类ID',
+  user_id:'用户ID', wish_item_id:'心愿ID', wish_board_item_id:'心愿板条目ID', cost_points:'所需积分',
+  wish_type:'心愿类型', delta:'积分变动', balance_after:'变动后余额', ref_type:'关联类型', ref_id:'关联ID',
+  savings_plan_id:'储蓄计划ID', flow_category_id:'流水分类ID',
   dimension_id:'维度ID', linked_task_id:'关联任务ID', parent_task_id:'父任务ID', source_id:'来源ID',
   source_type:'来源类型', source_title:'来源标题', reward_kind:'奖励类型', label:'标签', tag:'标签', icon:'图标',
   icon_key:'图标键', tone:'色调', context:'场景', gender:'性别', lifestyle:'生活方式', goal:'目标',
@@ -62,10 +65,10 @@ const MODULES = [
   { title: '用户与管理员', tables: ['users', 'admin_users'] },
   { title: '任务与项目', tables: ['task_categories', 'tasks', 'task_items', 'task_execution_events', 'project_categories', 'projects', 'frog_completion_events'] },
   { title: '习惯', tables: ['habits', 'habit_check_ins', 'habit_contexts'] },
-  { title: '备忘录与愿景', tables: ['memo_dimensions', 'memos', 'visions', 'goal_dimensions', 'wish_items'] },
+  { title: '备忘录与愿景', tables: ['memo_dimensions', 'memos', 'visions', 'goal_dimensions', 'wish_items', 'wish_board_items', 'points_wallet', 'points_ledger'] },
   { title: '健康与食谱', tables: ['health_records', 'recipe_categories', 'recipe_items'] },
   { title: '财务与账户', tables: ['accounts', 'account_transactions', 'finance_accounts', 'finance_account_types', 'finance_flow_categories', 'finance_transactions', 'cash_flow_profile', 'cash_flow_incomes', 'cash_flow_expense_lines', 'cash_flow_holdings', 'savings_plans', 'savings_plan_deposits'] },
-  { title: '复盘与奖励', tables: ['daily_review_journal', 'weekly_review_journal', 'monthly_review_journal', 'review_dimensions', 'review_columns', 'earned_rewards'] },
+  { title: '复盘', tables: ['daily_review_journal', 'weekly_review_journal', 'monthly_review_journal', 'review_dimensions', 'review_columns'] },
   { title: '系统与缓存', tables: ['app_meta', 'app_settings'] },
 ];
 
@@ -113,6 +116,21 @@ function fieldNote(table, r) {
   if (table === 'memo_dimensions' && r.col === 'title') notes.push('App 端 name 写入本字段 title');
   if (table === 'memos' && r.col === 'dimension_id') notes.push('引用 memo_dimensions.id');
   if (table === 'memos' && r.col === 'dimension') notes.push('与 App 端 dimension 一致');
+  if (table === 'habits' && r.col === 'extra_data') {
+    notes.push('含 habitKind / reward_points(0~99999) / quantify 等；整包存储勿剥未知键');
+  }
+  if (table === 'tasks' && r.col === 'extra_data') {
+    notes.push('含 reward_points(0~99999) / schedule / reminder 等；整包存储；勿依赖旧键 completion_reward');
+  }
+  if (table === 'projects' && r.col === 'extra_data') {
+    notes.push('含 reward_points(0~99999) / is_long_term 等；整包存储；勿依赖旧键 completion_reward');
+  }
+  if (table === 'points_ledger' && r.col === 'reason') {
+    notes.push('如 wish_redeem / habit_check_in / task_complete / project_complete 及对应 _undo');
+  }
+  if (table === 'points_ledger' && r.col === 'ref_type') {
+    notes.push('如 wish_board_item / habit / task / project');
+  }
   return notes.length ? notes.join('；') : '-';
 }
 

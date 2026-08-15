@@ -10,7 +10,6 @@ export const ALLOWED_TABLES = [
   'cash_flow_incomes',
   'cash_flow_profile',
   'daily_review_journal',
-  'earned_rewards',
   'finance_account_types',
   'finance_accounts',
   'finance_flow_categories',
@@ -24,6 +23,8 @@ export const ALLOWED_TABLES = [
   'memo_dimensions',
   'memos',
   'monthly_review_journal',
+  'points_ledger',
+  'points_wallet',
   'project_categories',
   'projects',
   'recipe_categories',
@@ -39,6 +40,7 @@ export const ALLOWED_TABLES = [
   'users',
   'visions',
   'weekly_review_journal',
+  'wish_board_items',
   'wish_items',
 ] as const;
 
@@ -52,9 +54,11 @@ export const TABLE_PRIMARY_KEYS: Partial<Record<AllowedTable, string>> = {
 
 /** 创建时必须由客户端提供 id，服务端不自动生成（用于多端同步） */
 export const CLIENT_ID_TABLES: readonly AllowedTable[] = [
+  'points_ledger',
   'project_categories',
   'projects',
   'task_categories',
+  'wish_board_items',
 ];
 
 /** 外键字段 -> 引用表（用于写入校验与 /api/tables 元数据） */

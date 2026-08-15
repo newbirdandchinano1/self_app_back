@@ -2,7 +2,10 @@ import './bootstrap/timezone.js';
 import app from './app.js';
 import { config } from './config/index.js';
 import { testConnection } from './db/index.js';
+import { ensureDropEarnedRewards } from './db/ensure-drop-earned-rewards.js';
 import { ensureProjectsPriorityColumn } from './db/ensure-projects-priority.js';
+import { ensureUsersPersonaPortraitColumn } from './db/ensure-users-persona-portrait.js';
+import { ensureWishBoardTables } from './db/ensure-wish-board.js';
 import { initAdminTable } from './db/init-admin.js';
 import { ensureInboxCatalogSeed } from './services/pages/catalog-inbox-seed.js';
 
@@ -26,6 +29,9 @@ async function bootstrap() {
   await waitForDb();
   await initAdminTable();
   await ensureProjectsPriorityColumn();
+  await ensureUsersPersonaPortraitColumn();
+  await ensureDropEarnedRewards();
+  await ensureWishBoardTables();
   await ensureInboxCatalogSeed();
 }
 

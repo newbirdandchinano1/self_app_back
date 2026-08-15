@@ -72,6 +72,7 @@ export async function getHabitsGrid(params: TasksBootstrapParams): Promise<Habit
     id: String(row.id ?? ''),
     name: String(row.name ?? ''),
     icon: String(row.icon ?? ''),
+    note: row.note == null ? null : String(row.note),
     extra_data: row.extra_data == null ? null : String(row.extra_data),
     context: row.context == null ? null : String(row.context),
   }));

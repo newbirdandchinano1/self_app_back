@@ -60,6 +60,7 @@ export type CalendarHabitRow = {
   id: string;
   name: string;
   icon: string;
+  note?: string | null;
   extra_data: string | null;
   created_at?: string;
 };

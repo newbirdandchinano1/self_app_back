@@ -144,6 +144,13 @@ function parseHabitKind(extraData: string | null): HabitKind {
   return 'build';
 }
 
+/** habits.extra_data.reward_points：单次有效打卡奖励，缺省 0，范围 0..99999 */
+function parseHabitRewardPoints(extraData: string | null): number {
+  const raw = parseExtraObject(extraData).reward_points;
+  if (typeof raw !== 'number' || !Number.isFinite(raw)) return 0;
+  return Math.min(99999, Math.max(0, Math.round(raw)));
+}
+
 function parseQuantifyRaw(extraData: string | null) {
   const q = parseExtraObject(extraData).quantify;
   if (!q || typeof q !== 'object' || Array.isArray(q)) return null;
@@ -767,7 +774,9 @@ export type HabitsGridItem = {
   id: string;
   name: string;
   icon: string;
+  note: string;
   kind: HabitKind;
+  rewardPoints: number;
   todayCount: number;
   dailyGoal: number | null;
   displayCompleted: boolean;
@@ -808,7 +817,9 @@ export function buildHabitsGridItemsForDay(params: {
       id: habit.id,
       name: habit.name,
       icon: habit.icon,
+      note: habit.note == null ? '' : String(habit.note),
       kind,
+      rewardPoints: parseHabitRewardPoints(habit.extra_data),
       todayCount: count,
       dailyGoal,
       displayCompleted,
