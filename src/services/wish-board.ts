@@ -41,15 +41,20 @@ async function lockOrCreateWallet(conn: PoolConnection): Promise<number> {
   return Number(rows[0]?.balance ?? 0);
 }
 
-export interface RedeemResult {
-  ok: true;
-  wish_board_item_id: string;
+export interface RedeemResultItem {
+  id: string;
+  status: 'active' | 'redeemed';
+  redeemed_at: string;
   wish_type: 'once' | 'repeat';
   cost_points: number;
+}
+
+export interface RedeemResult {
+  ok: true;
   balance: number;
-  status: 'active' | 'redeemed';
   ledger_id: string;
-  redeemed_at: string;
+  /** 便于客户端合并本地状态（已兑换列表依赖 status / redeemed_at） */
+  item: RedeemResultItem;
 }
 
 /** 原子兑换：锁心愿 + 锁钱包 → 扣积分 → once 标兑换 / repeat 保持 active → 写流水 */
@@ -98,6 +103,7 @@ export async function redeemWishBoardItem(wishBoardItemId: string): Promise<Rede
     const now = nowUtcMysql();
     const ledgerId = newLedgerId();
     const nextStatus: 'active' | 'redeemed' = wishType === 'repeat' ? 'active' : 'redeemed';
+    const redeemedAtApi = formatDbDateTimeForApi(now, 'utc') ?? now;
 
     await conn.query<ResultSetHeader>(
       `UPDATE points_wallet
@@ -124,13 +130,15 @@ export async function redeemWishBoardItem(wishBoardItemId: string): Promise<Rede
 
     return {
       ok: true,
-      wish_board_item_id: id,
-      wish_type: wishType,
-      cost_points: costPoints,
       balance: newBalance,
-      status: nextStatus,
       ledger_id: ledgerId,
-      redeemed_at: formatDbDateTimeForApi(now, 'utc') ?? now,
+      item: {
+        id,
+        status: nextStatus,
+        redeemed_at: redeemedAtApi,
+        wish_type: wishType,
+        cost_points: costPoints,
+      },
     };
   } catch (err) {
     await conn.rollback();
@@ -142,7 +150,7 @@ export async function redeemWishBoardItem(wishBoardItemId: string): Promise<Rede
 
 /**
  * 积分流水常见 reason（adjust 不强制白名单，长度 ≤64 即可）。
- * habit_* / task_* / project_* / wish_redeem 与 APP 约定一致。
+ * habit_* / task_* / project_* / wish_redeem / points_reset 与 APP 约定一致。
  */
 export const POINTS_LEDGER_REASONS = [
   'habit_check_in',
@@ -152,6 +160,7 @@ export const POINTS_LEDGER_REASONS = [
   'project_complete',
   'project_complete_undo',
   'wish_redeem',
+  'points_reset',
   'manual_adjust',
 ] as const;
 
@@ -279,6 +288,56 @@ export async function adjustPoints(input: AdjustPointsInput): Promise<AdjustPoin
       ledger_id: ledgerId,
       delta,
     };
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
+}
+
+export interface ResetPointsResult {
+  balance: 0;
+  delta: number;
+  ledger_id: string | null;
+}
+
+/**
+ * 心愿板「重置积分」：事务内清零钱包并追加 points_reset 负向流水。
+ * 余额已为 0 时 no-op（不写流水），返回 delta=0、ledger_id=null。
+ */
+export async function resetPoints(): Promise<ResetPointsResult> {
+  const conn = await db.getConnection();
+  try {
+    await conn.beginTransaction();
+
+    const balance = await lockOrCreateWallet(conn);
+    if (balance <= 0) {
+      await conn.commit();
+      return { balance: 0, delta: 0, ledger_id: null };
+    }
+
+    const delta = -balance;
+    const now = nowUtcMysql();
+    const ledgerId = newLedgerId();
+
+    await conn.query<ResultSetHeader>(
+      `UPDATE points_wallet
+       SET balance = 0, updated_at = ?, sync_status = 'synced'
+       WHERE id = ?`,
+      [now, WALLET_ID],
+    );
+
+    await conn.query(
+      `INSERT INTO points_ledger
+        (id, delta, balance_after, reason, ref_type, ref_id, created_at, updated_at, sync_status)
+       VALUES (?, ?, 0, 'points_reset', 'points_wallet', ?, ?, ?, 'synced')`,
+      [ledgerId, delta, WALLET_ID, now, now],
+    );
+
+    await conn.commit();
+
+    return { balance: 0, delta, ledger_id: ledgerId };
   } catch (err) {
     await conn.rollback();
     throw err;

@@ -326,15 +326,17 @@ function normalizeWishBoardItemWrite(result: Record<string, unknown>, isCreate: 
     result.wish_type = wishType;
   }
 
-  if (isCreate) {
-    result.status = 'active';
-    result.redeemed_at = null;
-  } else if ('status' in result) {
-    const status = String(result.status ?? '').trim();
+  // 同步可上传已兑换行：保留客户端 status / redeemed_at（勿强制 active）
+  if (isCreate || 'status' in result) {
+    const status = String(result.status ?? (isCreate ? 'active' : '')).trim();
     if (status !== 'active' && status !== 'redeemed') {
       throw new CrudError('status 仅支持 active / redeemed', 400);
     }
     result.status = status;
+  }
+
+  if (isCreate && !('redeemed_at' in result)) {
+    result.redeemed_at = null;
   }
 
   if (isCreate && result.sort_order == null) {
@@ -345,7 +347,7 @@ function normalizeWishBoardItemWrite(result: Record<string, unknown>, isCreate: 
 function normalizePointsLedgerWrite(result: Record<string, unknown>, isCreate: boolean): void {
   if (isCreate || 'delta' in result) {
     const n = typeof result.delta === 'number' ? result.delta : Number(result.delta);
-    // 允许负 delta（task_complete_undo / habit_check_in_undo / project_complete_undo 等扣回）
+    // 允许负 delta（*_undo / wish_redeem / points_reset 等扣回）
     if (!Number.isFinite(n) || !Number.isInteger(n)) {
       throw new CrudError('delta 必须为整数', 400);
     }
@@ -763,13 +765,13 @@ async function assertPointsWalletNotStale(
   }
 }
 
-/** 一次性已兑换：禁止改 title / cost_points / wish_type→repeat */
+/** 一次性已兑换：禁止改 title / cost_points / wish_type→repeat（同值回写允许，便于多端同步） */
 async function assertWishBoardItemMutable(
   id: string,
   data: Record<string, unknown>,
 ): Promise<void> {
   const [rows] = await db.query<RowDataPacket[]>(
-    `SELECT status, wish_type FROM wish_board_items WHERE id = ? LIMIT 1`,
+    `SELECT status, wish_type, title, cost_points FROM wish_board_items WHERE id = ? LIMIT 1`,
     [id],
   );
   const row = rows[0];
@@ -778,11 +780,19 @@ async function assertWishBoardItemMutable(
   const isRedeemedOnce = row.status === 'redeemed' && (row.wish_type ?? 'once') === 'once';
   if (!isRedeemedOnce) return;
 
-  if (
-    Object.prototype.hasOwnProperty.call(data, 'title') ||
-    Object.prototype.hasOwnProperty.call(data, 'cost_points')
-  ) {
-    throw new CrudError('已兑换的心愿不可修改 title / cost_points', 400);
+  if (Object.prototype.hasOwnProperty.call(data, 'title')) {
+    const nextTitle = String(data.title ?? '').trim();
+    if (nextTitle !== String(row.title ?? '').trim()) {
+      throw new CrudError('已兑换的心愿不可修改 title / cost_points', 400);
+    }
+  }
+
+  if (Object.prototype.hasOwnProperty.call(data, 'cost_points')) {
+    const nextCost = Number(data.cost_points);
+    const serverCost = Number(row.cost_points ?? 0);
+    if (!Number.isFinite(nextCost) || Math.trunc(nextCost) !== serverCost) {
+      throw new CrudError('已兑换的心愿不可修改 title / cost_points', 400);
+    }
   }
 
   if (Object.prototype.hasOwnProperty.call(data, 'wish_type')) {

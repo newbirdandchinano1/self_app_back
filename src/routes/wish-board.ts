@@ -5,6 +5,7 @@ import {
   adjustPoints,
   getPointsBalance,
   redeemWishBoardItem,
+  resetPoints,
   WishBoardError,
 } from '../services/wish-board.js';
 
@@ -77,6 +78,19 @@ router.get('/wish-board/points/balance', async (_req, res, next) => {
     const result = await getPointsBalance();
     return success(res, result);
   } catch (err) {
+    next(err);
+  }
+});
+
+/** POST /api/wish-board/points/reset — 心愿板重置积分（清零 + points_reset 流水） */
+router.post('/wish-board/points/reset', async (_req, res, next) => {
+  try {
+    const data = await resetPoints();
+    return success(res, data);
+  } catch (err) {
+    if (err instanceof WishBoardError) {
+      return sendWishBoardError(res, err);
+    }
     next(err);
   }
 });
