@@ -1,6 +1,6 @@
 import { Router, type Request } from 'express';
-import { requireAuth } from '../middlewares/auth.js';
-import { success, fail } from '../utils/response.js';
+import { requireAuth } from '../../middlewares/auth.js';
+import { success, fail } from '../../utils/response.js';
 import {
   createRecord,
   CrudError,
@@ -9,9 +9,9 @@ import {
   listRecords,
   listTableNames,
   updateRecord,
-} from '../services/crud.js';
-import { isAllowedTable } from '../config/tables.js';
-import { parseListQueryFromRequest } from '../services/list-query.js';
+} from '../../services/crud.js';
+import { isAllowedTable } from '../../config/tables.js';
+import { parseListQueryFromRequest } from '../../services/list-query.js';
 
 const router = Router();
 

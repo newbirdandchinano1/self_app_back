@@ -1,7 +1,7 @@
 import { Router } from 'express';
-import { success, fail } from '../utils/response.js';
-import { loginAdmin } from '../services/auth.js';
-import { requireAuth } from '../middlewares/auth.js';
+import { success, fail } from '../../utils/response.js';
+import { loginAdmin } from '../../services/auth.js';
+import { requireAuth } from '../../middlewares/auth.js';
 
 const router = Router();
 

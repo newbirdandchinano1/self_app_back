@@ -1,18 +1,18 @@
 import { Router, type Request } from 'express';
-import { requireAuth } from '../middlewares/auth.js';
-import { getProjectList, type ProjectListParams } from '../services/pages/project-list.js';
-import { getTaskList, type TaskListParams } from '../services/pages/task-list.js';
+import { requireAuth } from '../../middlewares/auth.js';
+import { getProjectList, type ProjectListParams } from '../../services/pages/project-list.js';
+import { getTaskList, type TaskListParams } from '../../services/pages/task-list.js';
 import {
   getTasksPageBootstrap,
   getTasksPageSummary,
   type TasksBootstrapParams,
-} from '../services/pages/tasks-bootstrap.js';
-import { CatalogIntegrityError, getTasksCatalog } from '../services/pages/tasks-catalog.js';
-import { getTodayFrogTasks } from '../services/pages/today-frogs.js';
-import { getHabitsGrid } from '../services/pages/habits-grid.js';
-import { getCompletionHeatmap } from '../services/pages/completion-heatmap.js';
-import { getTasksOverview } from '../services/pages/tasks-overview.js';
-import { success } from '../utils/response.js';
+} from '../../services/pages/tasks-bootstrap.js';
+import { CatalogIntegrityError, getTasksCatalog } from '../../services/pages/tasks-catalog.js';
+import { getTodayFrogTasks } from '../../services/pages/today-frogs.js';
+import { getHabitsGrid } from '../../services/pages/habits-grid.js';
+import { getCompletionHeatmap } from '../../services/pages/completion-heatmap.js';
+import { getTasksOverview } from '../../services/pages/tasks-overview.js';
+import { success } from '../../utils/response.js';
 
 const router = Router();
 

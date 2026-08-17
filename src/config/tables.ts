@@ -19,6 +19,7 @@ export const ALLOWED_TABLES = [
   'habit_check_ins',
   'habit_contexts',
   'habits',
+  'health_daily_targets',
   'health_records',
   'memo_dimensions',
   'memos',
@@ -79,6 +80,9 @@ export const TABLE_FOREIGN_KEYS: Partial<
   memos: {
     dimension_id: 'memo_dimensions',
   },
+  recipe_items: {
+    category_id: 'recipe_categories',
+  },
 };
 
 /** 同步上传时的前置依赖表（需先完成 POST，再上传当前表） */
@@ -87,6 +91,7 @@ export const TABLE_SYNC_DEPENDS_ON: Partial<Record<AllowedTable, AllowedTable[]>
   task_items: ['tasks'],
   projects: ['project_categories'],
   memos: ['memo_dimensions'],
+  recipe_items: ['recipe_categories'],
 };
 
 /** 响应中隐藏的字段 */

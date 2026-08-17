@@ -1,35 +1,24 @@
 import { Router } from 'express';
-import { concurrencyConfig } from '../config/index.js';
-import { createConcurrencyMiddleware } from '../middlewares/concurrency.js';
 import healthRouter from './health.js';
 import homeRouter from './home.js';
-import crudRouter from './crud.js';
-import calendarRouter from './calendar.js';
-import pagesRouter from './pages.js';
-import authRouter from './auth.js';
-import aiRouter from './ai.js';
-import wishBoardRouter from './wish-board.js';
+import appRouter from './app/index.js';
+import adminRouter from './admin/index.js';
 
 const router = Router();
 
-const apiConcurrency = createConcurrencyMiddleware(
-  'api',
-  concurrencyConfig.apiMax,
-  concurrencyConfig.enabled,
-);
-const aiConcurrency = createConcurrencyMiddleware(
-  'ai',
-  concurrencyConfig.aiMax,
-  concurrencyConfig.enabled,
-);
-
 router.use(homeRouter);
 router.use(healthRouter);
-router.use('/api/auth', apiConcurrency, authRouter);
-router.use('/api/ai', aiConcurrency, aiRouter);
-router.use('/api', apiConcurrency, pagesRouter);
-router.use('/api', apiConcurrency, calendarRouter);
-router.use('/api', apiConcurrency, wishBoardRouter);
-router.use('/api', apiConcurrency, crudRouter);
+
+/** App API: /api/app/* */
+router.use('/api/app', appRouter);
+
+/** Admin API: /api/admin/* */
+router.use('/api/admin', adminRouter);
+
+/**
+ * Legacy alias: existing clients still use /api/*
+ * Remove after clients migrate to /api/app.
+ */
+router.use('/api', appRouter);
 
 export default router;

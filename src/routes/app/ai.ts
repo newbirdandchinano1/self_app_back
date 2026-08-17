@@ -1,7 +1,7 @@
 import { Router } from 'express';
-import { requireAuth } from '../middlewares/auth.js';
-import { success, fail } from '../utils/response.js';
-import { AiScenarioError } from '../services/zhipu/scenarios.js';
+import { requireAuth } from '../../middlewares/auth.js';
+import { success, fail } from '../../utils/response.js';
+import { AiScenarioError } from '../../services/zhipu/scenarios.js';
 import {
   analyzeAiFinanceDashboardFromText,
   analyzeCashFlowDashboardFromText,
@@ -18,7 +18,7 @@ import {
   parseFinanceOneLinerFromText,
   parseFoodIntakeFromText,
   probeZhipuConnectivity,
-} from '../services/zhipu/scenarios.js';
+} from '../../services/zhipu/scenarios.js';
 
 const router = Router();
 
