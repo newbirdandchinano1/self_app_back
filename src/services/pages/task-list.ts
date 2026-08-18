@@ -12,6 +12,7 @@ import {
   optionalNotPendingDelete,
   parseCsv,
 } from './task-tree.js';
+import { normalizeCatalogCategoryId } from './catalog-inbox-seed.js';
 
 export interface TaskListParams {
   categoryId?: string;
@@ -38,6 +39,9 @@ export interface TaskListResult {
     categoryId?: string;
     categoryIds?: string[];
     uncategorized?: boolean;
+    includeCompleted?: boolean;
+    includeCancelled?: boolean;
+    includeShelved?: boolean;
   };
 }
 
@@ -46,9 +50,9 @@ function quoteIdent(name: string): string {
 }
 
 function resolveCategoryIds(params: TaskListParams): string[] | null {
-  const ids = parseCsv(params.categoryIds);
+  const ids = parseCsv(params.categoryIds).map(normalizeCatalogCategoryId);
   if (ids.length > 0) return ids;
-  if (params.categoryId?.trim()) return [params.categoryId.trim()];
+  if (params.categoryId?.trim()) return [normalizeCatalogCategoryId(params.categoryId)];
   return null;
 }
 
@@ -116,6 +120,9 @@ export async function getTaskList(params: TaskListParams): Promise<TaskListResul
       ...(params.categoryId?.trim() ? { categoryId: params.categoryId.trim() } : {}),
       ...(categoryIds ? { categoryIds } : {}),
       ...(params.uncategorized ? { uncategorized: true } : {}),
+      includeCompleted: params.includeCompleted === true,
+      includeCancelled: params.includeCancelled === true,
+      includeShelved: params.includeShelved === true,
     },
   };
 }

@@ -9,15 +9,19 @@ import {
   logicalYmdToLocalDate,
   startOfWeekMonday,
 } from './logical-day.js';
-import type {
-  CalendarHabitRow,
-  CalendarProjectRow,
-  CalendarTaskRow,
-  HabitKind,
-  TasksCalendarDaySummary,
-  TasksCalendarHabitItem,
-  TasksCalendarTaskItem,
-  TasksDayBoundary,
+import {
+  DEFAULT_TASKS_DAY_BOUNDARY,
+  type CalendarHabitRow,
+  type CalendarProjectRow,
+  type CalendarTaskRow,
+  type FrogCalendarDayStatus,
+  type HabitKind,
+  type TasksCalendarDaySummary,
+  type TasksCalendarGridDay,
+  type TasksCalendarHabitItem,
+  type TasksCalendarTaskItem,
+  type TasksDayBoundary,
+  type TodoCalendarDayReason,
 } from './types.js';
 
 type ProjectScheduleMeta = {
@@ -26,7 +30,11 @@ type ProjectScheduleMeta = {
   range?: { start: string; end: string };
 };
 
-type TaskMetaExtra = { frogAssignedOn?: string };
+type TaskMetaExtra = {
+  frogAssignedOn?: string;
+  frogAssignedDates?: unknown;
+  frogSessionCompletedOn?: string;
+};
 
 type TaskRepeatOption = '不重复' | '每天' | '每周' | '每月' | '每年';
 type TaskRepeatSchedule = {
@@ -75,11 +83,77 @@ function parseTaskMeta(extraData: string | null): TaskMetaExtra {
   return parseExtraObject(extraData) as TaskMetaExtra;
 }
 
-function frogAssignedYmd(task: CalendarTaskRow): string {
-  const col = task.frog_assigned_on?.trim();
-  if (col && /^\d{4}-\d{2}-\d{2}$/.test(col)) return col;
-  const fromExtra = (parseTaskMeta(task.extra_data).frogAssignedOn ?? '').trim();
-  return /^\d{4}-\d{2}-\d{2}$/.test(fromExtra) ? fromExtra : '';
+function normalizeYmd(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return /^\d{4}-\d{2}-\d{2}$/.test(trimmed) ? trimmed : null;
+}
+
+export function extraDataToString(extraData: unknown): string | null {
+  if (extraData == null || extraData === '') return null;
+  if (typeof extraData === 'string') return extraData;
+  try {
+    return JSON.stringify(extraData);
+  } catch {
+    return null;
+  }
+}
+
+/** 与客户端 isFrogAssignedOn(extra_data, ymd) 对齐：指派日来自 extra_data 与可选列 */
+export function collectFrogAssignedDates(
+  extraData: unknown,
+  frogAssignedOnColumn?: string | null,
+): string[] {
+  const extra = parseTaskMeta(extraDataToString(extraData));
+  const dates = new Set<string>();
+  if (Array.isArray(extra.frogAssignedDates)) {
+    for (const item of extra.frogAssignedDates) {
+      const ymd = normalizeYmd(item);
+      if (ymd) dates.add(ymd);
+    }
+  }
+  const fromExtra = normalizeYmd(extra.frogAssignedOn);
+  if (fromExtra) dates.add(fromExtra);
+  const fromCol = normalizeYmd(frogAssignedOnColumn);
+  if (fromCol) dates.add(fromCol);
+  return [...dates].sort();
+}
+
+export function isFrogAssignedOn(
+  extraData: unknown,
+  logicalYmd: string,
+  frogAssignedOnColumn?: string | null,
+): boolean {
+  if (!logicalYmd) return false;
+  return collectFrogAssignedDates(extraData, frogAssignedOnColumn).includes(logicalYmd);
+}
+
+function getFrogAssignedDates(task: CalendarTaskRow): string[] {
+  return collectFrogAssignedDates(task.extra_data, task.frog_assigned_on);
+}
+
+function getFrogSessionCompletedOn(extraData: string | null): string {
+  const raw = parseTaskMeta(extraData).frogSessionCompletedOn;
+  return typeof raw === 'string' ? raw.trim() : '';
+}
+
+function resolveFrogCalendarDayStatus(params: {
+  taskStatus: string;
+  viewYmd: string;
+  logicalTodayYmd: string;
+  hasCompletionEvent: boolean;
+  frogSessionCompletedOn: string;
+}): FrogCalendarDayStatus {
+  if (isTaskTerminalStatus(params.taskStatus)) return 'completed';
+  if (params.hasCompletionEvent) return 'partial';
+  if (
+    params.viewYmd === params.logicalTodayYmd &&
+    params.frogSessionCompletedOn === params.viewYmd
+  ) {
+    return 'partial';
+  }
+  if (params.viewYmd < params.logicalTodayYmd) return 'incomplete';
+  return 'pending';
 }
 
 export function formatScheduleDateToYMD(value: string): string {
@@ -125,7 +199,7 @@ function toTaskItem(task: CalendarTaskRow, kind: TasksCalendarTaskItem['kind']):
   };
 }
 
-function emptyDay(ymd: string): TasksCalendarDaySummary {
+export function emptyDay(ymd: string): TasksCalendarDaySummary {
   return {
     ymd,
     frogs: [],
@@ -469,7 +543,7 @@ function resolveRepeatDayFields(
   return { weeklyDays, monthlyDays, yearlyDate };
 }
 
-function parseTaskRepeatSchedule(extraData: string | null): TaskRepeatSchedule | null {
+export function parseTaskRepeatSchedule(extraData: string | null): TaskRepeatSchedule | null {
   const root = parseExtraObject(extraData);
   const repeatFromRoot = typeof root.repeat === 'string' ? root.repeat.trim() : '';
   const schedule = root.schedule;
@@ -501,6 +575,10 @@ function parseTaskRepeatSchedule(extraData: string | null): TaskRepeatSchedule |
     return { repeatOption: '每年', weeklyDays: [], monthlyDays: [], yearlyDate: '' };
   }
   return null;
+}
+
+export function taskHasRepeatingSchedule(extraData: string | null): boolean {
+  return parseTaskRepeatSchedule(extraData) != null;
 }
 
 function getWeekdayMonAs1(ymd: string): number {
@@ -592,6 +670,19 @@ function standaloneTodoPassesDayBoundaryFilter(
   return doneLogicalYmd >= logicalTodayYmd;
 }
 
+/**
+ * 任务 Tab 独立待办列表：含搁置、未到执行日的重复待办、今日日界内已完成/取消。
+ * 已完成且超出日界的不再出现。
+ */
+export function isStandaloneTodoInTasksPageList(
+  task: CalendarTaskRow,
+  logicalViewYmd: string,
+  boundary: TasksDayBoundary,
+): boolean {
+  if (task.project_id || task.parent_task_id) return false;
+  return standaloneTodoPassesDayBoundaryFilter(task, boundary, logicalViewYmd);
+}
+
 function standaloneTodoPassesRepeatDayFilter(task: CalendarTaskRow, logicalTodayYmd: string): boolean {
   if (isTaskShelvedStatus(task.status)) return true;
   const schedule = parseTaskRepeatSchedule(task.extra_data);
@@ -658,6 +749,163 @@ export function sortStandaloneTodos<T extends { status?: string; created_at?: st
   });
 }
 
+function isStandaloneCalendarTask(task: CalendarTaskRow): boolean {
+  return !task.project_id && !task.parent_task_id;
+}
+
+function todoCalendarSortRank(reason: TodoCalendarDayReason | undefined): number {
+  if (reason === 'due') return 0;
+  if (reason === 'completed-and-due') return 1;
+  return 2;
+}
+
+function taskCompletedOnLogicalDay(
+  task: CalendarTaskRow,
+  ymd: string,
+  boundary: TasksDayBoundary,
+): boolean {
+  if (!isTaskTerminalStatus(task.status)) return false;
+  const raw = task.completed_at?.trim() || task.updated_at?.trim();
+  if (!raw) return false;
+  return getLogicalYmdFromCreatedAt(raw, boundary) === ymd;
+}
+
+export function isHabitVisibleOnCalendarDay(
+  habitCreatedAt: string | null | undefined,
+  viewYmd: string,
+  boundary: TasksDayBoundary,
+): boolean {
+  if (!habitCreatedAt?.trim()) return true;
+  const createdYmd = getLogicalYmdFromCreatedAt(habitCreatedAt, boundary);
+  if (!createdYmd) return true;
+  return viewYmd >= createdYmd;
+}
+
+function truthyFlag(value: unknown): boolean {
+  return value === true || value === 1 || value === '1' || value === 'true';
+}
+
+function parseSubHabitIds(extraData: string | null): string[] {
+  const raw = parseExtraObject(extraData).subHabits;
+  if (!Array.isArray(raw)) return [];
+  const ids: string[] = [];
+  for (const item of raw) {
+    if (typeof item === 'string' && item.trim()) {
+      ids.push(item.trim());
+      continue;
+    }
+    if (item && typeof item === 'object' && !Array.isArray(item)) {
+      const rec = item as Record<string, unknown>;
+      const id = rec.id ?? rec.key;
+      if (typeof id === 'string' && id.trim()) ids.push(id.trim());
+    }
+  }
+  return ids;
+}
+
+function isSubHabitCheckedOnDay(checkIns: unknown, subId: string, ymd: string): boolean {
+  if (!checkIns || typeof checkIns !== 'object' || Array.isArray(checkIns)) return false;
+  const obj = checkIns as Record<string, unknown>;
+
+  const byDay = obj[ymd];
+  if (Array.isArray(byDay)) return byDay.map(String).includes(subId);
+  if (byDay && typeof byDay === 'object' && !Array.isArray(byDay)) {
+    return truthyFlag((byDay as Record<string, unknown>)[subId]);
+  }
+
+  const bySub = obj[subId];
+  if (Array.isArray(bySub)) return bySub.map(String).includes(ymd);
+  if (bySub && typeof bySub === 'object' && !Array.isArray(bySub)) {
+    return truthyFlag((bySub as Record<string, unknown>)[ymd]);
+  }
+  return false;
+}
+
+/** 子习惯未全完成时父习惯不得显示完成；未启用子习惯时返回 null */
+export function areSubHabitsCompleteForDay(extraData: string | null, logicalYmd: string): boolean | null {
+  const extra = parseExtraObject(extraData);
+  if (extra.subHabitsEnabled !== true && extra.subHabitsEnabled !== 1 && extra.subHabitsEnabled !== 'true') {
+    return null;
+  }
+  const ids = parseSubHabitIds(extraData);
+  if (ids.length === 0) return null;
+  return ids.every((id) => isSubHabitCheckedOnDay(extra.subHabitCheckIns, id, logicalYmd));
+}
+
+function isCalendarHabitGoalMet(habit: TasksCalendarHabitItem): boolean {
+  if (habit.kind === 'break' && habit.hasDayRecord !== true) return false;
+  return isHabitDayGoalMet({
+    kind: habit.kind,
+    todayCount: habit.todayCount,
+    dailyGoal: habit.dailyGoal,
+  });
+}
+
+export function emptyGridDay(ymd: string): TasksCalendarGridDay {
+  return {
+    ymd,
+    level: 0,
+    frogs: 0,
+    openTodos: 0,
+    habits: 0,
+    projectsDue: 0,
+    frogDone: false,
+    habitChecked: false,
+    dueCount: 0,
+  };
+}
+
+export function getTasksCalendarCellLevel(
+  summary: TasksCalendarDaySummary | undefined,
+  logicalTodayYmd?: string,
+): 0 | 1 | 2 | 3 | 4 {
+  if (!summary) return 0;
+  const openTasks =
+    summary.frogs.filter((t) => isTaskActiveStatus(t.status)).length +
+    summary.standaloneTodos.filter((t) => isTaskActiveStatus(t.status)).length +
+    summary.matrixTasks.filter((t) => isTaskActiveStatus(t.status)).length;
+  const dueOpen = summary.dueTasks.filter((t) => isTaskActiveStatus(t.status)).length;
+  const habitDue = summary.habits.length;
+  const habitDone = summary.habits.filter((h) => isCalendarHabitGoalMet(h)).length;
+  const frogDone = summary.frogs.filter((t) => t.status === 'done').length;
+  const score = openTasks + dueOpen + habitDue + frogDone + habitDone + summary.projectsDue.length;
+  if (score <= 0) return 0;
+  if (score === 1) return 1;
+  if (score <= 3) return 2;
+  if (score <= 6) return 3;
+  return 4;
+}
+
+export function daySummaryToGridDay(
+  summary: TasksCalendarDaySummary,
+  logicalTodayYmd?: string,
+): TasksCalendarGridDay {
+  return {
+    ymd: summary.ymd,
+    level: getTasksCalendarCellLevel(summary, logicalTodayYmd),
+    frogs: summary.frogs.length,
+    openTodos:
+      summary.standaloneTodos.filter((t) => isTaskActiveStatus(t.status)).length +
+      summary.matrixTasks.filter((t) => isTaskActiveStatus(t.status)).length,
+    habits: summary.habits.length,
+    projectsDue: summary.projectsDue.length,
+    frogDone: summary.frogs.some((f) => f.status === 'done'),
+    habitChecked: summary.habits.some((h) => h.todayCount > 0),
+    dueCount: summary.dueTasks.length,
+  };
+}
+
+export function projectCalendarDaysToGrid(
+  days: Record<string, TasksCalendarDaySummary>,
+  logicalTodayYmd?: string,
+): Record<string, TasksCalendarGridDay> {
+  const out: Record<string, TasksCalendarGridDay> = {};
+  for (const [ymd, summary] of Object.entries(days)) {
+    out[ymd] = daySummaryToGridDay(summary, logicalTodayYmd);
+  }
+  return out;
+}
+
 export function buildTasksCalendarSummaries(params: {
   startYmd: string;
   endYmd: string;
@@ -666,8 +914,22 @@ export function buildTasksCalendarSummaries(params: {
   projects: CalendarProjectRow[];
   habitCheckInsByDay: Map<string, Map<string, number>>;
   dayBoundary: TasksDayBoundary;
+  logicalTodayYmd: string;
+  frogCompletedTaskIdsByDay: Map<string, Set<string>>;
+  standaloneCompletedTaskIdsByDay: Map<string, Set<string>>;
 }): Record<string, TasksCalendarDaySummary> {
-  const { startYmd, endYmd, tasks, habits, projects, habitCheckInsByDay, dayBoundary } = params;
+  const {
+    startYmd,
+    endYmd,
+    tasks,
+    habits,
+    projects,
+    habitCheckInsByDay,
+    dayBoundary,
+    logicalTodayYmd,
+    frogCompletedTaskIdsByDay,
+    standaloneCompletedTaskIdsByDay,
+  } = params;
   const days: Record<string, TasksCalendarDaySummary> = {};
 
   let cursor = startYmd;
@@ -687,10 +949,19 @@ export function buildTasksCalendarSummaries(params: {
       }
     }
 
-    const frogOn = frogAssignedYmd(task);
-    if (frogOn && frogOn >= startYmd && frogOn <= endYmd) {
+    for (const frogOn of getFrogAssignedDates(task)) {
+      if (frogOn < startYmd || frogOn > endYmd) continue;
       const day = days[frogOn]!;
-      const item = toTaskItem(task, 'frog');
+      const item: TasksCalendarTaskItem = {
+        ...toTaskItem(task, 'frog'),
+        frogDayStatus: resolveFrogCalendarDayStatus({
+          taskStatus: task.status,
+          viewYmd: frogOn,
+          logicalTodayYmd,
+          hasCompletionEvent: frogCompletedTaskIdsByDay.get(frogOn)?.has(task.id) === true,
+          frogSessionCompletedOn: getFrogSessionCompletedOn(task.extra_data),
+        }),
+      };
       if (!day.frogs.some((x) => x.id === item.id)) day.frogs.push(item);
     }
   }
@@ -704,14 +975,19 @@ export function buildTasksCalendarSummaries(params: {
     }
   }
 
+  const standaloneTasks = tasks.filter(isStandaloneCalendarTask);
+
   for (let ymd = startYmd; ymd <= endYmd; ymd = addDaysToYmd(ymd, 1)) {
     const day = days[ymd]!;
     const checkMap = habitCheckInsByDay.get(ymd) ?? new Map<string, number>();
+    const frogIds = new Set(day.frogs.map((f) => f.id));
+    const completedIds = standaloneCompletedTaskIdsByDay.get(ymd) ?? new Set<string>();
 
     for (const habit of habits) {
       const kind = parseHabitKind(habit.extra_data);
       if (kind === 'break' && isBreakHabitSucceeded(habit.extra_data)) continue;
       if (kind === 'build' && isBuildHabitSucceeded(habit.extra_data)) continue;
+      if (!isHabitVisibleOnCalendarDay(habit.created_at, ymd, dayBoundary)) continue;
       const checkIns = habitCheckInsByHabit.get(habit.id) ?? {};
       const taskViewState =
         kind === 'task'
@@ -719,7 +995,8 @@ export function buildTasksCalendarSummaries(params: {
           : null;
       if (taskViewState?.hiddenOnViewDay) continue;
       if (!isHabitScheduledOnLogicalYmd(habit.extra_data, ymd)) continue;
-      const count = checkMap.get(habit.id) ?? 0;
+      const hasDayRecord = checkMap.has(habit.id);
+      const count = hasDayRecord ? (checkMap.get(habit.id) ?? 0) : 0;
       const dailyGoal = parseHabitDailyGoal(habit.extra_data, kind);
       const habitItem: TasksCalendarHabitItem = {
         id: habit.id,
@@ -731,15 +1008,32 @@ export function buildTasksCalendarSummaries(params: {
         periodProgress: taskViewState?.periodProgress ?? null,
         periodGoal: taskViewState?.periodGoal ?? null,
         taskShowPeriodCheck: taskViewState?.showPeriodCheckOnViewDay ?? false,
+        ...(kind === 'break' ? { hasDayRecord } : {}),
       };
       day.habits.push(habitItem);
     }
 
+    const standaloneItems: TasksCalendarTaskItem[] = [];
+    for (const task of standaloneTasks) {
+      if (frogIds.has(task.id)) continue;
+      const dueOnDay = dueDateYmd(task.due_date) === ymd;
+      const completedOnDay =
+        completedIds.has(task.id) || taskCompletedOnLogicalDay(task, ymd, dayBoundary);
+      if (!completedOnDay && !dueOnDay) continue;
+      let todoDayReason: TodoCalendarDayReason;
+      if (completedOnDay && dueOnDay) todoDayReason = 'completed-and-due';
+      else if (completedOnDay) todoDayReason = 'completed';
+      else todoDayReason = 'due';
+      standaloneItems.push({ ...toTaskItem(task, 'standalone'), todoDayReason });
+    }
+    standaloneItems.sort((a, b) => {
+      const rankDiff = todoCalendarSortRank(a.todoDayReason) - todoCalendarSortRank(b.todoDayReason);
+      if (rankDiff !== 0) return rankDiff;
+      return b.priority - a.priority;
+    });
+    day.standaloneTodos = standaloneItems;
+
     for (const task of tasks) {
-      if (isStandaloneTodoVisibleOnDay(task, ymd, dayBoundary)) {
-        const item = toTaskItem(task, 'standalone');
-        if (!day.standaloneTodos.some((x) => x.id === item.id)) day.standaloneTodos.push(item);
-      }
       if (isMatrixTask(task) && task.status !== 'done' && task.status !== 'cancelled') {
         const due = dueDateYmd(task.due_date);
         if (due === ymd) continue;
@@ -783,6 +1077,8 @@ export type HabitsGridItem = {
   hiddenOnViewDay: boolean;
   periodProgress: number | null;
   periodGoal: number | null;
+  extra_data: string | null;
+  context: string | null;
 };
 
 export function buildHabitsGridItemsForDay(params: {
@@ -790,28 +1086,37 @@ export function buildHabitsGridItemsForDay(params: {
   habits: (CalendarHabitRow & { context?: string | null })[];
   habitCheckInsByHabit: Map<string, Record<string, number>>;
   todayCheckIns: Map<string, number>;
+  dayBoundary?: TasksDayBoundary;
 }): HabitsGridItem[] {
   const { logicalYmd, habits, habitCheckInsByHabit, todayCheckIns } = params;
+  const boundary = params.dayBoundary ?? DEFAULT_TASKS_DAY_BOUNDARY;
   const items: HabitsGridItem[] = [];
 
   for (const habit of habits) {
     const kind = parseHabitKind(habit.extra_data);
-    if (kind === 'break' && isBreakHabitSucceeded(habit.extra_data)) continue;
-    if (kind === 'build' && isBuildHabitSucceeded(habit.extra_data)) continue;
+    const extraData = extraDataToString(habit.extra_data);
+    if (kind === 'break' && isBreakHabitSucceeded(extraData)) continue;
+    if (kind === 'build' && isBuildHabitSucceeded(extraData)) continue;
     const checkIns = habitCheckInsByHabit.get(habit.id) ?? {};
     const taskViewState =
       kind === 'task'
-        ? getTaskHabitTasksViewState({ extraData: habit.extra_data, checkIns, logicalYmd })
+        ? getTaskHabitTasksViewState({ extraData, checkIns, logicalYmd })
         : null;
-    if (taskViewState?.hiddenOnViewDay) continue;
-    if (!isHabitScheduledOnLogicalYmd(habit.extra_data, logicalYmd)) continue;
+    const createdLater = !isHabitVisibleOnCalendarDay(habit.created_at, logicalYmd, boundary);
+    // 周期已在查看日前达标：不进格子。创建日之后才显示的习惯仍返回，供 APP upsert extra_data
+    if (taskViewState?.hiddenOnViewDay && !createdLater) continue;
+    if (!createdLater && !isHabitScheduledOnLogicalYmd(extraData, logicalYmd)) continue;
+
     const count = todayCheckIns.get(habit.id) ?? 0;
-    const dailyGoal = parseHabitDailyGoal(habit.extra_data, kind);
-    const displayCompleted =
-      kind === 'task' && taskViewState
-        ? taskViewState.showPeriodCheckOnViewDay ||
-          isHabitDayGoalMet({ kind, todayCount: count, dailyGoal })
+    const dailyGoal = parseHabitDailyGoal(extraData, kind);
+    // 任务型：打勾只看周期目标，不用「今日有 1 次打卡」当完成
+    let displayCompleted =
+      kind === 'task'
+        ? Boolean(taskViewState?.showPeriodCheckOnViewDay)
         : isHabitDayGoalMet({ kind, todayCount: count, dailyGoal });
+    if (createdLater) displayCompleted = false;
+    const subHabitsComplete = areSubHabitsCompleteForDay(extraData, logicalYmd);
+    if (subHabitsComplete === false) displayCompleted = false;
 
     items.push({
       id: habit.id,
@@ -819,13 +1124,15 @@ export function buildHabitsGridItemsForDay(params: {
       icon: habit.icon,
       note: habit.note == null ? '' : String(habit.note),
       kind,
-      rewardPoints: parseHabitRewardPoints(habit.extra_data),
+      rewardPoints: parseHabitRewardPoints(extraData),
       todayCount: count,
       dailyGoal,
       displayCompleted,
-      hiddenOnViewDay: false,
+      hiddenOnViewDay: createdLater,
       periodProgress: taskViewState?.periodProgress ?? null,
       periodGoal: taskViewState?.periodGoal ?? null,
+      extra_data: extraData,
+      context: habit.context == null || habit.context === '' ? null : String(habit.context),
     });
   }
 

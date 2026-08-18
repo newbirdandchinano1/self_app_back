@@ -11,7 +11,10 @@
     "db:drop-deleted-version": "node scripts/drop-deleted-at-version.mjs",
     "db:add-projects-priority": "node scripts/add-projects-priority.mjs",
     "docs:api": "node scripts/generate-api-doc.mjs",
-    "test:tz": "tsx scripts/logical-day-selftest.ts"
+    "test:tz": "tsx scripts/logical-day-selftest.ts",
+    "test:tasks-page": "tsx scripts/tasks-page-selftest.ts",
+    "test:task-tree": "tsx scripts/task-tree-filter-selftest.ts",
+    "test:projects": "tsx scripts/project-list-selftest.ts"
   },
   "dependencies": {
     "bcrypt": "^6.0.0",

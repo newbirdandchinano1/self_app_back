@@ -1,32 +1,27 @@
 import {
   addDaysToLogicalYmd,
+  formatMySQLWallClockDateTimeFromParts,
   getLogicalLocalYmd,
   normalizeTasksDayBoundary,
   startOfWeekMonday,
   formatLocalYmdFromDate,
   formatYmd,
-  shanghaiWallClockToUtcDate,
-  formatUtcMySQLDateTime,
+  subtractSecondsFromWallClock,
 } from '../calendar/logical-day.js';
 import type { TasksDayBoundary } from '../calendar/types.js';
 import { isValidYmd } from '../../utils/ymd.js';
 
-/** 逻辑日区间对应的 task_execution_events.created_at 查询边界（东八区逻辑日 → UTC DATETIME） */
+/** 逻辑日区间对应的 task_execution_events.created_at 查询边界（墙上时钟 DATETIME，不加 UTC 偏移） */
 export function resolveHeatmapEventCreatedAtBounds(
   startYmd: string,
   endYmd: string,
   boundary: TasksDayBoundary,
 ): { createdAtGte: string; createdAtLte: string } {
   const { hour: bh, minute: bm } = boundary;
-  const rangeStart = shanghaiWallClockToUtcDate(startYmd, bh, bm, 0);
-  const rangeEndExclusive = shanghaiWallClockToUtcDate(addDaysToLogicalYmd(endYmd, 1), bh, bm, 0);
-  if (!rangeStart || !rangeEndExclusive) {
-    return { createdAtGte: `${startYmd} 00:00:00`, createdAtLte: `${endYmd} 23:59:59` };
-  }
-  const rangeEndInclusive = new Date(rangeEndExclusive.getTime() - 1000);
+  const nextEndYmd = addDaysToLogicalYmd(endYmd, 1);
   return {
-    createdAtGte: formatUtcMySQLDateTime(rangeStart),
-    createdAtLte: formatUtcMySQLDateTime(rangeEndInclusive),
+    createdAtGte: formatMySQLWallClockDateTimeFromParts(startYmd, bh, bm, 0),
+    createdAtLte: subtractSecondsFromWallClock(nextEndYmd, bh, bm, 0, 1),
   };
 }
 

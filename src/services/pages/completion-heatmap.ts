@@ -1,13 +1,14 @@
+import type { RowDataPacket } from 'mysql2';
 import { listAllRecords } from '../crud.js';
+import { db } from '../../db/index.js';
 import { addDaysToLogicalYmd, getLogicalYmdFromCreatedAt } from '../calendar/logical-day.js';
+import { taskHasRepeatingSchedule } from '../calendar/aggregation.js';
 import type { TasksDayBoundary } from '../calendar/types.js';
 import { isValidYmd } from '../../utils/ymd.js';
-import {
-  COMPLETION_HEATMAP_WEEKS,
-  resolveHeatmapRange,
-  resolveHeatmapEventCreatedAtBounds,
-} from './heatmap-range.js';
+import { COMPLETION_HEATMAP_WEEKS, resolveHeatmapRange } from './heatmap-range.js';
 import { resolveTasksBootstrapContext, type TasksBootstrapParams } from './tasks-bootstrap.js';
+import { excludeTodosAlreadyCountedAsFrogs, filterNetCompletedEvents } from './task-net-completion.js';
+import { overviewScopeEventSql, overviewScopeTaskSql } from './tasks-overview-scope.js';
 
 export interface DayCount {
   frogs: number;
@@ -18,7 +19,7 @@ export interface DayCount {
 export interface CompletionHeatmapDayDetail {
   ymd: string;
   frogs: Array<{ task_id: string; task_title: string }>;
-  todos: Array<{ id: string; task_id: string; task_title: string }>;
+  todos: Array<{ id: string; task_id: string; task_title: string; title: string }>;
 }
 
 export interface CompletionHeatmapResult {
@@ -28,6 +29,7 @@ export interface CompletionHeatmapResult {
     heatmapEnd: string;
     completionHeatmapWeeks: number;
     serverTime: string;
+    todoNetCompleted: true;
   };
   countsByDay: Record<string, DayCount>;
   dayDetail?: CompletionHeatmapDayDetail;
@@ -46,6 +48,7 @@ function aggregateFrogEvents(
 ): {
   countsByDay: Record<string, number>;
   latestByKey: Map<string, FrogLatest>;
+  taskIdsByDay: Map<string, Set<string>>;
 } {
   const latestByKey = new Map<string, FrogLatest>();
   for (const event of events) {
@@ -65,14 +68,19 @@ function aggregateFrogEvents(
   }
 
   const countsByDay: Record<string, number> = {};
+  const taskIdsByDay = new Map<string, Set<string>>();
   for (const [key, latest] of latestByKey) {
     if (latest.action !== 'completed') continue;
-    const assignedYmd = key.split('\0')[1] ?? '';
+    const [taskId, assignedYmd] = key.split('\0');
+    if (!taskId || !assignedYmd) continue;
     if (assignedYmd < startYmd || assignedYmd > endYmd) continue;
     countsByDay[assignedYmd] = (countsByDay[assignedYmd] ?? 0) + 1;
+    const bucket = taskIdsByDay.get(assignedYmd) ?? new Set<string>();
+    bucket.add(taskId);
+    taskIdsByDay.set(assignedYmd, bucket);
   }
 
-  return { countsByDay, latestByKey };
+  return { countsByDay, latestByKey, taskIdsByDay };
 }
 
 type TodoEventRow = {
@@ -84,25 +92,51 @@ type TodoEventRow = {
   logicalYmd: string;
 };
 
+async function loadRepeatingStandaloneTaskIds(): Promise<Set<string>> {
+  const [rows] = await db.query<RowDataPacket[]>(
+    `SELECT id, extra_data FROM tasks WHERE ${overviewScopeTaskSql()}`,
+  );
+  const ids = new Set<string>();
+  for (const row of rows) {
+    const id = String(row.id ?? '').trim();
+    if (!id) continue;
+    const extra = row.extra_data == null ? null : String(row.extra_data);
+    if (taskHasRepeatingSchedule(extra)) ids.add(id);
+  }
+  return ids;
+}
+
+async function loadScopedTodoEvents(): Promise<Record<string, unknown>[]> {
+  const [rows] = await db.query<RowDataPacket[]>(
+    `SELECT tee.id, tee.task_id, tee.action, tee.created_at, tee.task_title
+     FROM task_execution_events tee
+     WHERE tee.action IN ('completed', 'reopened')
+       AND ${overviewScopeEventSql('tee')}`,
+  );
+  return rows as Record<string, unknown>[];
+}
+
 function aggregateTodoEvents(
   events: Record<string, unknown>[],
   boundary: TasksDayBoundary,
   startYmd: string,
   endYmd: string,
+  repeatingTaskIds: Set<string>,
 ): {
   countsByDay: Record<string, number>;
   netEventsByDay: Map<string, TodoEventRow[]>;
 } {
   const scoped: TodoEventRow[] = [];
+
   for (const event of events) {
     const action = normalizeAction(event.action);
     if (action !== 'completed' && action !== 'reopened') continue;
 
-    const logicalYmd = getLogicalYmdFromCreatedAt(event.created_at, boundary);
-    if (!logicalYmd || logicalYmd < startYmd || logicalYmd > endYmd) continue;
-
     const taskId = String(event.task_id ?? '').trim();
     if (!taskId) continue;
+
+    const logicalYmd = getLogicalYmdFromCreatedAt(event.created_at, boundary);
+    if (!logicalYmd) continue;
 
     scoped.push({
       id: String(event.id ?? ''),
@@ -114,19 +148,12 @@ function aggregateTodoEvents(
     });
   }
 
-  const latestByKey = new Map<string, TodoEventRow>();
-  for (const event of scoped) {
-    const key = `${event.task_id}\0${event.logicalYmd}`;
-    const existing = latestByKey.get(key);
-    if (!existing || event.created_at > existing.created_at) {
-      latestByKey.set(key, event);
-    }
-  }
-
+  const net = filterNetCompletedEvents(scoped, repeatingTaskIds);
   const countsByDay: Record<string, number> = {};
   const netEventsByDay = new Map<string, TodoEventRow[]>();
-  for (const latest of latestByKey.values()) {
-    if (latest.action !== 'completed') continue;
+
+  for (const latest of net) {
+    if (latest.logicalYmd < startYmd || latest.logicalYmd > endYmd) continue;
     countsByDay[latest.logicalYmd] = (countsByDay[latest.logicalYmd] ?? 0) + 1;
     const bucket = netEventsByDay.get(latest.logicalYmd) ?? [];
     bucket.push(latest);
@@ -141,13 +168,21 @@ function aggregateTodoEvents(
   return { countsByDay, netEventsByDay };
 }
 
+function excludeFrogTodos(
+  events: TodoEventRow[],
+  frogTaskIds: Set<string> | undefined,
+): TodoEventRow[] {
+  return excludeTodosAlreadyCountedAsFrogs(events, frogTaskIds ?? new Set());
+}
+
 function buildTodoDayDetail(
   events: TodoEventRow[],
-): Array<{ id: string; task_id: string; task_title: string }> {
+): Array<{ id: string; task_id: string; task_title: string; title: string }> {
   return events.map((event) => ({
     id: event.id,
     task_id: event.task_id,
     task_title: event.task_title,
+    title: event.task_title,
   }));
 }
 
@@ -182,37 +217,35 @@ export async function getCompletionHeatmap(
     dayBoundary: boundary,
   });
 
-  const eventCreatedAtBounds = resolveHeatmapEventCreatedAtBounds(
-    range.startYmd,
-    range.endYmd,
-    boundary,
-  );
-
-  const [frogEvents, todoEvents] = await Promise.all([
+  const [frogEvents, todoEvents, repeatingTaskIds] = await Promise.all([
     listAllRecords('frog_completion_events', {
       assignedYmdGte: range.startYmd,
       assignedYmdLte: range.endYmd,
     }),
-    listAllRecords('task_execution_events', eventCreatedAtBounds),
+    loadScopedTodoEvents(),
+    loadRepeatingStandaloneTaskIds(),
   ]);
 
-  const { countsByDay: frogCounts, latestByKey } = aggregateFrogEvents(
-    frogEvents,
-    range.startYmd,
-    range.endYmd,
-  );
-  const { countsByDay: todoCounts, netEventsByDay } = aggregateTodoEvents(
+  const {
+    countsByDay: frogCounts,
+    latestByKey,
+    taskIdsByDay: frogTaskIdsByDay,
+  } = aggregateFrogEvents(frogEvents, range.startYmd, range.endYmd);
+  const { netEventsByDay } = aggregateTodoEvents(
     todoEvents,
     boundary,
     range.startYmd,
     range.endYmd,
+    repeatingTaskIds,
   );
 
   const countsByDay: Record<string, DayCount> = {};
   let cursor = range.startYmd;
   while (cursor <= range.endYmd) {
     const frogs = frogCounts[cursor] ?? 0;
-    const todos = todoCounts[cursor] ?? 0;
+    const todosNet = excludeFrogTodos(netEventsByDay.get(cursor) ?? [], frogTaskIdsByDay.get(cursor));
+    netEventsByDay.set(cursor, todosNet);
+    const todos = todosNet.length;
     countsByDay[cursor] = { frogs, todos, total: frogs + todos };
     cursor = addDaysToLogicalYmd(cursor, 1);
   }
@@ -224,13 +257,13 @@ export async function getCompletionHeatmap(
       heatmapEnd: range.endYmd,
       completionHeatmapWeeks: COMPLETION_HEATMAP_WEEKS,
       serverTime: new Date().toISOString(),
+      todoNetCompleted: true,
     },
     countsByDay,
   };
 
   const detailDay = params.day?.trim();
-  const wantDetail = params.includeDayDetail === true || Boolean(detailDay);
-  if (wantDetail && detailDay && isValidYmd(detailDay)) {
+  if (params.includeDayDetail === true && detailDay && isValidYmd(detailDay)) {
     result.dayDetail = {
       ymd: detailDay,
       frogs: buildFrogDayDetail(latestByKey, detailDay),

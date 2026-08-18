@@ -23,7 +23,7 @@ function sendWishBoardError(res: import('express').Response, err: WishBoardError
   return fail(res, err.message, -1, err.status, Object.keys(rest).length ? rest : null);
 }
 
-/** GET /wish-board/items — ???????status=active? */
+/** GET /wish-board/items ï¿½ ???????status=active? */
 router.get('/wish-board/items', async (_req, res, next) => {
   try {
     const items = await listActiveWishBoardItems();
@@ -36,7 +36,7 @@ router.get('/wish-board/items', async (_req, res, next) => {
   }
 });
 
-/** POST /wish-board/items — ????? */
+/** POST /wish-board/items ï¿½ ????? */
 router.post('/wish-board/items', async (req, res, next) => {
   try {
     const body = req.body ?? {};
@@ -59,7 +59,7 @@ router.post('/wish-board/items', async (req, res, next) => {
   }
 });
 
-/** DELETE /wish-board/items/:id — ???? */
+/** DELETE /wish-board/items/:id ï¿½ ???? */
 router.delete('/wish-board/items/:id', async (req, res, next) => {
   try {
     const data = await deleteWishBoardItem(String(req.params.id ?? ''));
@@ -72,7 +72,7 @@ router.delete('/wish-board/items/:id', async (req, res, next) => {
   }
 });
 
-/** GET /wish-board/redeemed — ??????????wish_redeem ??? */
+/** GET /wish-board/redeemed ï¿½ ??????????wish_redeem ??? */
 router.get('/wish-board/redeemed', async (_req, res, next) => {
   try {
     const items = await listRedeemedWishBoardItems();
@@ -86,7 +86,7 @@ router.get('/wish-board/redeemed', async (_req, res, next) => {
 });
 
 /**
- * DELETE /wish-board/redeemed — ???????
+ * DELETE /wish-board/redeemed ï¿½ ???????
  * - ? body/query id????? status=redeemed
  * - ? id???????????
  */
@@ -109,7 +109,7 @@ router.delete('/wish-board/redeemed', async (req, res, next) => {
   }
 });
 
-/** POST /wish-board/redeem — ?????body.id ? wish_board_item_id? */
+/** POST /wish-board/redeem ï¿½ ?????body.id ? wish_board_item_id? */
 router.post('/wish-board/redeem', async (req, res, next) => {
   try {
     const body = req.body ?? {};
@@ -134,7 +134,7 @@ router.post('/wish-board/redeem', async (req, res, next) => {
   }
 });
 
-/** POST /wish-board/points/adjust — ???????/??/????????????? */
+/** POST /wish-board/points/adjust ï¿½ ???????/??/????????????? */
 router.post('/wish-board/points/adjust', async (req, res, next) => {
   try {
     const body = req.body ?? {};
@@ -163,7 +163,7 @@ router.post('/wish-board/points/adjust', async (req, res, next) => {
   }
 });
 
-/** GET /wish-board/points/balance — ?????? */
+/** GET /wish-board/points/balance ï¿½ ?????? */
 router.get('/wish-board/points/balance', async (_req, res, next) => {
   try {
     const result = await getPointsBalance();
@@ -173,7 +173,7 @@ router.get('/wish-board/points/balance', async (_req, res, next) => {
   }
 });
 
-/** POST /wish-board/points/reset — ????????? + points_reset ??? */
+/** POST /wish-board/points/reset ï¿½ ????????? + points_reset ??? */
 router.post('/wish-board/points/reset', async (_req, res, next) => {
   try {
     const data = await resetPoints();

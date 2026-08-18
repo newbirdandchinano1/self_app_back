@@ -38,6 +38,13 @@ export function listYmdRange(startYmd: string, endYmd: string): string[] {
   return out;
 }
 
+export function countInclusiveYmdDays(startYmd: string, endYmd: string): number {
+  const start = ymdToLocalDate(startYmd);
+  const end = ymdToLocalDate(endYmd);
+  if (!start || !end) return 0;
+  return Math.round((end.getTime() - start.getTime()) / 86400000) + 1;
+}
+
 export function dueDateYmd(value: string | null | undefined): string {
   return value?.trim().slice(0, 10) ?? '';
 }

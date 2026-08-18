@@ -122,6 +122,7 @@ export async function loadProjectTaskRowsWithStructure(
   rootWhere.push(`project_id IN (${projectIds.map(() => '?').join(', ')})`);
   rootValues.push(...projectIds);
 
+  // 禁止对任务再套 LIMIT：limit 只限制项目条数，本页每个项目要拉完整树。
   const roots = await selectTaskRows(selectCols, rootWhere, rootValues);
   const treeById = new Map<string, TaskRow>();
   const queue = [...roots];
@@ -217,10 +218,26 @@ export function buildNestedTaskTree(
     const children = (childrenByParent.get(id) ?? [])
       .sort(sortTaskRows)
       .map((child) => toNode(child));
-    return { ...task, children };
+    return {
+      ...task,
+      parent_task_id: task.parent_task_id ?? null,
+      children,
+    };
   }
 
   return roots.sort(sortTaskRows).map((root) => toNode(root));
+}
+
+export function countTaskTreeNodes(nodes: TaskTreeNode[]): number {
+  let count = 0;
+  const walk = (list: TaskTreeNode[]) => {
+    for (const node of list) {
+      count += 1;
+      if (node.children.length > 0) walk(node.children);
+    }
+  };
+  walk(nodes);
+  return count;
 }
 
 export function sortProjects(rows: Record<string, unknown>[]): Record<string, unknown>[] {

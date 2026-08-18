@@ -3,6 +3,16 @@ import { createRecord, getRecord } from '../crud.js';
 export const INBOX_PROJECT_CATEGORY_ID = 'project_category_inbox';
 export const INBOX_PROJECT_CATEGORY_NAME = '收集箱';
 
+/** APP 收集箱 Tab 会传 categoryId=inbox，与种子 id 对齐 */
+export function normalizeCatalogCategoryId(raw: string): string {
+  const id = raw.trim();
+  if (!id) return id;
+  if (id === 'inbox' || id === INBOX_PROJECT_CATEGORY_NAME || id === INBOX_PROJECT_CATEGORY_ID) {
+    return INBOX_PROJECT_CATEGORY_ID;
+  }
+  return id;
+}
+
 const INBOX_SEED_TIMESTAMP = '2026-01-01 00:00:00';
 
 const INBOX_TABLES = ['project_categories', 'task_categories'] as const;

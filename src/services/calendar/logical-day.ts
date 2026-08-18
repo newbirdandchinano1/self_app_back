@@ -240,13 +240,85 @@ export function formatRowsDateTimesForApi<T extends Record<string, unknown>>(
   return rows.map((row) => formatRecordDateTimesForApi(row, table));
 }
 
+/**
+ * 任务审计时间 → 墙上时钟分量。
+ * 与 APP `parseStoredDatetime` 对齐：`YYYY-MM-DD[ T]HH:mm:ss` 直接取数字，
+ * 即使后面带 `Z` 也不再当 UTC 瞬间加偏移。其它带时区的 ISO 仍按标准瞬间解析。
+ */
+const TASK_AUDIT_DATETIME_RE =
+  /^(\d{4})-(\d{2})-(\d{2})[ T](\d{1,2}):(\d{2})(?::(\d{2}))?/;
+
+export function parseTaskAuditWallClockParts(raw: unknown): WallClockParts | null {
+  if (raw instanceof Date) {
+    const ms = raw.getTime();
+    if (Number.isNaN(ms)) return null;
+    return getWallClockInAppTimeZone(raw);
+  }
+  const text = String(raw ?? '').trim();
+  if (!text) return null;
+
+  const matched = TASK_AUDIT_DATETIME_RE.exec(text);
+  if (matched) {
+    let hour = Number(matched[4]);
+    if (hour === 24) hour = 0;
+    return {
+      year: Number(matched[1]),
+      month: Number(matched[2]),
+      day: Number(matched[3]),
+      hour,
+      minute: Number(matched[5]),
+      second: Number(matched[6] ?? 0),
+    };
+  }
+
+  if (/[Zz]$/.test(text) || /[+-]\d{2}:?\d{2}$/.test(text)) {
+    const ms = Date.parse(text);
+    if (Number.isNaN(ms)) return null;
+    return getWallClockInAppTimeZone(new Date(ms));
+  }
+
+  return null;
+}
+
+export function formatTaskAuditWallClockKey(raw: unknown): string | null {
+  const wc = parseTaskAuditWallClockParts(raw);
+  if (!wc) return null;
+  return `${formatYmd(wc.year, wc.month, wc.day)}T${pad2(wc.hour)}:${pad2(wc.minute)}:${pad2(wc.second ?? 0)}`;
+}
+
+/** a 晚于 b 时返回正数，与 APP compareDatetimeDesc 的时刻口径一致 */
+export function compareTaskAuditDatetime(a: unknown, b: unknown): number {
+  const ka = formatTaskAuditWallClockKey(a) ?? '';
+  const kb = formatTaskAuditWallClockKey(b) ?? '';
+  return ka.localeCompare(kb);
+}
+
+export function subtractSecondsFromWallClock(
+  ymd: string,
+  hour: number,
+  minute: number,
+  second: number,
+  deltaSeconds: number,
+): string {
+  const parsed = parseYmd(ymd);
+  if (!parsed) return formatMySQLWallClockDateTimeFromParts(ymd, hour, minute, Math.max(0, second - deltaSeconds));
+  const utc = Date.UTC(parsed.year, parsed.month - 1, parsed.day, hour, minute, second);
+  const next = new Date(utc - deltaSeconds * 1000);
+  return formatMySQLWallClockDateTimeFromParts(
+    formatYmd(next.getUTCFullYear(), next.getUTCMonth() + 1, next.getUTCDate()),
+    next.getUTCHours(),
+    next.getUTCMinutes(),
+    next.getUTCSeconds(),
+  );
+}
+
 export function getLogicalYmdFromCreatedAt(
   raw: unknown,
   boundary: TasksDayBoundary,
 ): string | null {
-  const instant = parseDbDateTimeToInstant(raw);
-  if (!instant) return null;
-  return getLogicalYmdFromInstant(instant, boundary);
+  const wallClock = parseTaskAuditWallClockParts(raw);
+  if (!wallClock) return null;
+  return getLogicalYmdFromWallClock(wallClock, boundary);
 }
 
 /** MySQL DATETIME 字符串：UTC 墙钟分量（与客户端 sync 存库格式一致） */

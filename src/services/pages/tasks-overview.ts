@@ -2,22 +2,25 @@ import type { RowDataPacket } from 'mysql2';
 import { getTableMeta } from '../crud.js';
 import { db } from '../../db/index.js';
 import { getLogicalYmdFromCreatedAt, normalizeTasksDayBoundary, formatDbDateTimeForApi, formatRecordDateTimesForApi } from '../calendar/logical-day.js';
+import { taskHasRepeatingSchedule } from '../calendar/aggregation.js';
 import type { TasksDayBoundary } from '../calendar/types.js';
 import { isValidYmd } from '../../utils/ymd.js';
 import { resolveOverviewHeatmapRange } from './heatmap-range.js';
 import type { TasksBootstrapParams } from './tasks-bootstrap.js';
+import { filterNetCompletedEvents } from './task-net-completion.js';
 import {
   isOverviewScopeEvent,
   overviewScopeEventSql,
   overviewScopeTaskSql,
 } from './tasks-overview-scope.js';
 
-export const TASKS_OVERVIEW_FILTERS_VERSION = 'tasks-overview-v1';
+export const TASKS_OVERVIEW_FILTERS_VERSION = 'tasks-overview-v2';
 
 export type TasksOverviewStatKey =
   | 'open'
   | 'doneOrCancelled'
   | 'totalActive'
+  | 'recurring'
   | 'completedEvents'
   | 'reopenedEvents';
 
@@ -91,6 +94,7 @@ function parseStatKey(raw?: string): TasksOverviewStatKey | undefined {
     key === 'open' ||
     key === 'doneOrCancelled' ||
     key === 'totalActive' ||
+    key === 'recurring' ||
     key === 'completedEvents' ||
     key === 'reopenedEvents'
   ) {
@@ -131,6 +135,20 @@ async function loadScopeTaskIds(): Promise<Set<string>> {
   return new Set(rows.map((r) => String(r.id ?? '')).filter(Boolean));
 }
 
+async function loadRepeatingScopeTaskIds(): Promise<Set<string>> {
+  const [rows] = await db.query<RowDataPacket[]>(
+    `SELECT id, extra_data FROM tasks WHERE ${overviewScopeTaskSql()}`,
+  );
+  const ids = new Set<string>();
+  for (const row of rows) {
+    const id = String(row.id ?? '').trim();
+    if (!id) continue;
+    const extra = row.extra_data == null ? null : String(row.extra_data);
+    if (taskHasRepeatingSchedule(extra)) ids.add(id);
+  }
+  return ids;
+}
+
 async function loadAllTaskIds(): Promise<Set<string>> {
   const [rows] = await db.query<RowDataPacket[]>(`SELECT id FROM tasks`);
   return new Set(rows.map((r) => String(r.id ?? '')).filter(Boolean));
@@ -140,20 +158,26 @@ async function queryInsightTaskCounts(): Promise<{
   open: number;
   doneOrCancelled: number;
   totalActive: number;
+  recurring: number;
 }> {
   const [rows] = await db.query<RowDataPacket[]>(
-    `SELECT
-       SUM(CASE WHEN status NOT IN ('done', 'cancelled') THEN 1 ELSE 0 END) AS open_count,
-       SUM(CASE WHEN status IN ('done', 'cancelled') THEN 1 ELSE 0 END) AS done_or_cancelled_count,
-       COUNT(*) AS total_active
-     FROM tasks
-     WHERE ${overviewScopeTaskSql()}`,
+    `SELECT id, status, extra_data FROM tasks WHERE ${overviewScopeTaskSql()}`,
   );
-  const row = rows[0] ?? {};
+  let open = 0;
+  let doneOrCancelled = 0;
+  let recurring = 0;
+  for (const row of rows) {
+    const status = String(row.status ?? '');
+    if (status === 'done' || status === 'cancelled') doneOrCancelled += 1;
+    else open += 1;
+    const extra = row.extra_data == null ? null : String(row.extra_data);
+    if (taskHasRepeatingSchedule(extra)) recurring += 1;
+  }
   return {
-    open: Number(row.open_count ?? 0),
-    doneOrCancelled: Number(row.done_or_cancelled_count ?? 0),
-    totalActive: Number(row.total_active ?? 0),
+    open,
+    doneOrCancelled,
+    totalActive: rows.length,
+    recurring,
   };
 }
 
@@ -202,28 +226,29 @@ async function loadScopedEvents(
   return out;
 }
 
-function aggregateNetCompleted(events: ScopedEventRow[]): {
+function aggregateNetCompleted(
+  events: ScopedEventRow[],
+  repeatingTaskIds: Set<string>,
+): {
   countsByDayAll: Record<string, number>;
   firstCompletedDay: string | null;
   netEventsByDay: Map<string, ScopedEventRow[]>;
 } {
-  const latestByKey = new Map<string, ScopedEventRow>();
-  for (const event of events) {
-    const taskId = event.task_id?.trim();
-    if (!taskId) continue;
-    const key = `${taskId}\0${event.logicalYmd}`;
-    const existing = latestByKey.get(key);
-    if (!existing || event.created_at > existing.created_at) {
-      latestByKey.set(key, event);
-    }
-  }
+  const netEvents = filterNetCompletedEvents(
+    events
+      .map((event) => ({
+        ...event,
+        task_id: event.task_id?.trim() ?? '',
+      }))
+      .filter((event) => event.task_id),
+    repeatingTaskIds,
+  );
 
   const countsByDayAll: Record<string, number> = {};
   const netEventsByDay = new Map<string, ScopedEventRow[]>();
   let firstCompletedDay: string | null = null;
 
-  for (const latest of latestByKey.values()) {
-    if (latest.action !== 'completed') continue;
+  for (const latest of netEvents) {
     const ymd = latest.logicalYmd;
     countsByDayAll[ymd] = (countsByDayAll[ymd] ?? 0) + 1;
     const bucket = netEventsByDay.get(ymd) ?? [];
@@ -289,7 +314,7 @@ async function queryRecentEvents(
 }
 
 async function queryStatDetailTasks(
-  statKey: 'open' | 'doneOrCancelled' | 'totalActive',
+  statKey: 'open' | 'doneOrCancelled' | 'totalActive' | 'recurring',
   page: number,
   limit: number,
   offset: number,
@@ -297,6 +322,24 @@ async function queryStatDetailTasks(
   const meta = await getTableMeta('tasks');
   const selectCols = meta.columns.map(quoteIdent).join(', ');
   const scopeSql = overviewScopeTaskSql();
+
+  if (statKey === 'recurring') {
+    const [rows] = await db.query<RowDataPacket[]>(
+      `SELECT ${selectCols} FROM tasks WHERE ${scopeSql} ORDER BY updated_at DESC`,
+    );
+    const filtered = rows.filter((row) =>
+      taskHasRepeatingSchedule(row.extra_data == null ? null : String(row.extra_data)),
+    );
+    const total = filtered.length;
+    return buildPagination(
+      filtered.slice(offset, offset + limit).map((row) =>
+        formatRecordDateTimesForApi(row as Record<string, unknown>),
+      ),
+      page,
+      limit,
+      total,
+    );
+  }
 
   let statusFilter = '';
   if (statKey === 'open') {
@@ -373,6 +416,7 @@ export interface TasksOverviewResult {
     open: number;
     doneOrCancelled: number;
     totalActive: number;
+    recurring: number;
     completedEvents: number;
     reopenedEvents: number;
   };
@@ -397,17 +441,22 @@ export async function getTasksOverview(params: TasksOverviewParams): Promise<Tas
   const statPagination = clampPagination(params.statPage, params.statLimit);
   const statKey = parseStatKey(params.statKey);
 
-  const [scopeTaskIds, allTaskIds, taskCounts, eventCounts, recentEvents] = await Promise.all([
-    loadScopeTaskIds(),
-    loadAllTaskIds(),
-    queryInsightTaskCounts(),
-    queryInsightEventCounts(),
-    queryRecentEvents(eventsPagination.page, eventsPagination.limit, eventsPagination.offset),
-  ]);
+  const [scopeTaskIds, allTaskIds, repeatingTaskIds, taskCounts, eventCounts, recentEvents] =
+    await Promise.all([
+      loadScopeTaskIds(),
+      loadAllTaskIds(),
+      loadRepeatingScopeTaskIds(),
+      queryInsightTaskCounts(),
+      queryInsightEventCounts(),
+      queryRecentEvents(eventsPagination.page, eventsPagination.limit, eventsPagination.offset),
+    ]);
 
   const scopedEvents = await loadScopedEvents(context.dayBoundary, scopeTaskIds, allTaskIds);
 
-  const { countsByDayAll, firstCompletedDay, netEventsByDay } = aggregateNetCompleted(scopedEvents);
+  const { countsByDayAll, firstCompletedDay, netEventsByDay } = aggregateNetCompleted(
+    scopedEvents,
+    repeatingTaskIds,
+  );
   const countsByDay = sliceCountsByDayRange(
     countsByDayAll,
     context.heatmapStart,
@@ -432,7 +481,12 @@ export async function getTasksOverview(params: TasksOverviewParams): Promise<Tas
   };
 
   if (statKey) {
-    if (statKey === 'open' || statKey === 'doneOrCancelled' || statKey === 'totalActive') {
+    if (
+      statKey === 'open' ||
+      statKey === 'doneOrCancelled' ||
+      statKey === 'totalActive' ||
+      statKey === 'recurring'
+    ) {
       result.statDetail = {
         statKey,
         mode: 'tasks',

@@ -7,7 +7,7 @@ import {
 } from '../crud.js';
 import { db } from '../../db/index.js';
 import {
-  isStandaloneTodoVisibleOnDay,
+  isStandaloneTodoInTasksPageList,
   sortStandaloneTodos,
 } from '../calendar/aggregation.js';
 import { formatRowsDateTimesForApi, normalizeTasksDayBoundary } from '../calendar/logical-day.js';
@@ -19,6 +19,8 @@ import {
   resolveHeatmapEventCreatedAtBounds,
 } from './heatmap-range.js';
 import { isValidYmd } from '../../utils/ymd.js';
+
+export const TASKS_PAGE_FILTERS_VERSION = 'tasks-page-v1';
 
 const FULL_TABLES = [
   'projects',
@@ -130,6 +132,28 @@ const TASK_PAGE_VIEWS = new Set<TaskPageView>([
   'projectTrees',
 ]);
 
+export const TASK_VIEW_DEFAULT_LIMIT = 200;
+export const TASK_VIEW_MAX_LIMIT = 500;
+
+export function resolveTaskViewPagination(
+  params: { page?: number; limit?: number },
+  total: number,
+): { page: number; limit: number; total: number; totalPages: number; offset: number } {
+  const page = Math.max(1, params.page ?? 1);
+  const limit = Math.min(
+    TASK_VIEW_MAX_LIMIT,
+    Math.max(1, params.limit ?? TASK_VIEW_DEFAULT_LIMIT),
+  );
+  const safeTotal = Math.max(0, total);
+  return {
+    page,
+    limit,
+    total: safeTotal,
+    totalPages: Math.ceil(safeTotal / limit),
+    offset: (page - 1) * limit,
+  };
+}
+
 function quoteIdent(name: string): string {
   return `\`${name.replace(/`/g, '``')}\``;
 }
@@ -156,7 +180,7 @@ function parseCsv(raw?: string): string[] {
   return raw?.split(',').map((s) => s.trim()).filter(Boolean) ?? [];
 }
 
-function parseTaskPageViews(params: TasksBootstrapParams): TaskPageView[] {
+export function parseTaskPageViews(params: TasksBootstrapParams): TaskPageView[] {
   const tokens = parseCsv(params.taskViews ?? params.taskView);
   if (tokens.length === 0) return [];
   if (tokens.includes('tasksPage')) return ['standaloneTodos', 'matrixWeek', 'projectTrees'];
@@ -177,22 +201,6 @@ function addStatusFilters(
   if (excluded.size === 0) return;
   where.push(`(status IS NULL OR status NOT IN (${[...excluded].map(() => '?').join(', ')}))`);
   values.push(...excluded);
-}
-
-function buildDueDateWindowFilter(
-  columns: Set<string>,
-  startYmd: string,
-  endYmd: string,
-  includeNoDueDate: boolean,
-): { sql: string; values: unknown[] } | null {
-  if (!columns.has('due_date')) return null;
-  const q = quoteIdent('due_date');
-  const emptyDue = `(${q} IS NULL OR ${q} = '')`;
-  const inWindow = `(LEFT(${q}, 10) BETWEEN ? AND ?)`;
-  return {
-    sql: includeNoDueDate ? `(${emptyDue} OR ${inWindow})` : inWindow,
-    values: [startYmd, endYmd],
-  };
 }
 
 function toCalendarTaskRow(row: Record<string, unknown>): CalendarTaskRow {
@@ -218,7 +226,7 @@ function filterStandaloneTodosRows(
   params: TasksBootstrapParams,
 ): Record<string, unknown>[] {
   let filtered = rows.filter((row) =>
-    isStandaloneTodoVisibleOnDay(toCalendarTaskRow(row), context.logicalToday, context.dayBoundary),
+    isStandaloneTodoInTasksPageList(toCalendarTaskRow(row), context.logicalToday, context.dayBoundary),
   );
   if (params.includeShelved === false) {
     filtered = filtered.filter((row) => row.status !== 'shelved');
@@ -260,15 +268,28 @@ async function loadFilteredTasks(params: TasksBootstrapParams, context: TasksBoo
     }
 
     if (view === 'matrixWeek') {
-      const where = [...baseWhere, `(${isPresentColumn('project_id')} OR ${isPresentColumn('parent_task_id')})`];
+      const where = [...baseWhere];
       const values: unknown[] = [];
+      const projectIdsRaw = params.projectIds;
+      if (typeof projectIdsRaw === 'string') {
+        if (projectIds.length === 0) {
+          grouped.matrixWeek = [];
+          continue;
+        }
+        where.push(`project_id IN (${projectIds.map(() => '?').join(', ')})`);
+        values.push(...projectIds);
+      } else {
+        where.push(`(${isPresentColumn('project_id')} OR ${isPresentColumn('parent_task_id')})`);
+      }
       addStatusFilters(where, values, columns, { ...params, includeCompleted: false, includeCancelled: false });
       const start = params.weekStart?.trim() && isValidYmd(params.weekStart) ? params.weekStart.trim() : context.logicalToday;
       const end = params.weekEnd?.trim() && isValidYmd(params.weekEnd) ? params.weekEnd.trim() : start;
-      const due = buildDueDateWindowFilter(columns, start, end, false);
-      if (due) {
-        where.push(due.sql);
-        values.push(...due.values);
+      if (columns.has('due_date')) {
+        const q = quoteIdent('due_date');
+        const emptyDue = `(${q} IS NULL OR ${q} = '')`;
+        // 本周到期 + 过期未完成
+        where.push(`(NOT ${emptyDue} AND (LEFT(${q}, 10) BETWEEN ? AND ? OR LEFT(${q}, 10) < ?))`);
+        values.push(start, end, context.logicalToday);
       }
       grouped.matrixWeek = await selectRows(where, values);
     }
@@ -315,29 +336,27 @@ async function loadFilteredTasks(params: TasksBootstrapParams, context: TasksBoo
   }
 
   const singleView = views.length === 1 ? views[0] : null;
-  const allRows =
-    singleView === 'standaloneTodos'
-      ? grouped.standaloneTodos
-      : [...byId.values()];
-  const page = Math.max(1, params.page ?? 1);
-  const limit = Math.min(500, Math.max(1, params.limit ?? (allRows.length || 1)));
-  const offset = (page - 1) * limit;
+  const allRows = singleView ? grouped[singleView] : [...byId.values()];
+  const paging = resolveTaskViewPagination(params, allRows.length);
 
   return {
-    unionRows: formatRowsDateTimesForApi(allRows.slice(offset, offset + limit)),
+    unionRows: formatRowsDateTimesForApi(
+      allRows.slice(paging.offset, paging.offset + paging.limit),
+      'tasks',
+    ),
     grouped,
     meta: {
       tasksScope: singleView ?? 'tasksPageFiltered',
-      serverFiltered: true,
-      filtersVersion: 'tasks-page-v1',
+      serverFiltered: true as const,
+      filtersVersion: TASKS_PAGE_FILTERS_VERSION,
       taskViews: views,
       logicalToday: context.logicalToday,
       weekStart: params.weekStart,
       weekEnd: params.weekEnd,
-      page,
-      limit,
-      total: allRows.length,
-      totalPages: Math.ceil(allRows.length / limit),
+      page: paging.page,
+      limit: paging.limit,
+      total: paging.total,
+      totalPages: paging.totalPages,
     },
   };
 }
@@ -472,22 +491,22 @@ async function loadTableVersions(
 }
 
 export interface TasksBootstrapResult {
-  projects: Record<string, unknown>[];
-  projectCategories: Record<string, unknown>[];
-  tasks: Record<string, unknown>[] | {
+  projects?: Record<string, unknown>[];
+  projectCategories?: Record<string, unknown>[];
+  tasks?: Record<string, unknown>[] | {
     standaloneTodos: Record<string, unknown>[];
     matrixWeek: Record<string, unknown>[];
     projectTreeTasks: Record<string, unknown>[];
   };
-  taskCategories: Record<string, unknown>[];
-  taskItems: Record<string, unknown>[];
-  habits: Record<string, unknown>[];
-  habitContexts: Record<string, unknown>[];
-  habitCheckIns: Record<string, unknown>[];
-  taskExecutionEvents: Record<string, unknown>[];
-  frogCompletionEvents: Record<string, unknown>[];
-  /** 缺省积分钱包；未 include 时为 null */
-  pointsWallet: Record<string, unknown> | null;
+  taskCategories?: Record<string, unknown>[];
+  taskItems?: Record<string, unknown>[];
+  habits?: Record<string, unknown>[];
+  habitContexts?: Record<string, unknown>[];
+  habitCheckIns?: Record<string, unknown>[];
+  taskExecutionEvents?: Record<string, unknown>[];
+  frogCompletionEvents?: Record<string, unknown>[];
+  /** 缺省积分钱包；未 include 时不返回 */
+  pointsWallet?: Record<string, unknown> | null;
   meta: {
     serverTime: string;
     logicalToday: string;
@@ -551,21 +570,41 @@ export async function getTasksPageBootstrap(
   params: TasksBootstrapParams,
 ): Promise<TasksBootstrapResult> {
   const context = resolveTasksBootstrapContext(params);
+  const views = parseTaskPageViews(params);
+  if (views.length > 0) {
+    const filtered = await loadFilteredTasks(params, context);
+    const serverTime = new Date().toISOString();
+    const paging = resolveTaskViewPagination(params, filtered?.meta.total ?? 0);
+    return {
+      tasks: filtered?.unionRows ?? [],
+      meta: {
+        serverTime,
+        logicalToday: context.logicalToday,
+        heatmapStart: context.heatmapStart,
+        heatmapEnd: context.heatmapEnd,
+        habitCheckInStart: context.habitCheckInStart,
+        habitCheckInEnd: context.habitCheckInEnd,
+        completionHeatmapWeeks: COMPLETION_HEATMAP_WEEKS,
+        tablesVersion: {},
+        snapshotAt: serverTime,
+        tasksScope: filtered?.meta.tasksScope ?? views[0] ?? 'tasksPageFiltered',
+        serverFiltered: true,
+        filtersVersion: TASKS_PAGE_FILTERS_VERSION,
+        taskViews: views,
+        weekStart: params.weekStart,
+        weekEnd: params.weekEnd,
+        page: filtered?.meta.page ?? paging.page,
+        limit: filtered?.meta.limit ?? paging.limit,
+        total: filtered?.meta.total ?? paging.total,
+        totalPages: filtered?.meta.totalPages ?? paging.totalPages,
+      },
+    };
+  }
+
   const include = parseTasksBootstrapInclude(params.include);
 
   const loaders: Promise<void>[] = [];
   const result: TasksBootstrapResult = {
-    projects: [],
-    projectCategories: [],
-    tasks: [],
-    taskCategories: [],
-    taskItems: [],
-    habits: [],
-    habitContexts: [],
-    habitCheckIns: [],
-    taskExecutionEvents: [],
-    frogCompletionEvents: [],
-    pointsWallet: null,
     meta: {
       serverTime: new Date().toISOString(),
       logicalToday: context.logicalToday,

@@ -3,7 +3,12 @@ import {
   buildHabitsGridItemsForDay,
   type HabitsGridItem,
 } from '../calendar/aggregation.js';
-import { resolveTasksBootstrapContext, type TasksBootstrapParams } from './tasks-bootstrap.js';
+import { addDaysToLogicalYmd } from '../calendar/logical-day.js';
+import {
+  resolveTasksBootstrapContext,
+  TASKS_PAGE_FILTERS_VERSION,
+  type TasksBootstrapParams,
+} from './tasks-bootstrap.js';
 
 export interface HabitsGridSection {
   id: string;
@@ -13,12 +18,39 @@ export interface HabitsGridSection {
 
 export interface HabitsGridResult {
   logicalToday: string;
+  items: HabitsGridItem[];
   sections: HabitsGridSection[];
   meta: {
-    serverFiltered: boolean;
+    serverFiltered: true;
     filtersVersion: string;
     serverTime: string;
   };
+}
+
+function extraDataForApi(value: unknown): string | null {
+  if (value == null || value === '') return null;
+  if (typeof value === 'string') return value;
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return null;
+  }
+}
+
+function resolveContextRef(
+  raw: string | null | undefined,
+  contexts: Record<string, unknown>[],
+): { id: string; name: string } | null {
+  const value = raw?.trim() || '';
+  if (!value) return null;
+  for (const ctx of contexts) {
+    const id = String(ctx.id ?? '').trim();
+    const name = String(ctx.name ?? '').trim();
+    if (value === id || value === name) {
+      return { id: id || name, name: name || id };
+    }
+  }
+  return { id: value, name: value };
 }
 
 function buildCheckInsByHabit(
@@ -60,7 +92,7 @@ export async function getHabitsGrid(params: TasksBootstrapParams): Promise<Habit
     listAllRecords('habits'),
     listAllRecords('habit_contexts'),
     listAllRecords('habit_check_ins', {
-      startDate: context.habitCheckInStart,
+      startDate: addDaysToLogicalYmd(logicalToday, -400),
       endDate: logicalToday,
     }),
   ]);
@@ -73,8 +105,9 @@ export async function getHabitsGrid(params: TasksBootstrapParams): Promise<Habit
     name: String(row.name ?? ''),
     icon: String(row.icon ?? ''),
     note: row.note == null ? null : String(row.note),
-    extra_data: row.extra_data == null ? null : String(row.extra_data),
+    extra_data: extraDataForApi(row.extra_data),
     context: row.context == null ? null : String(row.context),
+    created_at: row.created_at == null ? undefined : String(row.created_at),
   }));
 
   const allItems = buildHabitsGridItemsForDay({
@@ -82,15 +115,22 @@ export async function getHabitsGrid(params: TasksBootstrapParams): Promise<Habit
     habits: habitRows,
     habitCheckInsByHabit,
     todayCheckIns,
+    dayBoundary: context.dayBoundary,
+  }).map((item) => {
+    const resolved = resolveContextRef(item.context, contexts);
+    return {
+      ...item,
+      context: resolved?.id ?? item.context,
+    };
   });
 
   const itemsByContext = new Map<string, HabitsGridItem[]>();
   for (const item of allItems) {
-    const habit = habitRows.find((h) => h.id === item.id);
-    const ctx = habit?.context?.trim() || '';
-    const bucket = itemsByContext.get(ctx) ?? [];
+    const resolved = resolveContextRef(item.context, contexts);
+    const bucketKey = resolved?.name ?? '';
+    const bucket = itemsByContext.get(bucketKey) ?? [];
     bucket.push(item);
-    itemsByContext.set(ctx, bucket);
+    itemsByContext.set(bucketKey, bucket);
   }
 
   const sortedContexts = [...contexts].sort(
@@ -133,10 +173,11 @@ export async function getHabitsGrid(params: TasksBootstrapParams): Promise<Habit
 
   return {
     logicalToday,
+    items: allItems,
     sections,
     meta: {
       serverFiltered: true,
-      filtersVersion: 'tasks-page-v1',
+      filtersVersion: TASKS_PAGE_FILTERS_VERSION,
       serverTime: new Date().toISOString(),
     },
   };

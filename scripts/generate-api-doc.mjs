@@ -161,6 +161,7 @@ let out = `# selfApp 数据库接口使用说明书
 5. [数据表详细说明](#5-数据表详细说明)
 6. [错误码与状态码](#6-错误码与状态码)
 7. [APP 集成建议](#7-app-集成建议)
+8. [任务页专用接口](#8-任务页专用接口)
 
 ---
 
@@ -511,6 +512,49 @@ async function request(path, options = {}) {
 - 列表接口暂不支持按字段过滤（如 \`?user_id=xxx\`），需客户端过滤
 - JSON 类型字段（\`extra_data\`、\`value_json\` 等）需传合法 JSON 字符串
 - 生产环境请配置强随机 \`JWT_SECRET\`
+
+---
+
+## 8. 任务页专用接口
+
+任务 Tab（\`tabs/tasks\`）**只走下列专用接口**，不要再为首页降级到 \`GET /api/data/*\` 通用 List。
+
+| 接口 | 说明 |
+|------|------|
+| \`GET /api/pages/tasks/catalog\` | 项目 / 项目分类 / 任务分类；支持 \`updatedSince\` 增量 |
+| \`GET /api/pages/tasks?include=tasks&taskView=standaloneTodos\` | 独立待办筛选视图；只返回 \`tasks\` + \`meta\`，\`limit\` 默认 200 |
+| \`GET /api/pages/tasks?include=tasks&taskView=matrixWeek&projectIds=\` | 四象限：本周到期 + 过期未完成；同样可分页 |
+| \`GET /api/pages/projects\` | 项目列表：\`limit\` 只限制项目条数；每项带完整 \`tasks\` 树 + \`taskCount\` |
+| \`GET /api/pages/tasks/habits-grid\` | 首页习惯格；每项含 \`extra_data\` / \`context\` / \`hiddenOnViewDay\`，不含打卡数组 |
+| \`GET /api/pages/tasks/today-frogs\` | 今日青蛙：\`tasks\` + \`projectFrogs\` / \`projectFrogIds\`；\`meta.serverFiltered=true\` |
+| \`GET /api/pages/tasks/completion-heatmap\` | 完成热力图；待办为**净完成**口径，\`meta.todoNetCompleted=true\` |
+| \`GET /api/app/wish-board/balance\` | 积分余额 |
+
+**热力图口径**：非重复待办同一 \`task_id\` 只保留最新事件；最新为 \`reopened\` 则任何一天都不计。与青蛙完成互斥（同日同 \`task_id\` 只计青蛙）。时间按墙上时钟，禁止把无时区 DATETIME 当 UTC 再加偏移。
+
+**今日青蛙**：判定与 \`extra_data.frogAssignedOn\` / \`frogAssignedDates\` 一致。任务 id 与项目 id 碰撞时项目优先。\`meta.serverTime\` / \`serverFiltered\` / \`filtersVersion=tasks-page-v1\` 必带。
+
+**习惯格**：每项带回 \`habits.extra_data\` 原文（含子习惯、积分）。任务型打勾只看周期目标；子习惯未全完成则父习惯不显示完成。创建日晚于查看日的习惯 \`hiddenOnViewDay=true\`。\`meta.filtersVersion\` 为 \`tasks-page-v1\`。
+
+**筛选视图** \`GET /api/pages/tasks?taskView=\`：
+
+- 带 \`taskView\` 时**只**返回 \`tasks\` + \`meta\`，不附带习惯/打卡/事件表
+- \`meta.tasksScope\` 等于请求的 \`taskView\`；\`meta.page\` / \`limit\` / \`total\` / \`totalPages\` 必带（缺省 \`limit=200\`）
+- \`standaloneTodos\`：含今日日界内已完成/取消、搁置、未到执行日的重复待办
+- \`matrixWeek\`：本周到期 + 过期未完成；\`projectIds\` 为空字符串时返回空列表
+
+**收集箱**：\`GET /api/pages/projects?uncategorized=true\` 与 \`categoryId=inbox\` 语义稳定；\`inbox\` 映射为收集箱分类 id。
+
+**项目列表（任务树）** \`GET /api/pages/projects\`：
+
+- Query：\`page\` / \`limit\`（只限制**项目**条数，默认 200）/ \`includeCompleted\` / \`includeCancelled\` / \`categoryId\` / \`uncategorized\` / \`projectId\`
+- \`limit\` **不要**理解成任务条数。先分页项目，再无 LIMIT 拉取本页项目的全部任务，在应用层按 \`parent_task_id\` 组树
+- 每个项目含 \`tasks\`（根在数组、子孙在 \`children\`，叶子 \`children: []\`）、\`parent_task_id\`、\`taskCount\`（= 树上节点数）
+- \`pagination.total\` / \`totalPages\` 按项目个数计
+- \`includeCompleted=false\`：已完成节点不入树，其未完成子孙升为根（\`parent_task_id\` 仍保留原值）
+- \`?projectId=\`：只返回这一个项目的完整树；\`limit=1\` 仍是项目条数
+- \`meta.tasksComplete\` 恒为 \`true\`；请求带了 \`projectId\` 时原样回显
+- 不要为此接口再走 \`GET /api/data/tasks\` 全表
 
 ---
 

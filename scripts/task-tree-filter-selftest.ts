@@ -1,5 +1,6 @@
 import {
   buildNestedTaskTree,
+  countTaskTreeNodes,
   resolveProjectListStatusFilters,
   taskMatchesStatusFilter,
   type TaskRow,
@@ -98,5 +99,55 @@ assert(
   tree4fixed.length === 1 && tree4fixed[0].id === 'c',
   '传入 structuralById 后，子任务应能正确归入项目树',
 );
+
+// 场景 5：includeCompleted=false 时，已完成父节点拿掉，未完成子孙升为根（parent_task_id 仍保留）
+const parentDone2: TaskRow = {
+  id: 'pd',
+  project_id: 'p1',
+  parent_task_id: null,
+  status: 'done',
+  title: '已完成父',
+};
+const childTodo: TaskRow = {
+  id: 'ct',
+  project_id: null,
+  parent_task_id: 'pd',
+  status: 'todo',
+  title: '未完成子',
+};
+const grandTodo: TaskRow = {
+  id: 'gt',
+  project_id: null,
+  parent_task_id: 'ct',
+  status: 'todo',
+  title: '未完成孙',
+};
+const structuralHideDone = [parentDone2, childTodo, grandTodo];
+const hideDoneFilters = resolveProjectListStatusFilters({ includeCompleted: false });
+const filteredHideDone = structuralHideDone.filter((t) =>
+  taskMatchesStatusFilter(t, columns, hideDoneFilters),
+);
+const treeHideDone = buildNestedTaskTree(
+  filteredHideDone,
+  'p1',
+  new Map(structuralHideDone.map((t) => [String(t.id), t])),
+);
+assert(treeHideDone.length === 1 && treeHideDone[0].id === 'ct', '父 done 被过滤后，未完成子应升为根');
+assert(treeHideDone[0].parent_task_id === 'pd', '升根节点仍应保留原 parent_task_id');
+assert(Array.isArray(treeHideDone[0].children) && treeHideDone[0].children.length === 1, '升根后子孙应仍挂在 children');
+assert(treeHideDone[0].children[0].id === 'gt', '孙任务应仍挂在子任务下');
+assert(Array.isArray(treeHideDone[0].children[0].children) && treeHideDone[0].children[0].children.length === 0, '叶子 children 应为 []');
+assert(countTaskTreeNodes(treeHideDone) === 2, '过滤后 taskCount 应等于树上节点数');
+
+// 场景 6：子已完成、父未完成 → 父仍在，children 为空数组
+const parentTodo: TaskRow = { id: 'pt', project_id: 'p1', parent_task_id: null, status: 'todo' };
+const childDoneOnly: TaskRow = { id: 'cd', project_id: 'p1', parent_task_id: 'pt', status: 'done' };
+const filteredParentOnly = [parentTodo, childDoneOnly].filter((t) =>
+  taskMatchesStatusFilter(t, columns, hideDoneFilters),
+);
+const treeParentOnly = buildNestedTaskTree(filteredParentOnly, 'p1');
+assert(treeParentOnly.length === 1 && treeParentOnly[0].id === 'pt', '父未完成应保留');
+assert(Array.isArray(treeParentOnly[0].children) && treeParentOnly[0].children.length === 0, '已完成子被过滤后 children 应为 []');
+assert(countTaskTreeNodes(treeParentOnly) === 1, '仅父节点时 taskCount=1');
 
 console.log('task-tree-filter-selftest: all passed');
