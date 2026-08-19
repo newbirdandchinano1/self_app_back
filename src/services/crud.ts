@@ -5,13 +5,18 @@ import {
   type AllowedTable,
   ADMIN_AUTO_MANAGED_COLUMNS,
   ADMIN_DEFAULT_SYNC_STATUS,
+  ADMIN_READONLY_COLUMNS,
   getPrimaryKey,
   HIDDEN_COLUMNS,
   isAllowedTable,
   PASSWORD_FIELDS,
   requiresClientId,
+  PROJECT_STATUS_VALUES,
+  TABLE_ENUM_COLUMNS,
   TABLE_FOREIGN_KEYS,
   TABLE_SYNC_DEPENDS_ON,
+  TASK_EXECUTION_ACTION_VALUES,
+  TASK_STATUS_VALUES,
 } from '../config/tables.js';
 import { buildColumnMeta, getColumnLabel, getTableLabel } from '../config/table-labels.js';
 import { hashPassword } from '../utils/password.js';
@@ -138,8 +143,11 @@ async function normalizeWriteData(
   const allowed = new Set(meta.columns);
   const result: Record<string, unknown> = {};
 
+  const adminReadonlyColumnSet = new Set<string>(ADMIN_READONLY_COLUMNS);
+
   for (const [key, value] of Object.entries(data)) {
     if (adminPanel && adminAutoColumnSet.has(key)) continue;
+    if (adminPanel && adminReadonlyColumnSet.has(key)) continue;
     if (allowed.has(key)) {
       result[key] = value;
     }
@@ -158,11 +166,10 @@ async function normalizeWriteData(
     if (meta.columns.includes('id')) {
       const id = result.id;
       const hasClientId = id != null && String(id).trim() !== '';
-      if (needsClientId) {
-        if (!hasClientId) {
-          throw new CrudError(`创建 ${table} 时必须由客户端提供 id`);
-        }
+      if (needsClientId && !hasClientId && !adminPanel) {
+        throw new CrudError(`创建 ${table} 时必须由客户端提供 id`);
       } else if (!hasClientId) {
+        // 管理后台新增时主键 id 只读：服务端自动生成（含 CLIENT_ID_TABLES）
         result.id = randomUUID();
       }
     }
@@ -175,6 +182,21 @@ async function normalizeWriteData(
       }
       if (meta.columns.includes('sync_status')) {
         result.sync_status = ADMIN_DEFAULT_SYNC_STATUS;
+      }
+      if (meta.columns.includes('deleted_at')) {
+        result.deleted_at = null;
+      }
+      if (meta.columns.includes('version')) {
+        result.version = 1;
+      }
+      // 习惯 icon/tone 后台只读：新增时补默认，避免 NOT NULL 字段缺失
+      if (table === 'habits') {
+        if (meta.columns.includes('icon') && (result.icon == null || result.icon === '')) {
+          result.icon = '';
+        }
+        if (meta.columns.includes('tone') && result.tone === undefined) {
+          result.tone = null;
+        }
       }
     } else if (meta.columns.includes('created_at') && result.created_at == null) {
       result.created_at = nowForTable;
@@ -208,6 +230,35 @@ async function normalizeWriteData(
     result.extra_data = normalizeRewardPointsExtraData(result.extra_data);
   }
 
+  if (table === 'tasks' && meta.columns.includes('status') && (isCreate || 'status' in result)) {
+    const status = String(result.status ?? (isCreate ? 'todo' : '')).trim();
+    if (!TASK_STATUS_VALUES.includes(status)) {
+      throw new CrudError(`任务状态仅支持 ${TASK_STATUS_VALUES.join(' / ')}`, 400);
+    }
+    result.status = status;
+  }
+
+  if (
+    (table === 'task_execution_events' || table === 'frog_completion_events') &&
+    meta.columns.includes('action') &&
+    (isCreate || 'action' in result)
+  ) {
+    const action = String(result.action ?? (isCreate ? 'completed' : '')).trim();
+    if (!TASK_EXECUTION_ACTION_VALUES.includes(action)) {
+      const subject = table === 'frog_completion_events' ? '青蛙完成事件' : '待办事项';
+      throw new CrudError(`${subject}操作仅支持 ${TASK_EXECUTION_ACTION_VALUES.join(' / ')}`, 400);
+    }
+    result.action = action;
+  }
+
+  if (table === 'projects' && meta.columns.includes('status') && (isCreate || 'status' in result)) {
+    const status = String(result.status ?? (isCreate ? 'active' : '')).trim();
+    if (!PROJECT_STATUS_VALUES.includes(status)) {
+      throw new CrudError(`项目状态仅支持 ${PROJECT_STATUS_VALUES.join(' / ')}`, 400);
+    }
+    result.status = status;
+  }
+
   if (
     (table === 'tasks' || table === 'projects') &&
     meta.columns.includes('priority') &&
@@ -230,6 +281,13 @@ async function normalizeWriteData(
 
   if (table === 'points_ledger') {
     normalizePointsLedgerWrite(result, isCreate);
+  }
+
+  if (adminPanel && table === 'health_daily_targets' && meta.columns.includes('source')) {
+    delete result.source;
+    if (isCreate) {
+      result.source = 'manual';
+    }
   }
 
   return result;
@@ -831,6 +889,11 @@ export async function deleteRecord(tableName: string, pkValue: string) {
 
 export async function listTableNames() {
   const { ALLOWED_TABLES } = await import('../config/tables.js');
+  const {
+    ADMIN_MODULES,
+    getAdminModuleIdForTable,
+    getAdminModuleTitle,
+  } = await import('../config/admin-modules.js');
   const tables = [];
 
   for (const name of ALLOWED_TABLES) {
@@ -839,17 +902,24 @@ export async function listTableNames() {
       const hidden = new Set(getHiddenColumns(name, meta));
       const visibleColumns = meta.columns.filter((c) => !hidden.has(c));
       const fkMap = TABLE_FOREIGN_KEYS[name] ?? {};
+      const moduleId = getAdminModuleIdForTable(name);
       tables.push({
         name,
         label: getTableLabel(name),
+        moduleId,
+        moduleTitle: moduleId ? getAdminModuleTitle(moduleId) : null,
         primaryKey: meta.primaryKey,
         primaryKeyLabel: getColumnLabel(name, meta.primaryKey),
         clientIdRequired: requiresClientId(name),
         syncDependsOn: TABLE_SYNC_DEPENDS_ON[name] ?? [],
         autoManagedColumns: [...ADMIN_AUTO_MANAGED_COLUMNS],
+        readonlyColumns: [...ADMIN_READONLY_COLUMNS],
         columns: buildColumnMeta(name, visibleColumns).map((col) => ({
           ...col,
           ...(fkMap[col.name] ? { refTable: fkMap[col.name] } : {}),
+          ...(TABLE_ENUM_COLUMNS[name]?.[col.name]
+            ? { enumOptions: TABLE_ENUM_COLUMNS[name]![col.name] }
+            : {}),
         })),
       });
     } catch {
@@ -857,5 +927,13 @@ export async function listTableNames() {
     }
   }
 
-  return tables;
+  const available = new Set(tables.map((t) => t.name));
+  const modules = ADMIN_MODULES.map((mod) => ({
+    id: mod.id,
+    title: mod.title,
+    tables: mod.tables.filter((t) => available.has(t)),
+    emptyHint: mod.emptyHint ?? null,
+  }));
+
+  return { tables, modules };
 }

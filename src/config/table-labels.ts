@@ -37,7 +37,7 @@ export const TABLE_LABELS: Record<AllowedTable, string> = {
   savings_plan_deposits: '储蓄存入记录',
   savings_plans: '储蓄计划',
   task_categories: '任务分类',
-  task_execution_events: '任务执行事件',
+  task_execution_events: '待办事项',
   task_items: '任务子项',
   tasks: '任务',
   users: '用户',
@@ -216,11 +216,23 @@ export const COLUMN_LABELS: Record<string, string> = {
 export const TABLE_COLUMN_LABELS: Partial<
   Record<AllowedTable, Partial<Record<string, string>>>
 > = {
+  habits: {
+    icon: '图标（仅可查看，由客户端设置）',
+    tone: '色调（仅可查看，由客户端设置）',
+  },
   tasks: {
     category_id: '任务分类ID',
+    status: '状态（待办/已完成/已取消/已搁置）',
+  },
+  task_execution_events: {
+    action: '操作（完成/重新打开）',
+  },
+  frog_completion_events: {
+    action: '操作（完成/重新打开）',
   },
   projects: {
     category_id: '项目分类ID',
+    status: '状态（进行中/已完成/已归档）',
   },
   memo_dimensions: {
     title: '名称（同 App name）',

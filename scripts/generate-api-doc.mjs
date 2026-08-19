@@ -558,6 +558,29 @@ async function request(path, options = {}) {
 
 ---
 
+## 9. 财务页专用接口
+
+财务 Tab（\`tabs/finance\`）**只走下列专用接口**，不要再为首页 / 统计 / 日历 / 资产降级到 \`GET /api/data/finance_*\` 或 \`cash_flow_*\` 通用 List。写入仍走 \`POST/PUT/PATCH/DELETE /api/data/{table}\`。
+
+账户 \`balance\` / \`netWorth\` 由服务端按**全量**未删除流水汇总：\`income\` +|amt|，\`expense\` -|amt|，\`transfer\` 看 \`extra_data.transfer_leg\`（\`in\` 加 / \`out\` 或缺省减）。净资产排除 \`extra_data.exclude_from_total_assets === true\` 的账户。\`happened_at\` 按墙上时钟比较，禁止当 UTC 再加偏移。
+
+| 接口 | 说明 |
+|------|------|
+| \`GET /api/pages/finance/home\` | 首屏：账户（含全量余额）+ 分类 + 窗口流水（\`daysBack\` ∪ 两预算周期）+ \`historyHasMore\` + \`netWorth\` + 自然月 \`monthly\` |
+| \`GET /api/pages/finance/catalog\` | 资产页：账户（含余额）/ 账户类型 / 分类 + \`tablesVersion.count\` |
+| \`GET /api/pages/finance/recent-days\` | 触底：逻辑日 \`< before\` 的最近 \`days\` 个有流水日 |
+| \`GET /api/pages/finance/transactions\` | 统计 / 日历单日；\`start\`+\`end\`，可选 \`accountId\` / \`excludeCorrections\`，分页直到 \`totalPages\` |
+| \`GET /api/pages/finance/daily-summaries\` | 日历月网格：按日 income/expense/net，**不计转账** |
+| \`GET /api/pages/finance/account-detail\` | \`accountId\` 或 \`accountName\`；账户（含余额）+ 该账户全历史流水 |
+| \`GET /api/pages/finance/cash-flow\` | 现金流台账：\`profile\` / \`incomes\` / \`holdings\` / \`expenseLines\` |
+| \`GET /api/pages/finance/insights\` | 洞察：\`monthly\` / \`categoryTop\` / \`monthEndNetWorth\`，不回传全量流水 |
+
+**home Query**：\`logicalToday\` / \`dayBoundaryHour\` / \`dayBoundaryMinute\` / \`historyDays\`（默认 2）/ \`daysBack\`（默认 90）/ \`budgetRefreshDay\`（1–31）。
+
+**transactions**：区间最长 800 天；\`page\` 默认 1，\`limit\` 默认 200、最大 500。
+
+---
+
 ## 附录：表名中英对照
 
 | 英文表名 | 中文名 |

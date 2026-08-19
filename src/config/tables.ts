@@ -104,10 +104,62 @@ export const ADMIN_AUTO_MANAGED_COLUMNS = [
   'created_at',
   'updated_at',
   'sync_status',
+  'deleted_at',
+  'version',
 ] as const;
+
+/** Admin 表单仅可查看、不可改写的业务字段 */
+export const ADMIN_READONLY_COLUMNS = ['category_id', 'parent_task_id', 'icon', 'tone'] as const;
 
 /** Admin 新增记录时的默认同步状态（已同步，非 pending_*） */
 export const ADMIN_DEFAULT_SYNC_STATUS = 'synced';
+
+export type EnumOption = { value: string; label: string };
+
+/** 任务 status 固定取值（与 App 日历/列表过滤口径一致） */
+export const TASK_STATUS_OPTIONS: readonly EnumOption[] = [
+  { value: 'todo', label: '待办' },
+  { value: 'done', label: '已完成' },
+  { value: 'cancelled', label: '已取消' },
+  { value: 'shelved', label: '已搁置' },
+];
+
+export const TASK_STATUS_VALUES = TASK_STATUS_OPTIONS.map((o) => o.value);
+
+/** 待办事项（task_execution_events）action 固定取值 */
+export const TASK_EXECUTION_ACTION_OPTIONS: readonly EnumOption[] = [
+  { value: 'completed', label: '完成' },
+  { value: 'reopened', label: '重新打开' },
+];
+
+export const TASK_EXECUTION_ACTION_VALUES = TASK_EXECUTION_ACTION_OPTIONS.map((o) => o.value);
+
+/** 项目 status 固定取值（与日历/列表 excludeArchived 口径一致） */
+export const PROJECT_STATUS_OPTIONS: readonly EnumOption[] = [
+  { value: 'active', label: '进行中' },
+  { value: 'completed', label: '已完成' },
+  { value: 'archived', label: '已归档' },
+];
+
+export const PROJECT_STATUS_VALUES = PROJECT_STATUS_OPTIONS.map((o) => o.value);
+
+/** Admin 表单用下拉框的枚举字段 */
+export const TABLE_ENUM_COLUMNS: Partial<
+  Record<AllowedTable, Partial<Record<string, readonly EnumOption[]>>>
+> = {
+  tasks: {
+    status: TASK_STATUS_OPTIONS,
+  },
+  task_execution_events: {
+    action: TASK_EXECUTION_ACTION_OPTIONS,
+  },
+  frog_completion_events: {
+    action: TASK_EXECUTION_ACTION_OPTIONS,
+  },
+  projects: {
+    status: PROJECT_STATUS_OPTIONS,
+  },
+};
 
 /** 写入时明文字段 -> 哈希字段 */
 export const PASSWORD_FIELDS: Partial<Record<AllowedTable, { plain: string; hash: string }>> = {

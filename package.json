@@ -14,7 +14,8 @@
     "test:tz": "tsx scripts/logical-day-selftest.ts",
     "test:tasks-page": "tsx scripts/tasks-page-selftest.ts",
     "test:task-tree": "tsx scripts/task-tree-filter-selftest.ts",
-    "test:projects": "tsx scripts/project-list-selftest.ts"
+    "test:projects": "tsx scripts/project-list-selftest.ts",
+    "test:finance-page": "tsx scripts/finance-page-selftest.ts"
   },
   "dependencies": {
     "bcrypt": "^6.0.0",

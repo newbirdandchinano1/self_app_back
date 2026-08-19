@@ -9,6 +9,7 @@ import wishBoardRouter from './wish-board.js';
 import recipesRouter from './recipes.js';
 import memosRouter from './memos.js';
 import healthRouter from './health.js';
+import financeRouter from './finance.js';
 import crudRouter from './crud.js';
 
 /**
@@ -36,6 +37,7 @@ router.use(apiConcurrency, wishBoardRouter);
 router.use(apiConcurrency, recipesRouter);
 router.use(apiConcurrency, memosRouter);
 router.use(apiConcurrency, healthRouter);
+router.use(apiConcurrency, financeRouter);
 router.use(apiConcurrency, crudRouter);
 
 export default router;

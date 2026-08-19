@@ -16,7 +16,7 @@
       --accent-hover: #3b7aed;
       --ok: #22c55e;
       --danger: #ef4444;
-      --sidebar-w: 260px;
+      --sidebar-w: 280px;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -56,24 +56,76 @@
     .table-list {
       flex: 1;
       overflow-y: auto;
-      padding: .5rem;
+      padding: .35rem .5rem .75rem;
+    }
+    .module-group { margin-bottom: .2rem; }
+    .module-head {
+      display: flex;
+      align-items: center;
+      gap: .4rem;
+      width: 100%;
+      text-align: left;
+      padding: .55rem .65rem;
+      border: none;
+      border-radius: 6px;
+      background: transparent;
+      color: var(--text);
+      font-size: .84rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background .15s;
+    }
+    .module-head:hover { background: var(--surface2); }
+    .module-head .chevron {
+      width: .9rem;
+      color: var(--muted);
+      font-size: .7rem;
+      transition: transform .15s;
+      flex-shrink: 0;
+    }
+    .module-head.collapsed .chevron { transform: rotate(-90deg); }
+    .module-head .mod-title { flex: 1; min-width: 0; }
+    .module-head .mod-count {
+      font-size: .72rem;
+      font-weight: 500;
+      color: var(--muted);
+      background: var(--surface2);
+      border-radius: 999px;
+      padding: .1rem .45rem;
+    }
+    .module-body { padding: 0 0 .25rem .35rem; }
+    .module-body.collapsed { display: none; }
+    .module-hint {
+      margin: .15rem .5rem .45rem;
+      padding: .55rem .65rem;
+      border-radius: 6px;
+      background: rgba(79,140,255,.08);
+      border: 1px solid rgba(79,140,255,.2);
+      color: var(--muted);
+      font-size: .75rem;
+      line-height: 1.45;
     }
     .table-item {
       display: block;
       width: 100%;
       text-align: left;
-      padding: .55rem .75rem;
+      padding: .45rem .65rem .45rem .85rem;
       border: none;
       border-radius: 6px;
       background: transparent;
       color: var(--muted);
-      font-size: .82rem;
+      font-size: .8rem;
       cursor: pointer;
       transition: all .15s;
       word-break: break-all;
     }
     .table-item:hover { background: var(--surface2); color: var(--text); }
     .table-item.active { background: rgba(79,140,255,.15); color: var(--accent); font-weight: 600; }
+    .module-empty {
+      padding: .35rem .65rem .55rem .85rem;
+      color: var(--muted);
+      font-size: .75rem;
+    }
     .main {
       margin-left: var(--sidebar-w);
       flex: 1;
@@ -194,7 +246,7 @@
       color: var(--muted);
       margin-bottom: .3rem;
     }
-    .form-field input, .form-field textarea {
+    .form-field input, .form-field textarea, .form-field select {
       width: 100%;
       padding: .5rem .65rem;
       border-radius: 6px;
@@ -205,9 +257,43 @@
       outline: none;
       font-family: inherit;
     }
+    .form-field select {
+      color-scheme: dark;
+      cursor: pointer;
+    }
+    .form-field input[type="date"],
+    .form-field input[type="datetime-local"] {
+      color-scheme: dark;
+      cursor: pointer;
+    }
+    .form-field input[type="date"]::-webkit-calendar-picker-indicator,
+    .form-field input[type="datetime-local"]::-webkit-calendar-picker-indicator {
+      cursor: pointer;
+      opacity: .9;
+    }
     .form-field textarea { min-height: 60px; resize: vertical; }
-    .form-field input:focus, .form-field textarea:focus { border-color: var(--accent); }
+    .form-field input:focus, .form-field textarea:focus, .form-field select:focus { border-color: var(--accent); }
     .form-field .hint { font-size: .72rem; color: var(--muted); margin-top: .2rem; }
+    .image-upload-actions { display: flex; gap: .5rem; flex-wrap: wrap; }
+    .image-upload-preview {
+      display: none;
+      margin-top: .55rem;
+      max-width: 100%;
+      max-height: 200px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      object-fit: contain;
+      background: #0b0f14;
+    }
+    .cell-thumb {
+      width: 44px;
+      height: 44px;
+      object-fit: cover;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      vertical-align: middle;
+      background: #0b0f14;
+    }
     .toast {
       position: fixed;
       bottom: 1.5rem;
@@ -238,7 +324,7 @@
       <h1>数据管理</h1>
       <p id="tableCount">加载中...</p>
     </div>
-    <input type="search" class="search" id="tableSearch" placeholder="搜索表名..." />
+    <input type="search" class="search" id="tableSearch" placeholder="搜索模块 / 表名..." />
     <div class="table-list" id="tableList"></div>
   </aside>
 
@@ -281,14 +367,32 @@
 
   <script>
     const TOKEN_KEY = 'self_app_admin_token';
+    const MODULE_COLLAPSE_KEY = 'self_app_admin_module_collapse';
     let token = localStorage.getItem(TOKEN_KEY);
     let tables = [];
+    let modules = [];
+    let collapsedModules = loadCollapsedModules();
     let currentTable = null;
     let currentMeta = null;
     let currentPage = 1;
     let currentData = [];
     let modalMode = 'create';
     let editingRecord = null;
+
+    function loadCollapsedModules() {
+      try {
+        const raw = localStorage.getItem(MODULE_COLLAPSE_KEY);
+        if (!raw) return {};
+        const parsed = JSON.parse(raw);
+        return parsed && typeof parsed === 'object' ? parsed : {};
+      } catch {
+        return {};
+      }
+    }
+
+    function saveCollapsedModules() {
+      localStorage.setItem(MODULE_COLLAPSE_KEY, JSON.stringify(collapsedModules));
+    }
 
     function authHeaders() {
       return {
@@ -301,7 +405,17 @@
     function isAutoManagedColumn(col) {
       const auto = currentMeta?.autoManagedColumns;
       if (auto?.length) return auto.includes(col);
-      return ['created_at', 'updated_at', 'sync_status'].includes(col);
+      return ['created_at', 'updated_at', 'sync_status', 'deleted_at', 'version'].includes(col);
+    }
+
+    function isAdminHiddenColumn(col) {
+      return col === 'password_hash' || col === 'version' || col === 'deleted_at';
+    }
+
+    function isReadonlyColumn(col) {
+      const cols = currentMeta?.readonlyColumns;
+      if (cols?.length) return cols.includes(col);
+      return ['category_id', 'parent_task_id', 'icon', 'tone'].includes(col);
     }
 
     async function api(url, options = {}) {
@@ -337,30 +451,134 @@
 
     function getColumnNames() {
       if (currentMeta?.columns) {
-        return currentMeta.columns.map((c) => c.name).filter((c) => c !== 'password_hash');
+        return currentMeta.columns.map((c) => c.name).filter((c) => !isAdminHiddenColumn(c));
       }
-      if (currentData.length) return Object.keys(currentData[0]).filter((c) => c !== 'password_hash');
+      if (currentData.length) return Object.keys(currentData[0]).filter((c) => !isAdminHiddenColumn(c));
       return [];
     }
 
     async function loadTables() {
       const data = await api('/api/tables');
-      tables = data.data || [];
-      document.getElementById('tableCount').textContent = tables.length + ' 张表';
+      const payload = data.data;
+      if (Array.isArray(payload)) {
+        tables = payload;
+        modules = [];
+      } else {
+        tables = payload?.tables || [];
+        modules = payload?.modules || [];
+      }
+      document.getElementById('tableCount').textContent =
+        modules.length
+          ? `${modules.length} 个模块 · ${tables.length} 张表`
+          : tables.length + ' 张表';
       renderTableList('');
+    }
+
+    function tableMatchesFilter(t, filter, q) {
+      if (!filter) return true;
+      return (
+        t.name.toLowerCase().includes(q) ||
+        (t.label && t.label.toLowerCase().includes(q)) ||
+        (t.moduleTitle && t.moduleTitle.toLowerCase().includes(q))
+      );
+    }
+
+    function buildModuleGroups(filter) {
+      const q = filter.toLowerCase();
+      const byName = new Map(tables.map((t) => [t.name, t]));
+
+      if (modules.length) {
+        const groups = modules.map((mod) => {
+          const titleHit = !filter || mod.title.toLowerCase().includes(q);
+          const items = (mod.tables || [])
+            .map((name) => byName.get(name))
+            .filter(Boolean)
+            .filter((t) => titleHit || tableMatchesFilter(t, filter, q));
+          const showEmptyHint = Boolean(mod.emptyHint) && (!filter || titleHit);
+          return {
+            id: mod.id,
+            title: mod.title,
+            items,
+            emptyHint: showEmptyHint ? mod.emptyHint : null,
+            visible: items.length > 0 || showEmptyHint,
+          };
+        });
+
+        const assigned = new Set(modules.flatMap((m) => m.tables || []));
+        const orphan = tables.filter(
+          (t) => !assigned.has(t.name) && tableMatchesFilter(t, filter, q),
+        );
+        if (orphan.length) {
+          groups.push({
+            id: '__uncategorized',
+            title: '未分类',
+            items: orphan,
+            emptyHint: null,
+            visible: true,
+          });
+        }
+        return groups.filter((g) => g.visible);
+      }
+
+      const filtered = tables.filter((t) => tableMatchesFilter(t, filter, q));
+      return filtered.length
+        ? [{ id: '__all', title: '全部表', items: filtered, emptyHint: null, visible: true }]
+        : [];
+    }
+
+    function isModuleCollapsed(moduleId, searching) {
+      if (searching) return false;
+      if (Object.prototype.hasOwnProperty.call(collapsedModules, moduleId)) {
+        return Boolean(collapsedModules[moduleId]);
+      }
+      return false;
     }
 
     function renderTableList(filter) {
       const list = document.getElementById('tableList');
-      const q = filter.toLowerCase();
-      const filtered = tables.filter(
-        (t) => t.name.toLowerCase().includes(q) || (t.label && t.label.includes(filter)),
-      );
-      list.innerHTML = filtered.map(
-        (t) =>
-          `<button class="table-item${currentTable === t.name ? ' active' : ''}" data-table="${t.name}">${t.label}</button>`,
-      ).join('');
-      list.querySelectorAll('.table-item').forEach(btn => {
+      const searching = Boolean(filter && filter.trim());
+      const groups = buildModuleGroups(filter || '');
+
+      if (!groups.length) {
+        list.innerHTML = '<div class="module-empty">没有匹配的模块或数据表</div>';
+        return;
+      }
+
+      list.innerHTML = groups.map((g) => {
+        const collapsed = isModuleCollapsed(g.id, searching);
+        const countLabel = g.items.length
+          ? String(g.items.length)
+          : (g.emptyHint ? '接口' : '0');
+        const itemsHtml = g.items.length
+          ? g.items.map(
+              (t) =>
+                `<button class="table-item${currentTable === t.name ? ' active' : ''}" data-table="${t.name}">${t.label}</button>`,
+            ).join('')
+          : '';
+        const hintHtml = g.emptyHint
+          ? `<div class="module-hint">${g.emptyHint}</div>`
+          : (!g.items.length ? '<div class="module-empty">暂无可用数据表</div>' : '');
+        return `<div class="module-group" data-module="${g.id}">
+          <button type="button" class="module-head${collapsed ? ' collapsed' : ''}" data-toggle-module="${g.id}">
+            <span class="chevron">▼</span>
+            <span class="mod-title">${g.title}</span>
+            <span class="mod-count">${countLabel}</span>
+          </button>
+          <div class="module-body${collapsed ? ' collapsed' : ''}">
+            ${itemsHtml}${hintHtml}
+          </div>
+        </div>`;
+      }).join('');
+
+      list.querySelectorAll('[data-toggle-module]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const id = btn.dataset.toggleModule;
+          collapsedModules[id] = !isModuleCollapsed(id, false);
+          saveCollapsedModules();
+          renderTableList(document.getElementById('tableSearch').value);
+        });
+      });
+      list.querySelectorAll('.table-item').forEach((btn) => {
         btn.addEventListener('click', () => selectTable(btn.dataset.table));
       });
     }
@@ -373,7 +591,10 @@
       currentTable = name;
       currentMeta = tables.find(t => t.name === name);
       currentPage = 1;
-      document.getElementById('currentTable').textContent = currentMeta?.label || name;
+      const modTitle = currentMeta?.moduleTitle;
+      document.getElementById('currentTable').textContent = modTitle
+        ? `${modTitle} · ${currentMeta?.label || name}`
+        : (currentMeta?.label || name);
       document.getElementById('toolbar').style.display = 'flex';
       renderTableList(document.getElementById('tableSearch').value);
       await loadData();
@@ -392,9 +613,68 @@
         `共 ${pg.total} 条 · 第 ${pg.page}/${pg.totalPages || 1} 页`;
     }
 
-    function cellValue(v) {
+    function formatSourceLabel(v) {
+      if (v == null || v === '') return '—';
+      const map = { ai: 'AI 生成', manual: '手动', migrated: '历史迁移' };
+      const key = String(v);
+      return map[key] || key;
+    }
+
+    function formatSyncStatusLabel(v) {
+      if (v == null || v === '') return '—';
+      const map = {
+        synced: '已同步',
+        pending_create: '待创建',
+        pending_update: '待更新',
+        pending_delete: '待删除',
+      };
+      const key = String(v);
+      return map[key] || key;
+    }
+
+    function isHealthIntakeImagePath(v) {
+      return typeof v === 'string' && /^\/uploads\/health-intake\/[A-Za-z0-9._-]+$/.test(v);
+    }
+
+    function escapeHtml(s) {
+      return String(s)
+        .replace(/&/g, '&amp;')
+        .replace(/"/g, '&quot;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+    }
+
+    function getEnumOptions(col) {
+      const colMeta = currentMeta?.columns?.find((c) => c.name === col);
+      return Array.isArray(colMeta?.enumOptions) ? colMeta.enumOptions : null;
+    }
+
+    function formatEnumLabel(col, v) {
+      const options = getEnumOptions(col);
+      if (!options) return null;
+      if (v == null || v === '') return '—';
+      const key = String(v);
+      const found = options.find((o) => o.value === key);
+      return found ? found.label : key;
+    }
+
+    function cellValue(col, v) {
+      if (col === 'source') return formatSourceLabel(v);
+      if (col === 'sync_status') return escapeHtml(formatSyncStatusLabel(v));
+      const enumLabel = formatEnumLabel(col, v);
+      if (enumLabel != null) return escapeHtml(enumLabel);
+      if (col === 'source_image_uri') {
+        if (v == null || v === '') return '—';
+        const src = String(v);
+        if (isHealthIntakeImagePath(src)) {
+          return `<img class="cell-thumb" src="${escapeHtml(src)}" alt="" />`;
+        }
+        return escapeHtml(src.length > 40 ? src.slice(0, 40) + '…' : src);
+      }
       if (v === null || v === undefined) return '—';
       if (typeof v === 'object') return JSON.stringify(v);
+      const dateText = formatDisplayTemporal(col, v);
+      if (dateText) return escapeHtml(dateText);
       const s = String(v);
       return s.length > 40 ? s.slice(0, 40) + '…' : s;
     }
@@ -408,12 +688,18 @@
 
       const pk = currentMeta.primaryKey;
       const cols = Object.keys(rows[0]);
-      const displayCols = cols.filter(c => c !== 'password_hash');
+      const displayCols = cols.filter(c => !isAdminHiddenColumn(c));
 
       wrap.innerHTML = `<table>
         <thead><tr>${displayCols.map((c) => `<th>${colLabel(c)}</th>`).join('')}<th>操作</th></tr></thead>
         <tbody>${rows.map(row => `<tr>
-          ${displayCols.map(c => `<td title="${String(row[c] ?? '').replace(/"/g, '&quot;')}">${cellValue(row[c])}</td>`).join('')}
+          ${displayCols.map(c => {
+            const shown = cellValue(c, row[c]);
+            const title = c === 'source_image_uri'
+              ? String(row[c] ?? '')
+              : String(shown ?? '').replace(/<[^>]+>/g, '');
+            return `<td title="${escapeHtml(title)}">${shown}</td>`;
+          }).join('')}
           <td style="white-space:nowrap">
             <button class="btn btn-sm" data-edit="${row[pk]}">编辑</button>
             <button class="btn btn-sm btn-danger" data-del="${row[pk]}">删除</button>
@@ -446,6 +732,218 @@
       return getColumnNames();
     }
 
+    function pad2(n) {
+      return String(n).padStart(2, '0');
+    }
+
+    function looksLikeDateTimeValue(raw) {
+      if (raw == null || raw === '') return false;
+      const text = String(raw).trim();
+      if (!text || /^\d{4}-\d{2}-\d{2}$/.test(text)) return false;
+      return /^\d{4}-\d{2}-\d{2}[ T]\d{1,2}:\d{2}/.test(text)
+        || /^\d{4}-\d{2}-\d{2}T/.test(text)
+        || /[Zz]$/.test(text)
+        || /[+-]\d{2}:?\d{2}$/.test(text);
+    }
+
+    /** 列表/只读展示：纯日期 YYYY-MM-DD，时刻 YYYY-MM-DD HH:mm:ss（上海时区） */
+    function formatDisplayTemporal(col, raw) {
+      if (raw == null || raw === '') return '';
+      const text = String(raw).trim();
+      if (!text) return '';
+      const kind = getTemporalInputKind(col, text);
+      const isDateOnly = /^\d{4}-\d{2}-\d{2}$/.test(text);
+      if (!kind && !isDateOnly && !looksLikeDateTimeValue(text)) return '';
+      if (kind === 'date' || (isDateOnly && kind !== 'datetime')) {
+        return text.slice(0, 10);
+      }
+      const parsed = new Date(text);
+      if (Number.isNaN(parsed.getTime())) {
+        const m = text.match(/^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2})(?::(\d{2}))?/);
+        return m ? `${m[1]} ${m[2]}:${m[3] || '00'}` : text.slice(0, 10);
+      }
+      const parts = new Intl.DateTimeFormat('en-GB', {
+        timeZone: 'Asia/Shanghai',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false,
+      }).formatToParts(parsed);
+      const pick = (type) => parts.find((p) => p.type === type)?.value ?? '';
+      let hour = pick('hour');
+      if (hour === '24') hour = '00';
+      return `${pick('year')}-${pick('month')}-${pick('day')} ${hour}:${pick('minute')}:${pick('second')}`;
+    }
+
+    /** date：纯日期选择器；datetime：日期时间选择器 */
+    function getTemporalInputKind(col, value) {
+      const name = String(col);
+      if (/_at$/.test(name)) return 'datetime';
+      if (name === 'record_date' && (currentTable === 'health_records' || looksLikeDateTimeValue(value))) {
+        return 'datetime';
+      }
+      if (
+        /_ymd$/.test(name)
+        || /_date$/.test(name)
+        || name === 'birthday'
+        || name === 'frog_assigned_on'
+      ) {
+        return 'date';
+      }
+      return null;
+    }
+
+    function toDateInputValue(raw) {
+      if (raw == null || raw === '') return '';
+      const m = String(raw).trim().match(/^(\d{4}-\d{2}-\d{2})/);
+      return m ? m[1] : '';
+    }
+
+    function toDateTimeLocalValue(raw) {
+      if (raw == null || raw === '') return '';
+      const text = String(raw).trim();
+      const parsed = new Date(text);
+      if (!Number.isNaN(parsed.getTime()) && looksLikeDateTimeValue(text)) {
+        return `${parsed.getFullYear()}-${pad2(parsed.getMonth() + 1)}-${pad2(parsed.getDate())}T${pad2(parsed.getHours())}:${pad2(parsed.getMinutes())}`;
+      }
+      const withTime = text.match(/^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2})/);
+      if (withTime) return `${withTime[1]}T${withTime[2]}`;
+      const dateOnly = text.match(/^(\d{4}-\d{2}-\d{2})/);
+      return dateOnly ? `${dateOnly[1]}T00:00` : '';
+    }
+
+    function datetimeLocalToIso(value) {
+      const m = String(value).match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?/);
+      if (!m) return value;
+      const d = new Date(
+        Number(m[1]),
+        Number(m[2]) - 1,
+        Number(m[3]),
+        Number(m[4]),
+        Number(m[5]),
+        Number(m[6] || 0),
+      );
+      return Number.isNaN(d.getTime()) ? value : d.toISOString();
+    }
+
+    function bindDatePickers(root) {
+      root.querySelectorAll('input[type="date"], input[type="datetime-local"]').forEach((el) => {
+        el.addEventListener('mousedown', (e) => {
+          e.preventDefault();
+          try { el.showPicker(); } catch { el.focus(); }
+        });
+        el.addEventListener('keydown', (e) => {
+          if (e.key === 'Tab' || e.key === 'Escape') return;
+          e.preventDefault();
+          try { el.showPicker(); } catch { /* ignore */ }
+        });
+      });
+    }
+
+    function readFileAsDataUrl(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ''));
+        reader.onerror = () => reject(new Error('读取图片失败'));
+        reader.readAsDataURL(file);
+      });
+    }
+
+    async function uploadHealthIntakeImage(file) {
+      if (file.type && !file.type.startsWith('image/')) throw new Error('请选择图片文件');
+      if (file.size > 8 * 1024 * 1024) throw new Error('图片不能超过 8MB');
+      const data = await readFileAsDataUrl(file);
+      const res = await api('/api/admin/uploads/health-intake', {
+        method: 'POST',
+        body: JSON.stringify({ data, mime: file.type, filename: file.name }),
+      });
+      if (res.code !== 0) throw new Error(res.message || '上传失败');
+      const uri = res.data?.uri;
+      if (!uri) throw new Error('上传失败：未返回图片路径');
+      return uri;
+    }
+
+    async function deleteHealthIntakeImage(uri) {
+      if (!isHealthIntakeImagePath(uri)) return;
+      const res = await api('/api/admin/uploads/health-intake', {
+        method: 'DELETE',
+        body: JSON.stringify({ uri }),
+      });
+      if (res.code !== 0) throw new Error(res.message || '删除文件失败');
+    }
+
+    function bindImageUploader(root) {
+      const hidden = root.querySelector('input[name="source_image_uri"]');
+      const fileInput = root.querySelector('[data-image-file]');
+      if (!hidden || !fileInput) return;
+      const preview = root.querySelector('.image-upload-preview');
+      const pathHint = root.querySelector('.image-upload-path');
+      const pickBtn = root.querySelector('[data-pick-image]');
+      const clearBtn = root.querySelector('[data-clear-image]');
+
+      function renderPreview(uri) {
+        pathHint.textContent = uri || '';
+        if (uri && isHealthIntakeImagePath(uri)) {
+          preview.src = uri;
+          preview.style.display = 'block';
+        } else if (uri) {
+          preview.removeAttribute('src');
+          preview.style.display = 'none';
+          pathHint.textContent = uri + '（非系统上传图片，可重新上传替换）';
+        } else {
+          preview.removeAttribute('src');
+          preview.style.display = 'none';
+        }
+      }
+
+      renderPreview(hidden.value);
+      pickBtn?.addEventListener('click', () => fileInput.click());
+      clearBtn?.addEventListener('click', async () => {
+        const uri = hidden.value;
+        if (clearBtn) clearBtn.disabled = true;
+        try {
+          await deleteHealthIntakeImage(uri);
+          hidden.value = '';
+          fileInput.value = '';
+          renderPreview('');
+          toast(uri ? '图片已清除' : '当前没有图片');
+        } catch (e) {
+          toast(e.message || '清除失败', true);
+        } finally {
+          if (clearBtn) clearBtn.disabled = false;
+        }
+      });
+      fileInput.addEventListener('change', async () => {
+        const file = fileInput.files && fileInput.files[0];
+        if (!file) return;
+        const previous = hidden.value;
+        if (pickBtn) {
+          pickBtn.disabled = true;
+          pickBtn.textContent = '上传中…';
+        }
+        try {
+          const uri = await uploadHealthIntakeImage(file);
+          if (previous && previous !== uri) {
+            try { await deleteHealthIntakeImage(previous); } catch { /* 旧文件删失败不影响新图 */ }
+          }
+          hidden.value = uri;
+          renderPreview(uri);
+          toast('图片已上传');
+        } catch (e) {
+          toast(e.message || '上传失败', true);
+        } finally {
+          if (pickBtn) {
+            pickBtn.disabled = false;
+            pickBtn.textContent = '选择本地图片';
+          }
+          fileInput.value = '';
+        }
+      });
+    }
+
     function buildFormFields(record, isCreate) {
       const cols = getFormColumns();
       const pk = currentMeta.primaryKey;
@@ -456,24 +954,75 @@
       body.innerHTML = cols.map((col) => {
         if (isAutoManagedColumn(col)) return '';
         const label = colLabel(col);
-        if (!isCreate && col === pk) {
-          return `<div class="form-field"><label>${pkLabel}</label><input name="${col}" value="${record?.[col] ?? ''}" readonly /></div>`;
+        // 主键 id：全表仅可查看，不可编辑；新增时由服务端自动生成
+        if (col === pk && pk === 'id') {
+          if (isCreate) {
+            return `<div class="form-field"><label>${pkLabel}</label><input value="（保存后由系统自动生成）" readonly disabled /><div class="hint">主键仅可查看，新增时自动生成</div></div>`;
+          }
+          return `<div class="form-field"><label>${pkLabel}</label><input name="${col}" value="${record?.[col] ?? ''}" readonly /><div class="hint">主键仅可查看，不可修改</div></div>`;
         }
-        if (isCreate && col === pk && col === 'id') {
-          return `<div class="form-field"><label>${pkLabel}</label><input name="${col}" placeholder="留空自动生成" /><div class="hint">可留空，系统自动生成 UUID</div></div>`;
+        if (!isCreate && col === pk) {
+          return `<div class="form-field"><label>${pkLabel}</label><input name="${col}" value="${record?.[col] ?? ''}" readonly /><div class="hint">主键仅可查看，不可修改</div></div>`;
         }
         if (isCreate && col === pk) {
-          return `<div class="form-field"><label>${pkLabel} *</label><input name="${col}" required /></div>`;
+          return `<div class="form-field"><label>${pkLabel} *</label><input name="${col}" required /><div class="hint">此表主键需手填（非自增 id）</div></div>`;
         }
-        if (col === 'password_hash') return '';
+        if (isAdminHiddenColumn(col)) return '';
 
         const val = record?.[col];
         const strVal = val === null || val === undefined ? '' : (typeof val === 'object' ? JSON.stringify(val) : String(val));
+
+        if (col === 'source') {
+          const shown = isCreate ? '手动' : formatSourceLabel(val);
+          return `<div class="form-field"><label>${label}</label><input value="${shown.replace(/"/g, '&quot;')}" readonly /><div class="hint">由系统记录，仅可查看，不可修改</div></div>`;
+        }
+
+        if (isReadonlyColumn(col)) {
+          const shown = strVal === '' ? '—' : strVal.replace(/"/g, '&quot;');
+          return `<div class="form-field"><label>${label}</label><input value="${shown}" readonly /><div class="hint">仅可查看，不可修改</div></div>`;
+        }
+
+        if (col === 'source_image_uri') {
+          const pathVal = escapeHtml(strVal);
+          return `<div class="form-field">
+            <label>${label}</label>
+            <input type="hidden" name="${col}" data-allow-empty="1" value="${pathVal}" />
+            <div class="image-upload-actions">
+              <button type="button" class="btn btn-sm" data-pick-image>选择本地图片</button>
+              <button type="button" class="btn btn-sm" data-clear-image>清除</button>
+            </div>
+            <input type="file" accept="image/jpeg,image/png,image/webp,image/gif,.jpg,.jpeg,.png,.webp,.gif" hidden data-image-file />
+            <div class="hint">支持 jpg / png / webp / gif，最大 8MB。上传后路径自动写入本字段。</div>
+            <img class="image-upload-preview" alt="来源图片预览" />
+            <div class="image-upload-path hint"></div>
+          </div>`;
+        }
+
+        const enumOptions = getEnumOptions(col);
+        if (enumOptions && enumOptions.length) {
+          const current = strVal || (isCreate ? String(enumOptions[0].value ?? '') : '');
+          const known = enumOptions.some((o) => o.value === current);
+          const extra = (!isCreate && current && !known)
+            ? `<option value="${escapeHtml(current)}" selected>${escapeHtml(current)}（未知）</option>`
+            : '';
+          const opts = enumOptions.map((o) =>
+            `<option value="${escapeHtml(o.value)}"${o.value === current ? ' selected' : ''}>${escapeHtml(o.label)}</option>`,
+          ).join('');
+          return `<div class="form-field"><label>${label}</label><select name="${col}">${extra}${opts}</select></div>`;
+        }
 
         if (isAdmin && col === 'username') {
           let html = `<div class="form-field"><label>${label}${isCreate ? ' *' : ''}</label><input name="${col}" value="${strVal.replace(/"/g, '&quot;')}" ${isCreate ? 'required' : ''} /></div>`;
           html += `<div class="form-field"><label>密码${isCreate ? ' *' : '（留空不修改）'}</label><input name="password" type="password" ${isCreate ? 'required' : ''} /><div class="hint">密码将加密存储</div></div>`;
           return html;
+        }
+
+        const temporalKind = getTemporalInputKind(col, val);
+        if (temporalKind === 'date') {
+          return `<div class="form-field"><label>${label}</label><input type="date" name="${col}" value="${toDateInputValue(strVal)}" /></div>`;
+        }
+        if (temporalKind === 'datetime') {
+          return `<div class="form-field"><label>${label}</label><input type="datetime-local" name="${col}" value="${toDateTimeLocalValue(strVal)}" /></div>`;
         }
 
         const isLong = ['text', 'json', 'body', 'note', 'description', 'extra_data', 'value_json', 'payload_json'].some((k) => col.includes(k));
@@ -487,6 +1036,8 @@
       if (isAdmin && isCreate && !body.innerHTML.includes('name="password"')) {
         body.innerHTML += `<div class="form-field"><label>密码 *</label><input name="password" type="password" required /></div>`;
       }
+      bindDatePickers(body);
+      bindImageUploader(body);
     }
 
     function openModal(mode, record) {
@@ -505,13 +1056,32 @@
 
     function collectFormData() {
       const form = {};
-      document.getElementById('modalBody').querySelectorAll('input, textarea').forEach(el => {
-        if (!el.name || el.value === '') return;
+      document.getElementById('modalBody').querySelectorAll('input, textarea, select').forEach(el => {
+        if (!el.name) return;
+        if (el.disabled) return;
+        if (el.type === 'file') return;
+        if (el.readOnly) return;
+        if (el.value === '') {
+          if (el.dataset.allowEmpty === '1') form[el.name] = null;
+          return;
+        }
         let v = el.value;
+        if (el.type === 'datetime-local') {
+          v = datetimeLocalToIso(v);
+        }
         if (v === 'null') v = null;
         if (v === 'true') v = true;
         if (v === 'false') v = false;
-        if (!isNaN(v) && v !== '' && el.type !== 'password' && !el.name.includes('_at') && !el.name.includes('date') && !el.name.includes('phone')) {
+        if (
+          !isNaN(v)
+          && v !== ''
+          && el.type !== 'password'
+          && el.type !== 'date'
+          && el.type !== 'datetime-local'
+          && !el.name.includes('_at')
+          && !el.name.includes('date')
+          && !el.name.includes('phone')
+        ) {
           const num = Number(v);
           if (String(num) === v) v = num;
         }

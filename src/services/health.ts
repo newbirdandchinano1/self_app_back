@@ -22,7 +22,6 @@ export class HealthError extends Error {
 
 export type HealthIntakeRow = {
   id: string;
-  user_id: string;
   hydration: number;
   protein: number;
   sodium: number;
@@ -40,7 +39,6 @@ export type HealthIntakeRow = {
 
 export type HealthDailyTargetRow = {
   id: string;
-  user_id: string;
   day_ymd: string;
   target_hydration: number;
   target_protein: number;
@@ -82,7 +80,6 @@ function formatIntake(row: HealthIntakeRow) {
   return formatRecordDateTimesForApi(
     {
       id: row.id,
-      user_id: row.user_id,
       hydration: Number(row.hydration ?? 0),
       protein: Number(row.protein ?? 0),
       sodium: Number(row.sodium ?? 0),
@@ -104,7 +101,6 @@ function formatIntake(row: HealthIntakeRow) {
 function formatTarget(row: HealthDailyTargetRow) {
   return {
     id: row.id,
-    user_id: row.user_id,
     day_ymd: row.day_ymd,
     target_hydration: Number(row.target_hydration ?? 0),
     target_protein: Number(row.target_protein ?? 0),
@@ -119,36 +115,15 @@ function formatTarget(row: HealthDailyTargetRow) {
   };
 }
 
-/** 显式 user_id；否则取 users 表第一条未删除用户 */
-export async function resolveHealthUserId(explicit?: unknown): Promise<string> {
-  const fromClient = asTrimmedString(explicit);
-  if (fromClient) return fromClient;
-
+async function getDailyTarget(dayYmd: string): Promise<HealthDailyTargetRow | null> {
   const [rows] = await db.query<RowDataPacket[]>(
-    `SELECT id FROM users
-     WHERE deleted_at IS NULL OR deleted_at = ''
-     ORDER BY created_at ASC
-     LIMIT 1`,
-  );
-  const id = asTrimmedString(rows[0]?.id);
-  if (!id) {
-    throw new HealthError('未找到用户，请在请求中传 user_id', 400);
-  }
-  return id;
-}
-
-async function getDailyTarget(
-  userId: string,
-  dayYmd: string,
-): Promise<HealthDailyTargetRow | null> {
-  const [rows] = await db.query<RowDataPacket[]>(
-    `SELECT id, user_id, day_ymd,
+    `SELECT id, day_ymd,
             target_hydration, target_protein, target_sodium, target_carbohydrate, target_calories,
             rationale_zh, source, created_at, updated_at, sync_status
      FROM health_daily_targets
-     WHERE user_id = ? AND day_ymd = ?
+     WHERE day_ymd = ?
      LIMIT 1`,
-    [userId, dayYmd],
+    [dayYmd],
   );
   return (rows[0] as HealthDailyTargetRow | undefined) ?? null;
 }
@@ -157,12 +132,8 @@ async function getDailyTarget(
  * 某日健康指标：当日摄入合计 + 日目标（若有）。
  * 指标含水分、蛋白质、热量、碳水（并附带钠）。
  */
-export async function getDayHealthMetrics(params: {
-  date: unknown;
-  user_id?: unknown;
-}) {
+export async function getDayHealthMetrics(params: { date: unknown }) {
   const dayYmd = requireDayYmd(params.date);
-  const userId = await resolveHealthUserId(params.user_id);
 
   const [sumRows] = await db.query<RowDataPacket[]>(
     `SELECT
@@ -173,12 +144,11 @@ export async function getDayHealthMetrics(params: {
         COALESCE(SUM(calories), 0) AS calories,
         COUNT(*) AS intake_count
      FROM health_records
-     WHERE user_id = ?
-       AND LEFT(record_date, 10) = ?`,
-    [userId, dayYmd],
+     WHERE LEFT(record_date, 10) = ?`,
+    [dayYmd],
   );
   const sum = sumRows[0] ?? {};
-  const target = await getDailyTarget(userId, dayYmd);
+  const target = await getDailyTarget(dayYmd);
 
   const intake = {
     hydration: Number(sum.hydration ?? 0),
@@ -190,7 +160,6 @@ export async function getDayHealthMetrics(params: {
 
   return {
     day_ymd: dayYmd,
-    user_id: userId,
     intake_count: Number(sum.intake_count ?? 0),
     intake,
     targets: target
@@ -227,62 +196,50 @@ export async function getDayHealthMetrics(params: {
 }
 
 /** 某日摄入明细列表（按 record_date 升序） */
-export async function listIntakesByDay(params: {
-  date: unknown;
-  user_id?: unknown;
-}) {
+export async function listIntakesByDay(params: { date: unknown }) {
   const dayYmd = requireDayYmd(params.date);
-  const userId = await resolveHealthUserId(params.user_id);
 
   const [rows] = await db.query<RowDataPacket[]>(
-    `SELECT id, user_id, hydration, protein, sodium, carbohydrate, calories,
+    `SELECT id, hydration, protein, sodium, carbohydrate, calories,
             record_date, quick_add_key, source_image_uri, intake_display_title, intake_ai_comment,
             created_at, updated_at, sync_status
      FROM health_records
-     WHERE user_id = ?
-       AND LEFT(record_date, 10) = ?
+     WHERE LEFT(record_date, 10) = ?
      ORDER BY record_date ASC, created_at ASC`,
-    [userId, dayYmd],
+    [dayYmd],
   );
 
   const items = (rows as HealthIntakeRow[]).map(formatIntake);
   return {
     day_ymd: dayYmd,
-    user_id: userId,
     items,
     total: items.length,
   };
 }
 
 /** 近 N 天摄入记录（含今天，按上海日历日） */
-export async function listRecentIntakes(params: {
-  days: number;
-  user_id?: unknown;
-}) {
+export async function listRecentIntakes(params: { days: number }) {
   const days = Math.trunc(params.days);
   if (![7, 30].includes(days)) {
     throw new HealthError('days 仅支持 7 或 30');
   }
 
-  const userId = await resolveHealthUserId(params.user_id);
   const endYmd = formatLocalYmdFromDate(new Date());
   const startYmd = addDaysToYmd(endYmd, -(days - 1));
 
   const [rows] = await db.query<RowDataPacket[]>(
-    `SELECT id, user_id, hydration, protein, sodium, carbohydrate, calories,
+    `SELECT id, hydration, protein, sodium, carbohydrate, calories,
             record_date, quick_add_key, source_image_uri, intake_display_title, intake_ai_comment,
             created_at, updated_at, sync_status
      FROM health_records
-     WHERE user_id = ?
-       AND LEFT(record_date, 10) >= ?
+     WHERE LEFT(record_date, 10) >= ?
        AND LEFT(record_date, 10) <= ?
      ORDER BY record_date DESC, created_at DESC`,
-    [userId, startYmd, endYmd],
+    [startYmd, endYmd],
   );
 
   const items = (rows as HealthIntakeRow[]).map(formatIntake);
   return {
-    user_id: userId,
     days,
     start_ymd: startYmd,
     end_ymd: endYmd,
@@ -293,7 +250,6 @@ export async function listRecentIntakes(params: {
 
 export type CreateIntakeInput = {
   id?: unknown;
-  user_id?: unknown;
   hydration?: unknown;
   protein?: unknown;
   sodium?: unknown;
@@ -308,7 +264,6 @@ export type CreateIntakeInput = {
 
 /** 新增一条摄入记录 */
 export async function createIntake(input: CreateIntakeInput) {
-  const userId = await resolveHealthUserId(input.user_id);
   const id = asTrimmedString(input.id) || randomUUID();
 
   const hydration = parseNonNegNumber(input.hydration, 'hydration');
@@ -339,13 +294,12 @@ export async function createIntake(input: CreateIntakeInput) {
   try {
     await db.query<ResultSetHeader>(
       `INSERT INTO health_records (
-         id, user_id, hydration, protein, sodium, carbohydrate, calories,
+         id, hydration, protein, sodium, carbohydrate, calories,
          record_date, quick_add_key, source_image_uri, intake_display_title, intake_ai_comment,
          created_at, updated_at, sync_status
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced')`,
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced')`,
       [
         id,
-        userId,
         hydration,
         protein,
         sodium,
@@ -368,7 +322,7 @@ export async function createIntake(input: CreateIntakeInput) {
   }
 
   const [rows] = await db.query<RowDataPacket[]>(
-    `SELECT id, user_id, hydration, protein, sodium, carbohydrate, calories,
+    `SELECT id, hydration, protein, sodium, carbohydrate, calories,
             record_date, quick_add_key, source_image_uri, intake_display_title, intake_ai_comment,
             created_at, updated_at, sync_status
      FROM health_records WHERE id = ? LIMIT 1`,
@@ -380,13 +334,11 @@ export async function createIntake(input: CreateIntakeInput) {
 }
 
 /** 可选：读取某日目标（供文档/扩展，当前路由未单独暴露也可内部复用） */
-export async function getDayTargets(params: { date: unknown; user_id?: unknown }) {
+export async function getDayTargets(params: { date: unknown }) {
   const dayYmd = requireDayYmd(params.date);
-  const userId = await resolveHealthUserId(params.user_id);
-  const target = await getDailyTarget(userId, dayYmd);
+  const target = await getDailyTarget(dayYmd);
   return {
     day_ymd: dayYmd,
-    user_id: userId,
     targets: target ? formatTarget(target) : null,
   };
 }

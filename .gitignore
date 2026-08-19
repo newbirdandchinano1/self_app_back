@@ -2,3 +2,5 @@ node_modules/
 dist/
 .env
 *.log
+uploads/health-intake/*
+!uploads/health-intake/.gitkeep

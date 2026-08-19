@@ -365,7 +365,6 @@ CREATE TABLE `habits`  (
 DROP TABLE IF EXISTS `health_daily_targets`;
 CREATE TABLE `health_daily_targets`  (
   `id` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `user_id` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `day_ymd` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '逻辑日 YYYY-MM-DD',
   `target_hydration` double NOT NULL DEFAULT 0,
   `target_protein` double NOT NULL DEFAULT 0,
@@ -378,8 +377,7 @@ CREATE TABLE `health_daily_targets`  (
   `updated_at` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `sync_status` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'pending_create',
   PRIMARY KEY (`id`) USING BTREE,
-  UNIQUE INDEX `uk_health_daily_targets_user_day`(`user_id`, `day_ymd`) USING BTREE,
-  INDEX `idx_health_daily_targets_day_ymd`(`day_ymd`) USING BTREE
+  UNIQUE INDEX `uk_health_daily_targets_day_ymd`(`day_ymd`) USING BTREE
 ) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_unicode_ci ROW_FORMAT = DYNAMIC;
 
 -- ----------------------------
@@ -388,7 +386,6 @@ CREATE TABLE `health_daily_targets`  (
 DROP TABLE IF EXISTS `health_records`;
 CREATE TABLE `health_records`  (
   `id` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `user_id` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `hydration` double NOT NULL DEFAULT 0,
   `protein` double NOT NULL DEFAULT 0,
   `sodium` double NOT NULL DEFAULT 0,
@@ -403,7 +400,7 @@ CREATE TABLE `health_records`  (
   `updated_at` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `sync_status` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'pending_create',
   PRIMARY KEY (`id`) USING BTREE,
-  INDEX `idx_health_records_user_record_date`(`user_id`, `record_date`) USING BTREE
+  INDEX `idx_health_records_record_date`(`record_date`) USING BTREE
 ) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_unicode_ci ROW_FORMAT = DYNAMIC;
 
 -- ----------------------------

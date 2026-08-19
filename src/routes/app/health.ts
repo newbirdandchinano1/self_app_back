@@ -25,14 +25,14 @@ function handleHealthError(
 }
 
 /**
- * GET /health/metrics?date=YYYY-MM-DD[&user_id=]
+ * GET /health/metrics?date=YYYY-MM-DD
  * 查询某日健康指标（水分 / 蛋白质 / 热量 / 碳水合计 + 日目标）
+ * 兼容旧客户端：忽略 query.user_id
  */
 router.get('/health/metrics', async (req, res, next) => {
   try {
     const data = await getDayHealthMetrics({
       date: req.query.date,
-      user_id: req.query.user_id,
     });
     success(res, data);
   } catch (err) {
@@ -41,15 +41,12 @@ router.get('/health/metrics', async (req, res, next) => {
 });
 
 /**
- * GET /health/intakes/last-7-days[&user_id=]
+ * GET /health/intakes/last-7-days
  * 近 7 天摄入记录（须写在 /health/intakes 带 date 之前无冲突，独立路径）
  */
 router.get('/health/intakes/last-7-days', async (req, res, next) => {
   try {
-    const data = await listRecentIntakes({
-      days: 7,
-      user_id: req.query.user_id,
-    });
+    const data = await listRecentIntakes({ days: 7 });
     success(res, data);
   } catch (err) {
     handleHealthError(err, res, next);
@@ -57,15 +54,12 @@ router.get('/health/intakes/last-7-days', async (req, res, next) => {
 });
 
 /**
- * GET /health/intakes/last-30-days[&user_id=]
+ * GET /health/intakes/last-30-days
  * 近 30 天摄入记录
  */
 router.get('/health/intakes/last-30-days', async (req, res, next) => {
   try {
-    const data = await listRecentIntakes({
-      days: 30,
-      user_id: req.query.user_id,
-    });
+    const data = await listRecentIntakes({ days: 30 });
     success(res, data);
   } catch (err) {
     handleHealthError(err, res, next);
@@ -73,14 +67,13 @@ router.get('/health/intakes/last-30-days', async (req, res, next) => {
 });
 
 /**
- * GET /health/intakes?date=YYYY-MM-DD[&user_id=]
+ * GET /health/intakes?date=YYYY-MM-DD
  * 查询某日摄入记录列表
  */
 router.get('/health/intakes', async (req, res, next) => {
   try {
     const data = await listIntakesByDay({
       date: req.query.date,
-      user_id: req.query.user_id,
     });
     success(res, data);
   } catch (err) {
@@ -90,14 +83,13 @@ router.get('/health/intakes', async (req, res, next) => {
 
 /**
  * POST /health/intakes
- * 新增摄入记录
+ * 新增摄入记录（兼容旧客户端：忽略 body.user_id）
  */
 router.post('/health/intakes', async (req, res, next) => {
   try {
     const body = req.body ?? {};
     const data = await createIntake({
       id: body.id,
-      user_id: body.user_id,
       hydration: body.hydration,
       protein: body.protein,
       sodium: body.sodium,
