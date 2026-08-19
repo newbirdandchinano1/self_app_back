@@ -18,7 +18,8 @@ import {
   resolveHabitCheckInStartYmd,
   resolveHeatmapEventCreatedAtBounds,
 } from './heatmap-range.js';
-import { isValidYmd } from '../../utils/ymd.js';
+import { dueDateYmd, isValidYmd } from '../../utils/ymd.js';
+import { formatScheduleDateToYMD } from '../calendar/aggregation.js';
 
 export const TASKS_PAGE_FILTERS_VERSION = 'tasks-page-v1';
 
@@ -187,6 +188,101 @@ export function parseTaskPageViews(params: TasksBootstrapParams): TaskPageView[]
   return tokens.filter((token): token is TaskPageView => TASK_PAGE_VIEWS.has(token as TaskPageView));
 }
 
+function jsonUnquoteStr(path: string, column = 'extra_data'): string {
+  const extra = quoteIdent(column);
+  return `IF(JSON_VALID(${extra}), JSON_UNQUOTE(JSON_EXTRACT(${extra}, '${path}')), NULL)`;
+}
+
+function jsonUnquoteYmd(path: string, column = 'extra_data'): string {
+  const extra = quoteIdent(column);
+  return `IF(JSON_VALID(${extra}), LEFT(JSON_UNQUOTE(JSON_EXTRACT(${extra}, '${path}')), 10), NULL)`;
+}
+
+/** 本周列表：计划窗与 [weekStart, weekEnd] 有交集（按 schedule 优先级，最后才看 due_date） */
+export function buildMatrixWeekScheduleFilter(
+  weekStart: string,
+  weekEnd: string,
+  columns: Set<string>,
+): { sql: string; values: unknown[] } {
+  const scheduleMode = jsonUnquoteStr('$.schedule.mode');
+  const rangeStart = jsonUnquoteYmd('$.schedule.range.start');
+  const rangeEnd = jsonUnquoteYmd('$.schedule.range.end');
+  const scheduleDate = jsonUnquoteYmd('$.schedule.date');
+
+  const hasTimeRange = `(
+    ${scheduleMode} = 'time'
+    AND ${rangeStart} IS NOT NULL AND ${rangeStart} != ''
+    AND ${rangeEnd} IS NOT NULL AND ${rangeEnd} != ''
+  )`;
+
+  const timeRangeIntersect = `(
+    ${hasTimeRange}
+    AND ${rangeStart} <= ?
+    AND ? <= ${rangeEnd}
+  )`;
+
+  const scheduleDateInWeek = `(
+    NOT ${hasTimeRange}
+    AND ${scheduleDate} IS NOT NULL AND ${scheduleDate} != ''
+    AND ${scheduleDate} BETWEEN ? AND ?
+  )`;
+
+  const parts = [timeRangeIntersect, scheduleDateInWeek];
+  const values: unknown[] = [weekEnd, weekStart, weekStart, weekEnd];
+
+  if (columns.has('due_date')) {
+    const dueCol = quoteIdent('due_date');
+    parts.push(`(
+      NOT ${hasTimeRange}
+      AND (${scheduleDate} IS NULL OR ${scheduleDate} = '')
+      AND ${dueCol} IS NOT NULL AND ${dueCol} != ''
+      AND LEFT(${dueCol}, 10) BETWEEN ? AND ?
+    )`);
+    values.push(weekStart, weekEnd);
+  }
+
+  return { sql: `(${parts.join(' OR ')})`, values };
+}
+
+export function matchesMatrixWeekScheduleWindow(
+  extraData: string | null | undefined,
+  dueDate: string | null | undefined,
+  weekStart: string,
+  weekEnd: string,
+): boolean {
+  let schedule: Record<string, unknown> | null = null;
+  try {
+    if (extraData?.trim()) {
+      const parsed = JSON.parse(extraData) as { schedule?: Record<string, unknown> };
+      schedule = parsed.schedule ?? null;
+    }
+  } catch {
+    /* ignore */
+  }
+
+  const mode = typeof schedule?.mode === 'string' ? schedule.mode : '';
+  const range = schedule?.range as { start?: string; end?: string } | undefined;
+
+  if (mode === 'time' && range?.start?.trim() && range?.end?.trim()) {
+    const start = formatScheduleDateToYMD(range.start);
+    const end = formatScheduleDateToYMD(range.end);
+    return start <= weekEnd && weekStart <= end;
+  }
+
+  const dateRaw = schedule?.date;
+  if (typeof dateRaw === 'string' && dateRaw.trim()) {
+    const date = formatScheduleDateToYMD(dateRaw);
+    return date >= weekStart && date <= weekEnd;
+  }
+
+  const due = dueDateYmd(dueDate);
+  if (due) {
+    return due >= weekStart && due <= weekEnd;
+  }
+
+  return false;
+}
+
 function addStatusFilters(
   where: string[],
   values: unknown[],
@@ -270,27 +366,22 @@ async function loadFilteredTasks(params: TasksBootstrapParams, context: TasksBoo
     if (view === 'matrixWeek') {
       const where = [...baseWhere];
       const values: unknown[] = [];
-      const projectIdsRaw = params.projectIds;
-      if (typeof projectIdsRaw === 'string') {
-        if (projectIds.length === 0) {
-          grouped.matrixWeek = [];
-          continue;
-        }
+      if (projectIds.length > 0) {
         where.push(`project_id IN (${projectIds.map(() => '?').join(', ')})`);
         values.push(...projectIds);
       } else {
         where.push(`(${isPresentColumn('project_id')} OR ${isPresentColumn('parent_task_id')})`);
       }
       addStatusFilters(where, values, columns, { ...params, includeCompleted: false, includeCancelled: false });
-      const start = params.weekStart?.trim() && isValidYmd(params.weekStart) ? params.weekStart.trim() : context.logicalToday;
-      const end = params.weekEnd?.trim() && isValidYmd(params.weekEnd) ? params.weekEnd.trim() : start;
-      if (columns.has('due_date')) {
-        const q = quoteIdent('due_date');
-        const emptyDue = `(${q} IS NULL OR ${q} = '')`;
-        // 本周到期 + 过期未完成
-        where.push(`(NOT ${emptyDue} AND (LEFT(${q}, 10) BETWEEN ? AND ? OR LEFT(${q}, 10) < ?))`);
-        values.push(start, end, context.logicalToday);
-      }
+      const start =
+        params.weekStart?.trim() && isValidYmd(params.weekStart)
+          ? params.weekStart.trim()
+          : context.logicalToday;
+      const end =
+        params.weekEnd?.trim() && isValidYmd(params.weekEnd) ? params.weekEnd.trim() : start;
+      const scheduleFilter = buildMatrixWeekScheduleFilter(start, end, columns);
+      where.push(scheduleFilter.sql);
+      values.push(...scheduleFilter.values);
       grouped.matrixWeek = await selectRows(where, values);
     }
 

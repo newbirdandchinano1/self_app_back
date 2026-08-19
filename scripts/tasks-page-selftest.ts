@@ -19,7 +19,7 @@ import {
   excludeTodosAlreadyCountedAsFrogs,
   filterNetCompletedEvents,
 } from '../src/services/pages/task-net-completion.js';
-import { resolveTaskViewPagination } from '../src/services/pages/tasks-bootstrap.js';
+import { resolveTaskViewPagination, matchesMatrixWeekScheduleWindow } from '../src/services/pages/tasks-bootstrap.js';
 
 function assert(cond: boolean, msg: string): void {
   if (!cond) throw new Error(msg);
@@ -270,6 +270,87 @@ check(
 check(
   '其它分类 id 保持原样',
   normalizeCatalogCategoryId('cat_work') === 'cat_work',
+);
+
+console.log('\n=== P6 matrixWeek 计划窗筛选 ===\n');
+
+const weekStart = '2026-08-17';
+const weekEnd = '2026-08-23';
+
+check(
+  '跨整月时间段与本周有交集 → 命中',
+  matchesMatrixWeekScheduleWindow(
+    JSON.stringify({
+      schedule: {
+        mode: 'time',
+        range: { start: '2026-08-01T00:00:00', end: '2026-08-31T23:59:59' },
+      },
+    }),
+    '2026-08-31',
+    weekStart,
+    weekEnd,
+  ),
+);
+
+check(
+  'schedule.date 在本周 → 命中',
+  matchesMatrixWeekScheduleWindow(
+    JSON.stringify({ schedule: { date: '2026-08-20' } }),
+    null,
+    weekStart,
+    weekEnd,
+  ),
+);
+
+check(
+  '无 schedule 时 due_date 在本周 → 命中',
+  matchesMatrixWeekScheduleWindow(null, '2026-08-18', weekStart, weekEnd),
+);
+
+check(
+  '时间范围完全在下周 → 不命中',
+  matchesMatrixWeekScheduleWindow(
+    JSON.stringify({
+      schedule: {
+        mode: 'time',
+        range: { start: '2026-08-24T00:00:00', end: '2026-08-30T23:59:59' },
+      },
+    }),
+    '2026-08-30',
+    weekStart,
+    weekEnd,
+  ) === false,
+);
+
+check(
+  '过期但时间范围不在本周 → 不命中（不再按 due_date 过期兜底）',
+  matchesMatrixWeekScheduleWindow(
+    JSON.stringify({
+      schedule: {
+        mode: 'time',
+        range: { start: '2026-07-01T00:00:00', end: '2026-07-31T23:59:59' },
+      },
+    }),
+    '2026-07-31',
+    weekStart,
+    weekEnd,
+  ) === false,
+);
+
+check(
+  '有 time range 时优先于 schedule.date',
+  matchesMatrixWeekScheduleWindow(
+    JSON.stringify({
+      schedule: {
+        mode: 'time',
+        range: { start: '2026-08-01T00:00:00', end: '2026-08-31T23:59:59' },
+        date: '2026-09-01',
+      },
+    }),
+    '2026-09-01',
+    weekStart,
+    weekEnd,
+  ),
 );
 
 console.log('\n=== P5 taskView 分页 ===\n');

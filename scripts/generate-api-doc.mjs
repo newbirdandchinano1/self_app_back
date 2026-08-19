@@ -523,7 +523,7 @@ async function request(path, options = {}) {
 |------|------|
 | \`GET /api/pages/tasks/catalog\` | 项目 / 项目分类 / 任务分类；支持 \`updatedSince\` 增量 |
 | \`GET /api/pages/tasks?include=tasks&taskView=standaloneTodos\` | 独立待办筛选视图；只返回 \`tasks\` + \`meta\`，\`limit\` 默认 200 |
-| \`GET /api/pages/tasks?include=tasks&taskView=matrixWeek&projectIds=\` | 四象限：本周到期 + 过期未完成；同样可分页 |
+| \`GET /api/pages/tasks?include=tasks&taskView=matrixWeek\` | 四象限本周列表：计划窗与 \`weekStart\`–\`weekEnd\` 有交集的项目任务；可分页 |
 | \`GET /api/pages/projects\` | 项目列表：\`limit\` 只限制项目条数；每项带完整 \`tasks\` 树 + \`taskCount\` |
 | \`GET /api/pages/tasks/habits-grid\` | 首页习惯格；每项含 \`extra_data\` / \`context\` / \`hiddenOnViewDay\`，不含打卡数组 |
 | \`GET /api/pages/tasks/today-frogs\` | 今日青蛙：\`tasks\` + \`projectFrogs\` / \`projectFrogIds\`；\`meta.serverFiltered=true\` |
@@ -541,7 +541,7 @@ async function request(path, options = {}) {
 - 带 \`taskView\` 时**只**返回 \`tasks\` + \`meta\`，不附带习惯/打卡/事件表
 - \`meta.tasksScope\` 等于请求的 \`taskView\`；\`meta.page\` / \`limit\` / \`total\` / \`totalPages\` 必带（缺省 \`limit=200\`）
 - \`standaloneTodos\`：含今日日界内已完成/取消、搁置、未到执行日的重复待办
-- \`matrixWeek\`：本周到期 + 过期未完成；\`projectIds\` 为空字符串时返回空列表
+- \`matrixWeek\`：未完成/未取消的项目任务；计划窗与 \`weekStart\`–\`weekEnd\` 有交集（优先 \`extra_data.schedule.range\`，其次 \`schedule.date\`，最后 \`due_date\`）；不传 \`projectIds\` 时返回全部命中任务
 
 **收集箱**：\`GET /api/pages/projects?uncategorized=true\` 与 \`categoryId=inbox\` 语义稳定；\`inbox\` 映射为收集箱分类 id。
 

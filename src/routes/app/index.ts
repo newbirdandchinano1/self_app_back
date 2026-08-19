@@ -10,6 +10,7 @@ import recipesRouter from './recipes.js';
 import memosRouter from './memos.js';
 import healthRouter from './health.js';
 import financeRouter from './finance.js';
+import reviewRouter from './review.js';
 import crudRouter from './crud.js';
 
 /**
@@ -38,6 +39,7 @@ router.use(apiConcurrency, recipesRouter);
 router.use(apiConcurrency, memosRouter);
 router.use(apiConcurrency, healthRouter);
 router.use(apiConcurrency, financeRouter);
+router.use(apiConcurrency, reviewRouter);
 router.use(apiConcurrency, crudRouter);
 
 export default router;
