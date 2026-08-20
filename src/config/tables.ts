@@ -62,7 +62,13 @@ export const CLIENT_ID_TABLES: readonly AllowedTable[] = [
   'wish_board_items',
 ];
 
-/** 外键字段 -> 引用表（用于写入校验与 /api/tables 元数据） */
+/**
+ * 外键字段 -> 引用表（用于写入校验与 /api/tables 元数据）
+ *
+ * 注意：`frog_completion_events.task_id` **不得**映射到 `tasks`。
+ * 该字段语义是「青蛙主体 id」——任务青蛙存 `tasks.id`，无子任务的项目青蛙存 `projects.id`。
+ * 若做成仅引用 tasks 的外键，项目青蛙同步会 INSERT 失败。
+ */
 export const TABLE_FOREIGN_KEYS: Partial<
   Record<AllowedTable, Partial<Record<string, AllowedTable>>>
 > = {

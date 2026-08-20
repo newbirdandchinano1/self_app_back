@@ -228,6 +228,8 @@ export const TABLE_COLUMN_LABELS: Partial<
     action: '操作（完成/重新打开）',
   },
   frog_completion_events: {
+    task_id: '青蛙主体ID（任务 id 或项目 id）',
+    task_title: '标题快照（任务/项目名）',
     action: '操作（完成/重新打开）',
   },
   projects: {

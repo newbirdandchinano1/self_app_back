@@ -189,6 +189,61 @@ check(
     frogNoTaskId.taskIdsByDay.get('2026-08-18')?.has('fevt_orphan') === true,
 );
 
+const frogProject = aggregateFrogEvents(
+  [
+    {
+      id: 'fevt_proj',
+      task_id: 'p_proj_xxx',
+      assigned_ymd: '2026-08-21',
+      action: 'completed',
+      created_at: '2026-08-21 01:20:00',
+      task_title: '无子任务项目名',
+    },
+    {
+      id: 'fevt_task',
+      task_id: 't_task_xxx',
+      assigned_ymd: '2026-08-21',
+      action: 'completed',
+      created_at: '2026-08-21 01:21:00',
+      task_title: '写周报',
+    },
+  ],
+  '2026-08-01',
+  '2026-08-21',
+);
+check(
+  '青蛙：项目 id 与任务 id 可同日各计 1（共 2）',
+  frogProject.countsByDay['2026-08-21'] === 2 &&
+    frogProject.taskIdsByDay.get('2026-08-21')?.has('p_proj_xxx') === true &&
+    frogProject.taskIdsByDay.get('2026-08-21')?.has('t_task_xxx') === true,
+  JSON.stringify(frogProject.countsByDay),
+);
+
+const frogProjectReopened = aggregateFrogEvents(
+  [
+    {
+      id: 'fevt_p1',
+      task_id: 'p_proj_xxx',
+      assigned_ymd: '2026-08-21',
+      action: 'completed',
+      created_at: '2026-08-21 01:20:00',
+    },
+    {
+      id: 'fevt_p2',
+      task_id: 'p_proj_xxx',
+      assigned_ymd: '2026-08-21',
+      action: 'reopened',
+      created_at: '2026-08-21 02:00:00',
+    },
+  ],
+  '2026-08-01',
+  '2026-08-21',
+);
+check(
+  '青蛙：项目青蛙最新为 reopened 则净完成不计',
+  (frogProjectReopened.countsByDay['2026-08-21'] ?? 0) === 0,
+);
+
 console.log('\n=== P1 今日青蛙指派日 ===\n');
 
 check(

@@ -269,11 +269,12 @@ CREATE TABLE `finance_transactions`  (
 
 -- ----------------------------
 -- Table structure for frog_completion_events
+-- task_id：青蛙主体 id（任务青蛙=tasks.id；无子任务项目青蛙=projects.id），禁止 FK 仅引用 tasks
 -- ----------------------------
 DROP TABLE IF EXISTS `frog_completion_events`;
 CREATE TABLE `frog_completion_events`  (
   `id` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `task_id` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL DEFAULT NULL,
+  `task_id` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL DEFAULT NULL COMMENT '青蛙主体ID（任务或项目）',
   `assigned_ymd` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `action` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `created_at` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,

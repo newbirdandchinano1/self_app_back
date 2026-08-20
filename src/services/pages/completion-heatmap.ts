@@ -60,7 +60,9 @@ type FrogLatest = {
 
 /**
  * 青蛙净完成：按 (task_id, assigned_ymd) 取最新事件；
+ * 此处 task_id 可能是 tasks.id，也可能是 projects.id（项目青蛙）。
  * task_id 为空时退化为 (id, assigned_ymd)。仅最新为 completed 计入。
+ * 禁止要求主体必须存在于 tasks。
  */
 export function aggregateFrogEvents(
   events: Record<string, unknown>[],
@@ -153,7 +155,7 @@ async function loadScopedTodoEvents(): Promise<Record<string, unknown>[]> {
 
 /**
  * 直接查库，避免 listAllRecords 把 created_at 转成 ISO/Z 后影响墙上时钟比较。
- * 不过滤 JOIN tasks，以免项目青蛙（task_id=project id）被滤掉。
+ * 禁止 JOIN/EXISTS tasks：项目青蛙的 task_id 存的是 projects.id，内连接会被滤掉。
  */
 async function loadFrogCompletionEvents(
   startYmd: string,
@@ -168,7 +170,7 @@ async function loadFrogCompletionEvents(
   return rows as Record<string, unknown>[];
 }
 
-/** 标题：优先 tasks.title，再 projects.name，最后事件快照 */
+/** 标题：tasks.title → projects.name → 事件表 task_title 快照（兼容项目青蛙） */
 async function resolveFrogTitles(
   latestByKey: Map<string, FrogLatest>,
 ): Promise<Map<string, string>> {

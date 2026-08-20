@@ -495,6 +495,7 @@ async function validateForeignKeys(
   table: AllowedTable,
   data: Record<string, unknown>,
 ): Promise<void> {
+  // frog_completion_events.task_id 可为 project id，故意不在 TABLE_FOREIGN_KEYS 中校验
   const fkMap = TABLE_FOREIGN_KEYS[table];
   if (!fkMap) return;
 

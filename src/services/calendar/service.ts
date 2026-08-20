@@ -83,7 +83,7 @@ async function loadFrogEvents(startYmd: string, endYmd: string): Promise<Calenda
   const [rows] = await db.query<RowDataPacket[]>(
     `SELECT task_id, assigned_ymd, action, created_at
      FROM ${quoteIdent('frog_completion_events')}
-     WHERE assigned_ymd >= ? AND assigned_ymd <= ?`,
+     WHERE LEFT(TRIM(assigned_ymd), 10) BETWEEN ? AND ?`,
     [startYmd, endYmd],
   );
   return rows as CalendarFrogEventRow[];
