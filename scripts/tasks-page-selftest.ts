@@ -19,6 +19,7 @@ import {
   excludeTodosAlreadyCountedAsFrogs,
   filterNetCompletedEvents,
 } from '../src/services/pages/task-net-completion.js';
+import { aggregateFrogEvents } from '../src/services/pages/completion-heatmap.js';
 import { resolveTaskViewPagination, matchesMatrixWeekScheduleWindow } from '../src/services/pages/tasks-bootstrap.js';
 
 function assert(cond: boolean, msg: string): void {
@@ -86,6 +87,106 @@ const mutex = excludeTodosAlreadyCountedAsFrogs(
 check(
   '青蛙互斥：同日同 task_id 待办扣掉',
   mutex.length === 1 && mutex[0]?.task_id === 't_todo',
+);
+
+console.log('\n=== P0b 青蛙净完成（completion-heatmap） ===\n');
+
+const frogNet = aggregateFrogEvents(
+  [
+    {
+      id: 'fevt_1',
+      task_id: 't_frog',
+      assigned_ymd: '2026-08-18',
+      action: 'completed',
+      created_at: '2026-08-18 09:00:00',
+      task_title: '写周报',
+    },
+    {
+      id: 'fevt_2',
+      task_id: 't_frog',
+      assigned_ymd: '2026-08-18',
+      action: 'reopened',
+      created_at: '2026-08-18 10:00:00',
+      task_title: '写周报',
+    },
+    {
+      id: 'fevt_3',
+      task_id: 't_frog',
+      assigned_ymd: '2026-08-18',
+      action: 'completed',
+      created_at: '2026-08-18 11:00:00',
+      task_title: '写周报',
+    },
+  ],
+  '2026-08-01',
+  '2026-08-21',
+);
+check(
+  '青蛙：完成→撤销→再完成只计 1',
+  frogNet.countsByDay['2026-08-18'] === 1,
+  JSON.stringify(frogNet.countsByDay),
+);
+
+const frogReopened = aggregateFrogEvents(
+  [
+    {
+      id: 'fevt_a',
+      task_id: 't1',
+      assigned_ymd: '2026-08-18',
+      action: 'completed',
+      created_at: '2026-08-18 09:00:00',
+    },
+    {
+      id: 'fevt_b',
+      task_id: 't1',
+      assigned_ymd: '2026-08-18',
+      action: 'reopened',
+      created_at: '2026-08-18 12:00:00',
+    },
+  ],
+  '2026-08-01',
+  '2026-08-21',
+);
+check('青蛙：最新为 reopened 不计', (frogReopened.countsByDay['2026-08-18'] ?? 0) === 0);
+
+const frogIsoYmd = aggregateFrogEvents(
+  [
+    {
+      id: 'fevt_iso',
+      task_id: 't_iso',
+      assigned_ymd: '2026-08-18T00:00:00.000Z',
+      action: 'completed',
+      created_at: '2026-08-18 09:00:00',
+      task_title: 'ISO 指派日',
+    },
+  ],
+  '2026-08-01',
+  '2026-08-21',
+);
+check(
+  '青蛙：assigned_ymd 带 ISO 前缀仍按日计入',
+  frogIsoYmd.countsByDay['2026-08-18'] === 1,
+  JSON.stringify(frogIsoYmd.countsByDay),
+);
+
+const frogNoTaskId = aggregateFrogEvents(
+  [
+    {
+      id: 'fevt_orphan',
+      task_id: null,
+      assigned_ymd: '2026-08-18',
+      action: 'completed',
+      created_at: '2026-08-18 09:00:00',
+      task_title: '无 task_id',
+    },
+  ],
+  '2026-08-01',
+  '2026-08-21',
+);
+check(
+  '青蛙：task_id 为空时用事件 id 仍计入',
+  frogNoTaskId.countsByDay['2026-08-18'] === 1 &&
+    frogNoTaskId.taskIdsByDay.get('2026-08-18')?.has('fevt_orphan') === true,
 );
 
 console.log('\n=== P1 今日青蛙指派日 ===\n');
