@@ -235,8 +235,14 @@ function parseHabitDailyGoal(extraData: string | null, kind?: HabitKind): number
   const resolvedKind = kind ?? parseHabitKind(extraData);
   const g = parseQuantifyRaw(extraData)?.dailyGoal;
   if (g === null || g === undefined) return resolvedKind === 'break' ? 0 : null;
-  if (typeof g !== 'number' || !Number.isFinite(g)) return resolvedKind === 'break' ? 0 : null;
-  const rounded = Math.min(99, Math.max(0, Math.round(g)));
+  let numeric: number | null = null;
+  if (typeof g === 'number' && Number.isFinite(g)) numeric = g;
+  else if (typeof g === 'string' && g.trim() !== '') {
+    const n = Number(g);
+    if (Number.isFinite(n)) numeric = n;
+  }
+  if (numeric == null) return resolvedKind === 'break' ? 0 : null;
+  const rounded = Math.min(99, Math.max(0, Math.round(numeric)));
   if ((resolvedKind === 'build' || resolvedKind === 'task') && rounded <= 0) return null;
   return rounded;
 }

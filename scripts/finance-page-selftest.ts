@@ -8,10 +8,14 @@ import {
   clampBudgetRefreshDay,
   computeTransactionLedgerEffect,
   isBalanceCorrection,
+  isInitialBalanceFinanceTransaction,
+  listMonthKeysBetween,
   listMonthKeysEndingAt,
   logicalYmdFromHappenedAt,
   previousBudgetCycleStart,
   resolveFinanceHomeWindow,
+  resolveFinanceStatsCategory,
+  resolveStatsGranularity,
   shouldExcludeFromNetWorth,
   ymdFromParts,
 } from '../src/services/pages/finance.js';
@@ -159,6 +163,66 @@ check(
 check(
   '跨年 3 个月',
   listMonthKeysEndingAt('2026-01-05', 3).join(',') === '2025-11,2025-12,2026-01',
+);
+
+console.log('\n=== 统计页口径 helpers ===\n');
+
+check(
+  'reason=balance_correction 视为校正',
+  isBalanceCorrection({ reason: 'balance_correction' }, 'expense'),
+);
+check(
+  '初始余额：名称',
+  isInitialBalanceFinanceTransaction('初始余额', '{}'),
+);
+check(
+  '初始余额：reason',
+  isInitialBalanceFinanceTransaction('开户', JSON.stringify({ reason: 'initial_balance' })),
+);
+check(
+  '非初始余额',
+  isInitialBalanceFinanceTransaction('午饭', '{}') === false,
+);
+check(
+  'granularity auto：91 天用月',
+  resolveStatsGranularity('auto', '2026-01-01', '2026-04-01') === 'month',
+);
+check(
+  'granularity auto：短区间用日',
+  resolveStatsGranularity('auto', '2026-08-01', '2026-08-31') === 'day',
+);
+check(
+  'granularity auto：跨年用月',
+  resolveStatsGranularity('auto', '2025-12-20', '2026-01-10') === 'month',
+);
+check(
+  '月份键连续补齐跨年',
+  listMonthKeysBetween('2025-11-15', '2026-02-03').join(',') === '2025-11,2025-12,2026-01,2026-02',
+);
+
+const catById = new Map([
+  ['c1', { id: 'c1', name: '餐饮', iconKey: 'restaurant' }],
+]);
+const catByName = new Map([
+  ['餐饮', { id: 'c1', name: '餐饮', iconKey: 'restaurant' }],
+]);
+check(
+  '分类：flow_category_id 优先',
+  resolveFinanceStatsCategory({ flow_category_id: 'c1', extra_data: null }, catById, catByName)
+    .name === '餐饮',
+);
+check(
+  '分类：category_key 映射并用名匹配目录',
+  resolveFinanceStatsCategory(
+    { flow_category_id: null, extra_data: JSON.stringify({ category_key: 'food' }) },
+    catById,
+    catByName,
+  ).categoryId === 'c1',
+);
+check(
+  '分类：未分类',
+  resolveFinanceStatsCategory({ flow_category_id: null, extra_data: null }, catById, catByName)
+    .name === '未分类',
 );
 
 console.log(`\n${passed} passed, ${failed} failed`);

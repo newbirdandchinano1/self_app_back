@@ -9,7 +9,7 @@ import {
   parseTaskAuditWallClockParts,
 } from '../calendar/logical-day.js';
 import type { TasksDayBoundary } from '../calendar/types.js';
-import { addDaysToYmd, countInclusiveYmdDays, isValidYmd } from '../../utils/ymd.js';
+import { addDaysToYmd, countInclusiveYmdDays, isValidYmd, listYmdRange } from '../../utils/ymd.js';
 import type { AllowedTable } from '../../config/tables.js';
 
 export class FinancePageError extends Error {
@@ -42,6 +42,37 @@ const INSIGHTS_DEFAULT_MONTHS = 6;
 const INSIGHTS_MAX_MONTHS = 24;
 const CATEGORY_TOP_LIMIT = 10;
 const ACCOUNT_DETAIL_MAX_ROWS = 100_000;
+const STATS_RANK_DEFAULT = 5;
+const STATS_RANK_MAX = 20;
+const STATS_RECENT_DAYS_DEFAULT = 6;
+const STATS_RECENT_DAYS_MAX = 31;
+const STATS_SAMPLE_LIMIT = 50;
+const STATS_AUTO_MONTH_DAYS = 90;
+const UNCATEGORIZED_NAME = '未分类';
+
+/** 与 APP `BUILTIN_SHEET_CATEGORY_LABELS` 对齐 */
+export const BUILTIN_SHEET_CATEGORY_LABELS: Record<string, string> = {
+  food: '餐饮',
+  snack: '零食',
+  fruit: '水果',
+  drink: '饮品',
+  cook: '做饭食材',
+  traffic: '交通',
+  home: '居住',
+  cloth: '服饰',
+  play: '娱乐',
+  other: '其他',
+  salary: '工资',
+  bonus: '奖金',
+  refund: '报销',
+  invest: '理财',
+  sideline: '副业',
+  allowance: '补贴',
+  redpack: '红包',
+  gift: '礼金',
+  rent: '租金',
+  'other-income': '其他',
+};
 
 export interface FinanceDayBoundaryParams {
   dayBoundaryHour?: number;
@@ -88,6 +119,20 @@ export interface FinanceInsightsParams {
   dayBoundaryMinute?: number;
 }
 
+export type FinanceStatsGranularity = 'day' | 'month' | 'auto';
+export type FinanceStatsSideMode = 'expense' | 'income' | 'both';
+
+export interface FinanceStatsParams extends FinanceDayBoundaryParams {
+  start: string;
+  end: string;
+  granularity?: FinanceStatsGranularity;
+  categoryMode?: FinanceStatsSideMode;
+  rankMode?: FinanceStatsSideMode;
+  rankLimit?: number;
+  recentDaysLimit?: number;
+  excludeCorrections?: boolean;
+}
+
 function quoteIdent(name: string): string {
   return `\`${name.replace(/`/g, '``')}\``;
 }
@@ -125,9 +170,31 @@ function isTruthyFlag(value: unknown): boolean {
 
 export function isBalanceCorrection(extra: Record<string, unknown>, transactionType?: string): boolean {
   if (transactionType === 'balance_correction') return true;
+  const reason = String(extra.reason ?? '').trim();
+  if (reason === 'balance_correction') return true;
   const kind = String(extra.kind ?? extra.type ?? '').trim();
   if (kind === 'balance_correction') return true;
   return isTruthyFlag(extra.balance_correction) || isTruthyFlag(extra.is_balance_correction);
+}
+
+/** 与 APP `isInitialBalanceFinanceTransaction` 对齐 */
+export function isInitialBalanceFinanceTransaction(
+  name: unknown,
+  extraData?: unknown,
+): boolean {
+  const extra = parseExtraData(extraData);
+  if (String(extra.reason ?? '').trim() === 'initial_balance') return true;
+  return String(name ?? '').trim() === '初始余额';
+}
+
+export function isBalanceCorrectionFinanceTransaction(
+  name: unknown,
+  transactionType: unknown,
+  extraData?: unknown,
+): boolean {
+  const extra = parseExtraData(extraData);
+  if (isBalanceCorrection(extra, String(transactionType ?? ''))) return true;
+  return String(name ?? '').trim() === '余额校正';
 }
 
 export function shouldExcludeFromNetWorth(extra: Record<string, unknown>): boolean {
@@ -231,6 +298,110 @@ export function monthKeyFromYmd(ymd: string): string {
   return ymd.slice(0, 7);
 }
 
+export function listMonthKeysBetween(startYmd: string, endYmd: string): string[] {
+  const start = parseYmdParts(startYmd);
+  const end = parseYmdParts(endYmd);
+  if (!start || !end) return [];
+  const keys: string[] = [];
+  let year = start.year;
+  let month = start.month;
+  while (year < end.year || (year === end.year && month <= end.month)) {
+    keys.push(`${year}-${pad2(month)}`);
+    const next = addMonths(year, month, 1);
+    year = next.year;
+    month = next.month;
+  }
+  return keys;
+}
+
+export function resolveStatsGranularity(
+  requested: FinanceStatsGranularity | undefined,
+  start: string,
+  end: string,
+): 'day' | 'month' {
+  if (requested === 'day' || requested === 'month') return requested;
+  const days = countInclusiveYmdDays(start, end);
+  if (days > STATS_AUTO_MONTH_DAYS) return 'month';
+  if (start.slice(0, 4) !== end.slice(0, 4)) return 'month';
+  return 'day';
+}
+
+function parseSideMode(raw: FinanceStatsSideMode | undefined): FinanceStatsSideMode {
+  if (raw === 'expense' || raw === 'income' || raw === 'both') return raw;
+  return 'both';
+}
+
+function categoryIconKey(extraData: unknown): string | null {
+  const extra = parseExtraData(extraData);
+  const icon = extra.icon ?? extra.icon_key;
+  if (typeof icon === 'string' && icon.trim()) return icon.trim();
+  return null;
+}
+
+export function resolveFinanceStatsCategory(
+  txn: {
+    flow_category_id?: unknown;
+    extra_data?: unknown;
+  },
+  categoryById: Map<string, { id: string; name: string; iconKey: string | null }>,
+  categoryByName: Map<string, { id: string; name: string; iconKey: string | null }>,
+): { categoryId: string | null; name: string; iconKey: string | null; bucketKey: string } {
+  const flowId = txn.flow_category_id == null || txn.flow_category_id === '' ? null : String(txn.flow_category_id);
+  if (flowId) {
+    const row = categoryById.get(flowId);
+    if (row) {
+      return { categoryId: row.id, name: row.name, iconKey: row.iconKey, bucketKey: `id:${row.id}` };
+    }
+  }
+
+  const extra = parseExtraData(txn.extra_data);
+  const labelRaw =
+    (typeof extra.category_label === 'string' ? extra.category_label.trim() : '') ||
+    (typeof extra.category_key === 'string' ? BUILTIN_SHEET_CATEGORY_LABELS[extra.category_key] ?? '' : '');
+  if (labelRaw) {
+    const row = categoryByName.get(labelRaw);
+    if (row) {
+      return { categoryId: row.id, name: row.name, iconKey: row.iconKey, bucketKey: `id:${row.id}` };
+    }
+    return { categoryId: null, name: labelRaw, iconKey: null, bucketKey: `label:${labelRaw}` };
+  }
+
+  return {
+    categoryId: null,
+    name: UNCATEGORIZED_NAME,
+    iconKey: null,
+    bucketKey: 'uncategorized',
+  };
+}
+
+function trendDayLabel(ymd: string): string {
+  const parts = parseYmdParts(ymd);
+  if (!parts) return ymd;
+  return `${parts.month}.${parts.day}`;
+}
+
+function trendMonthLabel(monthKey: string): string {
+  const month = Number(monthKey.slice(5, 7));
+  if (!Number.isFinite(month) || month < 1 || month > 12) return monthKey;
+  return `${month}月`;
+}
+
+function buildCategorySide(
+  buckets: Map<string, { categoryId: string | null; name: string; iconKey: string | null; amount: number; count: number }>,
+  sideTotal: number,
+) {
+  return Array.from(buckets.values())
+    .sort((a, b) => b.amount - a.amount || a.name.localeCompare(b.name, 'zh-CN'))
+    .map((item) => ({
+      categoryId: item.categoryId,
+      name: item.name,
+      amount: roundMoney(item.amount),
+      count: item.count,
+      percent: sideTotal > 0 ? roundMoney((item.amount / sideTotal) * 100) : 0,
+      iconKey: item.iconKey,
+    }));
+}
+
 function resolveDayBoundary(params: FinanceDayBoundaryParams): TasksDayBoundary {
   return normalizeTasksDayBoundary({
     hour: params.dayBoundaryHour ?? 0,
@@ -309,12 +480,25 @@ export function balanceCorrectionSql(alias = ''): string {
     `IF(JSON_VALID(${extra}), JSON_UNQUOTE(JSON_EXTRACT(${extra}, '${path}')), NULL)`;
   return `(
     ${p}transaction_type = 'balance_correction'
+    OR TRIM(${p}name) = '余额校正'
+    OR ${unquote('$.reason')} = 'balance_correction'
     OR ${unquote('$.kind')} = 'balance_correction'
     OR ${unquote('$.type')} = 'balance_correction'
     OR ${extract('$.balance_correction')} = TRUE
     OR ${extract('$.is_balance_correction')} = TRUE
     OR ${unquote('$.balance_correction')} IN ('true', '1')
     OR ${unquote('$.is_balance_correction')} IN ('true', '1')
+  )`;
+}
+
+export function initialBalanceSql(alias = ''): string {
+  const p = alias ? `${alias}.` : '';
+  const extra = alias ? `${alias}.extra_data` : 'extra_data';
+  const unquote = (path: string) =>
+    `IF(JSON_VALID(${extra}), JSON_UNQUOTE(JSON_EXTRACT(${extra}, '${path}')), NULL)`;
+  return `(
+    TRIM(${p}name) = '初始余额'
+    OR ${unquote('$.reason')} = 'initial_balance'
   )`;
 }
 
@@ -923,6 +1107,304 @@ export async function getFinanceInsights(params: FinanceInsightsParams) {
     meta: {
       serverTime: serverNowIso(),
       months,
+    },
+  };
+}
+
+export async function getFinanceStats(params: FinanceStatsParams) {
+  if (!isValidYmd(params.start) || !isValidYmd(params.end)) {
+    throw new FinancePageError('start 与 end 必填，格式为 YYYY-MM-DD');
+  }
+  if (params.start > params.end) {
+    throw new FinancePageError('start 不能晚于 end');
+  }
+  const rangeDays = countInclusiveYmdDays(params.start, params.end);
+  if (rangeDays > TXN_MAX_RANGE_DAYS) {
+    throw new FinancePageError(`区间不能超过 ${TXN_MAX_RANGE_DAYS} 天`);
+  }
+
+  const boundary = resolveDayBoundary(params);
+  const logicalDayExpr = logicalDaySql(boundary);
+  const granularity = resolveStatsGranularity(params.granularity, params.start, params.end);
+  const categoryMode = parseSideMode(params.categoryMode);
+  const rankMode = parseSideMode(params.rankMode);
+  const rankLimit = Math.min(STATS_RANK_MAX, Math.max(1, params.rankLimit ?? STATS_RANK_DEFAULT));
+  const recentDaysLimit = Math.min(
+    STATS_RECENT_DAYS_MAX,
+    Math.max(1, params.recentDaysLimit ?? STATS_RECENT_DAYS_DEFAULT),
+  );
+  const excludeCorrections = params.excludeCorrections !== false;
+  const days = Math.max(1, rangeDays);
+
+  const { columns } = await loadMeta(TXN_TABLE);
+  const whereParts = [
+    activeWhereSql(columns),
+    `${logicalDayExpr} >= ?`,
+    `${logicalDayExpr} <= ?`,
+    `transaction_type IN ('income', 'expense')`,
+  ];
+  const values: unknown[] = [params.start, params.end];
+  if (excludeCorrections) {
+    whereParts.push(`NOT ${balanceCorrectionSql()}`);
+  }
+  const whereSql = whereParts.join(' AND ');
+
+  const [categoryRows, txnRows] = await Promise.all([
+    loadCategories(),
+    db.query<RowDataPacket[]>(
+      `SELECT
+          id,
+          name,
+          happened_at,
+          transaction_type,
+          flow_category_id,
+          amount,
+          note,
+          ai_comment,
+          extra_data,
+          ${logicalDayExpr} AS logical_day
+       FROM ${TXN_TABLE}
+       WHERE ${whereSql}
+       ORDER BY happened_at DESC, id DESC`,
+      values,
+    ),
+  ]);
+
+  const categoryById = new Map<string, { id: string; name: string; iconKey: string | null }>();
+  const categoryByName = new Map<string, { id: string; name: string; iconKey: string | null }>();
+  for (const row of categoryRows) {
+    const id = String(row.id ?? '');
+    if (!id) continue;
+    const entry = {
+      id,
+      name: String(row.name ?? '').trim() || id,
+      iconKey: categoryIconKey(row.extra_data),
+    };
+    categoryById.set(id, entry);
+    if (entry.name && !categoryByName.has(entry.name)) {
+      categoryByName.set(entry.name, entry);
+    }
+  }
+
+  type StatsTxn = {
+    id: string;
+    name: string;
+    happenedAt: string;
+    transactionType: 'income' | 'expense';
+    flowCategoryId: string | null;
+    amount: number;
+    absAmount: number;
+    note: string | null;
+    aiComment: string | null;
+    extraData: string | null;
+    logicalDay: string;
+    isInitialBalance: boolean;
+  };
+
+  const txns: StatsTxn[] = [];
+  for (const row of txnRows[0]) {
+    const typeRaw = String(row.transaction_type ?? '').trim().toLowerCase();
+    if (typeRaw !== 'income' && typeRaw !== 'expense') continue;
+    const logicalDay = String(row.logical_day ?? '').slice(0, 10);
+    if (!isValidYmd(logicalDay)) continue;
+    const name = String(row.name ?? '');
+    const extraData =
+      row.extra_data == null
+        ? null
+        : typeof row.extra_data === 'string'
+          ? row.extra_data
+          : JSON.stringify(row.extra_data);
+    if (
+      excludeCorrections &&
+      isBalanceCorrectionFinanceTransaction(name, typeRaw, extraData ?? row.extra_data)
+    ) {
+      continue;
+    }
+    const amount = Number(row.amount) || 0;
+    txns.push({
+      id: String(row.id ?? ''),
+      name,
+      happenedAt: row.happened_at == null || row.happened_at === '' ? '' : String(row.happened_at),
+      transactionType: typeRaw,
+      flowCategoryId:
+        row.flow_category_id == null || row.flow_category_id === ''
+          ? null
+          : String(row.flow_category_id),
+      amount,
+      absAmount: Math.abs(amount),
+      note: row.note == null || row.note === '' ? null : String(row.note),
+      aiComment: row.ai_comment == null || row.ai_comment === '' ? null : String(row.ai_comment),
+      extraData,
+      logicalDay,
+      isInitialBalance: isInitialBalanceFinanceTransaction(name, extraData ?? row.extra_data),
+    });
+  }
+
+  let income = 0;
+  let expense = 0;
+  const expenseCats = new Map<
+    string,
+    { categoryId: string | null; name: string; iconKey: string | null; amount: number; count: number }
+  >();
+  const incomeCats = new Map<
+    string,
+    { categoryId: string | null; name: string; iconKey: string | null; amount: number; count: number }
+  >();
+  const dayBuckets = new Map<string, { income: number; expense: number }>();
+  const monthBuckets = new Map<string, { income: number; expense: number }>();
+
+  for (const txn of txns) {
+    if (txn.transactionType === 'income') income += txn.absAmount;
+    else expense += txn.absAmount;
+
+    const dayBucket = dayBuckets.get(txn.logicalDay) ?? { income: 0, expense: 0 };
+    if (txn.transactionType === 'income') dayBucket.income += txn.absAmount;
+    else dayBucket.expense += txn.absAmount;
+    dayBuckets.set(txn.logicalDay, dayBucket);
+
+    const mk = monthKeyFromYmd(txn.logicalDay);
+    const monthBucket = monthBuckets.get(mk) ?? { income: 0, expense: 0 };
+    if (txn.transactionType === 'income') monthBucket.income += txn.absAmount;
+    else monthBucket.expense += txn.absAmount;
+    monthBuckets.set(mk, monthBucket);
+
+    const shouldAggregateCategory =
+      categoryMode === 'both' ||
+      (categoryMode === 'expense' && txn.transactionType === 'expense') ||
+      (categoryMode === 'income' && txn.transactionType === 'income');
+    if (shouldAggregateCategory) {
+      const resolved = resolveFinanceStatsCategory(
+        { flow_category_id: txn.flowCategoryId, extra_data: txn.extraData },
+        categoryById,
+        categoryByName,
+      );
+      const target = txn.transactionType === 'income' ? incomeCats : expenseCats;
+      const current = target.get(resolved.bucketKey) ?? {
+        categoryId: resolved.categoryId,
+        name: resolved.name,
+        iconKey: resolved.iconKey,
+        amount: 0,
+        count: 0,
+      };
+      current.amount += txn.absAmount;
+      current.count += 1;
+      if (!current.iconKey && resolved.iconKey) current.iconKey = resolved.iconKey;
+      target.set(resolved.bucketKey, current);
+    }
+  }
+
+  income = roundMoney(income);
+  expense = roundMoney(expense);
+  const balance = roundMoney(income - expense);
+
+  const trendSource = granularity === 'month' ? monthBuckets : dayBuckets;
+  const trendKeys =
+    granularity === 'month'
+      ? listMonthKeysBetween(params.start, params.end)
+      : listYmdRange(params.start, params.end);
+  const trendPoints = trendKeys.map((key) => {
+    const found = trendSource.get(key) ?? { income: 0, expense: 0 };
+    const pointIncome = roundMoney(found.income);
+    const pointExpense = roundMoney(found.expense);
+    return {
+      key,
+      label: granularity === 'month' ? trendMonthLabel(key) : trendDayLabel(key),
+      income: pointIncome,
+      expense: pointExpense,
+      balance: roundMoney(pointIncome - pointExpense),
+    };
+  });
+
+  const recentDays = Array.from(dayBuckets.entries())
+    .sort(([a], [b]) => (a < b ? 1 : -1))
+    .slice(0, recentDaysLimit)
+    .map(([day, item]) => {
+      const dayIncome = roundMoney(item.income);
+      const dayExpense = roundMoney(item.expense);
+      return {
+        day,
+        expense: dayExpense,
+        income: dayIncome,
+        balance: roundMoney(dayIncome - dayExpense),
+      };
+    });
+
+  const buildRanking = (side: 'income' | 'expense') => {
+    if (rankMode !== 'both' && rankMode !== side) return [];
+    return txns
+      .filter((txn) => !txn.isInitialBalance && txn.transactionType === side)
+      .sort((a, b) => b.absAmount - a.absAmount || b.happenedAt.localeCompare(a.happenedAt))
+      .slice(0, rankLimit)
+      .map((txn) => {
+        const resolved = resolveFinanceStatsCategory(
+          { flow_category_id: txn.flowCategoryId, extra_data: txn.extraData },
+          categoryById,
+          categoryByName,
+        );
+        const categoryName = resolved.name === UNCATEGORIZED_NAME ? null : resolved.name;
+        return {
+          id: txn.id,
+          name: categoryName ? `${categoryName}-${txn.name}` : txn.name,
+          categoryName,
+          note: txn.note ?? txn.aiComment,
+          amount: roundMoney(txn.absAmount),
+          happenedAt: txn.happenedAt,
+        };
+      });
+  };
+
+  const sampleTransactions = txns
+    .slice()
+    .sort((a, b) => b.absAmount - a.absAmount || b.happenedAt.localeCompare(a.happenedAt))
+    .slice(0, STATS_SAMPLE_LIMIT)
+    .map((txn) => ({
+      id: txn.id,
+      name: txn.name,
+      happened_at: txn.happenedAt,
+      transaction_type: txn.transactionType,
+      flow_category_id: txn.flowCategoryId,
+      amount: roundMoney(txn.absAmount),
+      note: txn.note,
+      ai_comment: txn.aiComment,
+      extra_data: txn.extraData,
+    }));
+
+  return {
+    summary: {
+      income,
+      expense,
+      balance,
+      days,
+      txnCount: txns.length,
+    },
+    categories: {
+      expense:
+        categoryMode === 'income' ? [] : buildCategorySide(expenseCats, expense),
+      income: categoryMode === 'expense' ? [] : buildCategorySide(incomeCats, income),
+    },
+    trend: {
+      granularity,
+      points: trendPoints,
+    },
+    billTable: {
+      total: { expense, income, balance },
+      dailyAvg: {
+        expense: roundMoney(expense / days),
+        income: roundMoney(income / days),
+        balance: roundMoney(balance / days),
+      },
+      recentDays,
+    },
+    ranking: {
+      expense: buildRanking('expense'),
+      income: buildRanking('income'),
+    },
+    sampleTransactions,
+    meta: {
+      serverTime: serverNowIso(),
+      start: params.start,
+      end: params.end,
+      granularity,
     },
   };
 }

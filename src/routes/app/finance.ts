@@ -11,6 +11,7 @@ import {
   getFinanceHome,
   getFinanceInsights,
   getFinanceRecentDays,
+  getFinanceStats,
   getFinanceTransactions,
 } from '../../services/pages/finance.js';
 
@@ -148,6 +149,40 @@ router.get('/pages/finance/insights', async (req, res, next) => {
       ...parseDayBoundary(req),
       months: parseIntQuery(req.query.months),
       logicalToday: parseStringQuery(req.query.logicalToday),
+    });
+    success(res, data);
+  } catch (err) {
+    handleFinanceError(err, res, next);
+  }
+});
+
+/** GET /pages/finance/stats — 财务统计页聚合（不回传全量流水） */
+router.get('/pages/finance/stats', async (req, res, next) => {
+  try {
+    const start = parseStringQuery(req.query.start)?.trim() ?? '';
+    const end = parseStringQuery(req.query.end)?.trim() ?? '';
+    const granularityRaw = parseStringQuery(req.query.granularity)?.trim();
+    const categoryModeRaw = parseStringQuery(req.query.categoryMode)?.trim();
+    const rankModeRaw = parseStringQuery(req.query.rankMode)?.trim();
+    const data = await getFinanceStats({
+      ...parseDayBoundary(req),
+      start,
+      end,
+      granularity:
+        granularityRaw === 'day' || granularityRaw === 'month' || granularityRaw === 'auto'
+          ? granularityRaw
+          : undefined,
+      categoryMode:
+        categoryModeRaw === 'expense' || categoryModeRaw === 'income' || categoryModeRaw === 'both'
+          ? categoryModeRaw
+          : undefined,
+      rankMode:
+        rankModeRaw === 'expense' || rankModeRaw === 'income' || rankModeRaw === 'both'
+          ? rankModeRaw
+          : undefined,
+      rankLimit: parseIntQuery(req.query.rankLimit),
+      recentDaysLimit: parseIntQuery(req.query.recentDaysLimit),
+      excludeCorrections: parseBoolQuery(req.query.excludeCorrections),
     });
     success(res, data);
   } catch (err) {
