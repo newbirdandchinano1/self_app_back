@@ -8,6 +8,7 @@ import {
   deleteWishBoardItem,
   getPointsBalance,
   listActiveWishBoardItems,
+  listPointsLedgerHistory,
   listRedeemedWishBoardItems,
   redeemWishBoardItem,
   resetPoints,
@@ -167,6 +168,25 @@ router.post('/wish-board/points/adjust', async (req, res, next) => {
 router.get('/wish-board/points/balance', async (_req, res, next) => {
   try {
     const result = await getPointsBalance();
+    return success(res, result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /wish-board/points/ledger — 积分流水（全部来源）
+ * Query: page (default 1), limit (default 50, max 200)
+ */
+router.get('/wish-board/points/ledger', async (req, res, next) => {
+  try {
+    const pageRaw = typeof req.query.page === 'string' ? Number(req.query.page) : Number(req.query.page);
+    const limitRaw =
+      typeof req.query.limit === 'string' ? Number(req.query.limit) : Number(req.query.limit);
+    const result = await listPointsLedgerHistory({
+      page: Number.isFinite(pageRaw) ? pageRaw : 1,
+      limit: Number.isFinite(limitRaw) ? limitRaw : 50,
+    });
     return success(res, result);
   } catch (err) {
     next(err);

@@ -155,6 +155,8 @@ export async function redeemWishBoardItem(wishBoardItemId: string): Promise<Rede
 export const POINTS_LEDGER_REASONS = [
   'habit_check_in',
   'habit_check_in_undo',
+  'habit_goal_complete',
+  'habit_goal_complete_undo',
   'task_complete',
   'task_complete_undo',
   'project_complete',
@@ -165,6 +167,142 @@ export const POINTS_LEDGER_REASONS = [
 ] as const;
 
 export type PointsLedgerReason = (typeof POINTS_LEDGER_REASONS)[number];
+
+const POINTS_LEDGER_REASON_LABELS: Record<string, string> = {
+  habit_check_in: '习惯打卡',
+  habit_check_in_undo: '撤销习惯打卡',
+  habit_goal_complete: '完成习惯目标',
+  habit_goal_complete_undo: '撤销习惯目标',
+  task_complete: '完成任务',
+  task_complete_undo: '撤销任务完成',
+  project_complete: '完成项目',
+  project_complete_undo: '撤销项目完成',
+  wish_redeem: '兑换心愿',
+  points_reset: '重置积分',
+  manual_adjust: '手动调整',
+};
+
+export function pointsLedgerReasonLabel(reason: string): string {
+  const key = String(reason ?? '').trim();
+  if (!key) return '积分变动';
+  return POINTS_LEDGER_REASON_LABELS[key] ?? key;
+}
+
+export type PointsLedgerHistoryItem = {
+  id: string;
+  delta: number;
+  balance_after: number;
+  reason: string;
+  reason_label: string;
+  ref_type: string | null;
+  ref_id: string | null;
+  ref_title: string | null;
+  note: string | null;
+  created_at: string;
+};
+
+export type PointsLedgerHistoryResult = {
+  items: PointsLedgerHistoryItem[];
+  balance: number;
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
+};
+
+function clampLedgerPage(page?: number, limit?: number): { page: number; limit: number; offset: number } {
+  const p = Number.isFinite(page) && (page as number) > 0 ? Math.floor(page as number) : 1;
+  const rawLimit = Number.isFinite(limit) && (limit as number) > 0 ? Math.floor(limit as number) : 50;
+  const l = Math.min(200, Math.max(1, rawLimit));
+  return { page: p, limit: l, offset: (p - 1) * l };
+}
+
+/**
+ * 积分流水（全部来源）：分页按时间倒序。
+ * 左连习惯/任务/项目/心愿带回关联标题；reason_label 供前端直接展示。
+ */
+export async function listPointsLedgerHistory(params?: {
+  page?: number;
+  limit?: number;
+}): Promise<PointsLedgerHistoryResult> {
+  const { page, limit, offset } = clampLedgerPage(params?.page, params?.limit);
+
+  const [[countRows], [rows], balanceResult] = await Promise.all([
+    db.query<RowDataPacket[]>(`SELECT COUNT(*) AS total FROM points_ledger`),
+    db.query<RowDataPacket[]>(
+      `SELECT
+          l.id,
+          l.delta,
+          l.balance_after,
+          l.reason,
+          l.ref_type,
+          l.ref_id,
+          l.created_at,
+          l.extra_data,
+          COALESCE(w.title, t.title, p.name, h.name) AS ref_title
+       FROM points_ledger l
+       LEFT JOIN wish_board_items w
+         ON l.ref_type = 'wish_board_item' AND w.id = l.ref_id
+       LEFT JOIN tasks t
+         ON l.ref_type = 'task' AND t.id = l.ref_id
+       LEFT JOIN projects p
+         ON l.ref_type = 'project' AND p.id = l.ref_id
+       LEFT JOIN habits h
+         ON l.ref_type = 'habit' AND h.id = l.ref_id
+       ORDER BY l.created_at DESC, l.id DESC
+       LIMIT ? OFFSET ?`,
+      [limit, offset],
+    ),
+    getPointsBalance(),
+  ]);
+
+  const total = Math.max(0, Math.floor(Number(countRows[0]?.total) || 0));
+  const items: PointsLedgerHistoryItem[] = rows.map((row) => {
+    const reason = String(row.reason ?? '');
+    let note: string | null = null;
+    const extra = row.extra_data;
+    if (extra != null) {
+      try {
+        const parsed =
+          typeof extra === 'string'
+            ? (JSON.parse(extra) as Record<string, unknown>)
+            : (extra as Record<string, unknown>);
+        if (parsed && typeof parsed.note === 'string' && parsed.note.trim()) {
+          note = parsed.note.trim();
+        }
+      } catch {
+        // ignore malformed extra_data
+      }
+    }
+    return {
+      id: String(row.id),
+      delta: Math.floor(Number(row.delta) || 0),
+      balance_after: Math.max(0, Math.floor(Number(row.balance_after) || 0)),
+      reason,
+      reason_label: pointsLedgerReasonLabel(reason),
+      ref_type: row.ref_type == null ? null : String(row.ref_type),
+      ref_id: row.ref_id == null ? null : String(row.ref_id),
+      ref_title: row.ref_title == null || String(row.ref_title).trim() === ''
+        ? null
+        : String(row.ref_title).trim(),
+      note,
+      created_at: formatDbDateTimeForApi(row.created_at, 'utc') ?? String(row.created_at),
+    };
+  });
+
+  return {
+    items,
+    balance: balanceResult.balance,
+    pagination: {
+      page,
+      limit,
+      total,
+      totalPages: total > 0 ? Math.ceil(total / limit) : 0,
+    },
+  };
+}
 
 export interface AdjustPointsInput {
   delta: number;
