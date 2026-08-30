@@ -244,13 +244,17 @@ export async function listPointsLedgerHistory(params?: {
           COALESCE(w.title, t.title, p.name, h.name) AS ref_title
        FROM points_ledger l
        LEFT JOIN wish_board_items w
-         ON l.ref_type = 'wish_board_item' AND w.id = l.ref_id
+         ON l.ref_type COLLATE utf8mb4_unicode_ci = 'wish_board_item'
+        AND w.id COLLATE utf8mb4_unicode_ci = l.ref_id COLLATE utf8mb4_unicode_ci
        LEFT JOIN tasks t
-         ON l.ref_type = 'task' AND t.id = l.ref_id
+         ON l.ref_type COLLATE utf8mb4_unicode_ci = 'task'
+        AND t.id COLLATE utf8mb4_unicode_ci = l.ref_id COLLATE utf8mb4_unicode_ci
        LEFT JOIN projects p
-         ON l.ref_type = 'project' AND p.id = l.ref_id
+         ON l.ref_type COLLATE utf8mb4_unicode_ci = 'project'
+        AND p.id COLLATE utf8mb4_unicode_ci = l.ref_id COLLATE utf8mb4_unicode_ci
        LEFT JOIN habits h
-         ON l.ref_type = 'habit' AND h.id = l.ref_id
+         ON l.ref_type COLLATE utf8mb4_unicode_ci = 'habit'
+        AND h.id COLLATE utf8mb4_unicode_ci = l.ref_id COLLATE utf8mb4_unicode_ci
        ORDER BY l.created_at DESC, l.id DESC
        LIMIT ? OFFSET ?`,
       [limit, offset],
@@ -302,6 +306,107 @@ export async function listPointsLedgerHistory(params?: {
       totalPages: total > 0 ? Math.ceil(total / limit) : 0,
     },
   };
+}
+
+export type DeletePointsLedgerResult = {
+  deleted: true;
+  id: string;
+  delta: number;
+  /** 回退到钱包的增量（= -原 delta，可能因余额封顶被截断） */
+  rollback_delta: number;
+  balance: number;
+  reason: string;
+  ref_type: string | null;
+  ref_id: string | null;
+};
+
+/**
+ * 删除一条积分流水并回退其对钱包的影响：
+ * newBalance = max(0, balance - row.delta)
+ * 若为 wish_redeem 且对应 once 心愿已兑完，恢复为可兑换。
+ */
+export async function deletePointsLedgerEntry(ledgerId: string): Promise<DeletePointsLedgerResult> {
+  const id = String(ledgerId ?? '').trim();
+  if (!id) {
+    throw new WishBoardError('参数缺失', 400, { ok: false, error: '参数缺失' });
+  }
+
+  const conn = await db.getConnection();
+  try {
+    await conn.beginTransaction();
+
+    const balance = await lockOrCreateWallet(conn);
+
+    const [rows] = await conn.query<RowDataPacket[]>(
+      `SELECT id, delta, reason, ref_type, ref_id
+       FROM points_ledger
+       WHERE id = ?
+       LIMIT 1
+       FOR UPDATE`,
+      [id],
+    );
+    const row = rows[0];
+    if (!row) {
+      throw new WishBoardError('流水不存在', 404, { ok: false, error: '流水不存在' });
+    }
+
+    const delta = Math.floor(Number(row.delta) || 0);
+    const reason = String(row.reason ?? '');
+    const refType = row.ref_type == null ? null : String(row.ref_type);
+    const refId = row.ref_id == null ? null : String(row.ref_id);
+
+    await conn.query(`DELETE FROM points_ledger WHERE id = ?`, [id]);
+
+    // 回退：去掉该笔 delta 的影响；余额不可为负
+    const newBalance = Math.max(0, balance - delta);
+    const rollbackDelta = newBalance - balance;
+    const now = nowUtcMysql();
+
+    await conn.query<ResultSetHeader>(
+      `UPDATE points_wallet
+       SET balance = ?, updated_at = ?, sync_status = 'synced'
+       WHERE id = ?`,
+      [newBalance, now, WALLET_ID],
+    );
+
+    // 兑换流水回退后：一次性已兑完心愿恢复可兑换
+    if (
+      reason === 'wish_redeem' &&
+      refType === 'wish_board_item' &&
+      refId &&
+      refId.trim()
+    ) {
+      await conn.query(
+        `UPDATE wish_board_items
+         SET status = 'active',
+             redeemed_at = NULL,
+             updated_at = ?,
+             sync_status = 'synced'
+         WHERE id = ?
+           AND wish_type = 'once'
+           AND status = 'redeemed'`,
+        [now, refId.trim()],
+      );
+    }
+
+    await conn.commit();
+
+    return {
+      deleted: true,
+      id,
+      delta,
+      rollback_delta: rollbackDelta,
+      balance: newBalance,
+      reason,
+      ref_type: refType,
+      ref_id: refId,
+    };
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
 }
 
 export interface AdjustPointsInput {

@@ -4,6 +4,7 @@ import { success, fail } from '../../utils/response.js';
 import {
   adjustPoints,
   createWishBoardItem,
+  deletePointsLedgerEntry,
   deleteRedeemedWishBoardItems,
   deleteWishBoardItem,
   getPointsBalance,
@@ -189,6 +190,45 @@ router.get('/wish-board/points/ledger', async (req, res, next) => {
     });
     return success(res, result);
   } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * DELETE /wish-board/points/ledger — 删除一条流水并回退积分
+ * Query/body: id = ledger id
+ */
+router.delete('/wish-board/points/ledger', async (req, res, next) => {
+  try {
+    const body = req.body ?? {};
+    const idRaw =
+      typeof body.id === 'string' && body.id.trim()
+        ? body.id
+        : typeof req.query.id === 'string'
+          ? req.query.id
+          : '';
+    if (!String(idRaw).trim()) {
+      return fail(res, '参数缺失');
+    }
+    const data = await deletePointsLedgerEntry(String(idRaw));
+    return success(res, data);
+  } catch (err) {
+    if (err instanceof WishBoardError) {
+      return sendWishBoardError(res, err);
+    }
+    next(err);
+  }
+});
+
+/** DELETE /wish-board/points/ledger/:id — 同上，路径参数形式 */
+router.delete('/wish-board/points/ledger/:id', async (req, res, next) => {
+  try {
+    const data = await deletePointsLedgerEntry(String(req.params.id ?? ''));
+    return success(res, data);
+  } catch (err) {
+    if (err instanceof WishBoardError) {
+      return sendWishBoardError(res, err);
+    }
     next(err);
   }
 });
