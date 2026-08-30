@@ -169,6 +169,27 @@ check(
   JSON.stringify(frogIsoYmd.countsByDay),
 );
 
+const frogProjectDeleted = aggregateFrogEvents(
+  [
+    {
+      id: 'fevt_proj',
+      task_id: 'p_leaf_frog',
+      assigned_ymd: '2026-08-18',
+      action: 'completed',
+      created_at: '2026-08-18 09:00:00',
+      task_title: '已删项目青蛙',
+    },
+  ],
+  '2026-08-01',
+  '2026-08-21',
+);
+check(
+  '青蛙：项目青蛙（task_id=project id）主体已删仍计入',
+  frogProjectDeleted.countsByDay['2026-08-18'] === 1 &&
+    frogProjectDeleted.taskIdsByDay.get('2026-08-18')?.has('p_leaf_frog') === true,
+  JSON.stringify(frogProjectDeleted.countsByDay),
+);
+
 const frogNoTaskId = aggregateFrogEvents(
   [
     {

@@ -3,10 +3,14 @@ import { type AllowedTable } from '../config/tables.js';
 import { db } from '../db/index.js';
 import { getTableMeta } from './crud.js';
 
+/**
+ * 任务删除时清理的从表。
+ * 故意不含 `frog_completion_events`：热力图/日历依赖事件行 + `task_title` 快照，
+ * 主体（任务/项目）删除后仍须保留「已完成青蛙」记录；项目青蛙的 task_id 存的是 project id。
+ */
 const TASK_RELATED_TABLES: AllowedTable[] = [
   'task_items',
   'task_execution_events',
-  'frog_completion_events',
 ];
 
 function quoteIdent(name: string): string {

@@ -19,9 +19,16 @@ export interface DayCount {
   total: number;
 }
 
+export type CompletionHeatmapFrogSubject = 'task' | 'project';
+
 export interface CompletionHeatmapDayDetail {
   ymd: string;
-  frogs: Array<{ task_id: string; task_title: string }>;
+  /** task_id 为青蛙主体：任务 id 或项目 id；主体已删时仍返回，标题优先快照 */
+  frogs: Array<{
+    task_id: string;
+    task_title: string;
+    subject?: CompletionHeatmapFrogSubject;
+  }>;
   todos: Array<{ id: string; task_id: string; task_title: string; title: string }>;
 }
 
@@ -170,17 +177,18 @@ async function loadFrogCompletionEvents(
   return rows as Record<string, unknown>[];
 }
 
-/** 标题：tasks.title → projects.name → 事件表 task_title 快照（兼容项目青蛙） */
+/** 标题：tasks.title → projects.name → 事件表 task_title 快照（主体已删仍可用快照） */
 async function resolveFrogTitles(
   latestByKey: Map<string, FrogLatest>,
-): Promise<Map<string, string>> {
+): Promise<{ titleById: Map<string, string>; projectIds: Set<string> }> {
   const ids = new Set<string>();
   for (const latest of latestByKey.values()) {
     if (latest.action !== 'completed') continue;
     if (latest.task_id) ids.add(latest.task_id);
   }
   const titleById = new Map<string, string>();
-  if (ids.size === 0) return titleById;
+  const projectIds = new Set<string>();
+  if (ids.size === 0) return { titleById, projectIds };
 
   const idList = [...ids];
   const placeholders = idList.map(() => '?').join(', ');
@@ -195,21 +203,29 @@ async function resolveFrogTitles(
     if (id && title) titleById.set(id, title);
   }
 
-  const missing = idList.filter((id) => !titleById.has(id));
-  if (missing.length > 0) {
-    const ph = missing.map(() => '?').join(', ');
-    const [projectRows] = await db.query<RowDataPacket[]>(
-      `SELECT id, name FROM projects WHERE id IN (${ph})`,
-      missing,
-    );
-    for (const row of projectRows) {
-      const id = String(row.id ?? '').trim();
-      const name = String(row.name ?? '').trim();
-      if (id && name) titleById.set(id, name);
-    }
+  // 项目青蛙 / 误写入项目 id：始终查 projects（含仍存活的行），并记下 subject
+  const [projectRows] = await db.query<RowDataPacket[]>(
+    `SELECT id, name FROM projects WHERE id IN (${placeholders})`,
+    idList,
+  );
+  for (const row of projectRows) {
+    const id = String(row.id ?? '').trim();
+    const name = String(row.name ?? '').trim();
+    if (!id) continue;
+    projectIds.add(id);
+    if (name && !titleById.has(id)) titleById.set(id, name);
   }
 
-  return titleById;
+  return { titleById, projectIds };
+}
+
+function inferFrogSubject(
+  taskId: string,
+  projectIds: Set<string>,
+): CompletionHeatmapFrogSubject | undefined {
+  if (projectIds.has(taskId) || taskId.startsWith('p_')) return 'project';
+  if (taskId.startsWith('tsk_') || taskId.startsWith('t_')) return 'task';
+  return undefined;
 }
 
 function aggregateTodoEvents(
@@ -286,15 +302,26 @@ function buildFrogDayDetail(
   latestByKey: Map<string, FrogLatest>,
   ymd: string,
   titleById: Map<string, string>,
-): Array<{ task_id: string; task_title: string }> {
-  const frogs: Array<{ task_id: string; task_title: string }> = [];
+  projectIds: Set<string>,
+): Array<{
+  task_id: string;
+  task_title: string;
+  subject?: CompletionHeatmapFrogSubject;
+}> {
+  const frogs: Array<{
+    task_id: string;
+    task_title: string;
+    subject?: CompletionHeatmapFrogSubject;
+  }> = [];
   for (const [key, latest] of latestByKey) {
     if (latest.action !== 'completed') continue;
     const [taskId, assignedYmd] = key.split('\0');
     if (assignedYmd !== ymd || !taskId) continue;
+    const subject = inferFrogSubject(taskId, projectIds);
     frogs.push({
       task_id: taskId,
       task_title: titleById.get(taskId) || latest.task_title || taskId,
+      ...(subject ? { subject } : {}),
     });
   }
   frogs.sort((a, b) => a.task_id.localeCompare(b.task_id));
@@ -363,10 +390,10 @@ export async function getCompletionHeatmap(
 
   const detailDay = params.day?.trim();
   if (params.includeDayDetail === true && detailDay && isValidYmd(detailDay)) {
-    const titleById = await resolveFrogTitles(latestByKey);
+    const { titleById, projectIds } = await resolveFrogTitles(latestByKey);
     result.dayDetail = {
       ymd: detailDay,
-      frogs: buildFrogDayDetail(latestByKey, detailDay, titleById),
+      frogs: buildFrogDayDetail(latestByKey, detailDay, titleById, projectIds),
       todos: buildTodoDayDetail(netEventsByDay.get(detailDay) ?? []),
     };
   }
