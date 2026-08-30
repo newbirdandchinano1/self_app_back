@@ -472,6 +472,11 @@ export function excludeFromNetWorthSql(alias = ''): string {
   )`;
 }
 
+/**
+ * 是否为余额校正流水。
+ * 注意：各 JSON 提取必须 COALESCE 成非 NULL，否则 `NOT (a OR b OR NULL…)` 在 MySQL 三值逻辑下
+ * 会对「普通流水」整行判为 UNKNOWN 而被 WHERE 滤掉（统计/日汇总会全变成 0）。
+ */
 export function balanceCorrectionSql(alias = ''): string {
   const p = alias ? `${alias}.` : '';
   const extra = alias ? `${alias}.extra_data` : 'extra_data';
@@ -480,14 +485,14 @@ export function balanceCorrectionSql(alias = ''): string {
     `IF(JSON_VALID(${extra}), JSON_UNQUOTE(JSON_EXTRACT(${extra}, '${path}')), NULL)`;
   return `(
     ${p}transaction_type = 'balance_correction'
-    OR TRIM(${p}name) = '余额校正'
-    OR ${unquote('$.reason')} = 'balance_correction'
-    OR ${unquote('$.kind')} = 'balance_correction'
-    OR ${unquote('$.type')} = 'balance_correction'
-    OR ${extract('$.balance_correction')} = TRUE
-    OR ${extract('$.is_balance_correction')} = TRUE
-    OR ${unquote('$.balance_correction')} IN ('true', '1')
-    OR ${unquote('$.is_balance_correction')} IN ('true', '1')
+    OR TRIM(COALESCE(${p}name, '')) = '余额校正'
+    OR COALESCE(${unquote('$.reason')}, '') = 'balance_correction'
+    OR COALESCE(${unquote('$.kind')}, '') = 'balance_correction'
+    OR COALESCE(${unquote('$.type')}, '') = 'balance_correction'
+    OR COALESCE(${extract('$.balance_correction')}, FALSE) = TRUE
+    OR COALESCE(${extract('$.is_balance_correction')}, FALSE) = TRUE
+    OR COALESCE(${unquote('$.balance_correction')}, '') IN ('true', '1')
+    OR COALESCE(${unquote('$.is_balance_correction')}, '') IN ('true', '1')
   )`;
 }
 
@@ -497,8 +502,8 @@ export function initialBalanceSql(alias = ''): string {
   const unquote = (path: string) =>
     `IF(JSON_VALID(${extra}), JSON_UNQUOTE(JSON_EXTRACT(${extra}, '${path}')), NULL)`;
   return `(
-    TRIM(${p}name) = '初始余额'
-    OR ${unquote('$.reason')} = 'initial_balance'
+    TRIM(COALESCE(${p}name, '')) = '初始余额'
+    OR COALESCE(${unquote('$.reason')}, '') = 'initial_balance'
   )`;
 }
 
