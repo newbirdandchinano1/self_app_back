@@ -218,11 +218,11 @@ function parseHabitKind(extraData: string | null): HabitKind {
   return 'build';
 }
 
-/** habits.extra_data.reward_points：单次有效打卡奖励，缺省 0，范围 0..99999 */
+/** habits.extra_data.reward_points：可负可小数，缺省 0，范围 -99999..99999 */
 function parseHabitRewardPoints(extraData: string | null): number {
   const raw = parseExtraObject(extraData).reward_points;
   if (typeof raw !== 'number' || !Number.isFinite(raw)) return 0;
-  return Math.min(99999, Math.max(0, Math.round(raw)));
+  return Math.min(99999, Math.max(-99999, Math.round(raw * 100) / 100));
 }
 
 function parseQuantifyRaw(extraData: string | null) {

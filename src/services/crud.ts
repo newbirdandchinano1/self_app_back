@@ -276,7 +276,7 @@ async function normalizeWriteData(
   }
 
   if (table === 'points_wallet' && 'balance' in result) {
-    result.balance = normalizeNonNegativeInt(result.balance, 'balance');
+    result.balance = normalizePointsNumber(result.balance, 'balance', { allowNegative: true });
   }
 
   if (table === 'points_ledger') {
@@ -314,6 +314,27 @@ function normalizeNonNegativeInt(value: unknown, field: string): number {
   return n;
 }
 
+/** 积分数值：最多 2 位小数；allowNegative 控制是否允许负数 */
+function normalizePointsNumber(
+  value: unknown,
+  field: string,
+  opts?: { allowNegative?: boolean; maxAbs?: number },
+): number {
+  const n = typeof value === 'number' ? value : Number(value);
+  if (!Number.isFinite(n)) {
+    throw new CrudError(`${field} 必须为数字`, 400);
+  }
+  const rounded = Math.round(n * 100) / 100;
+  const maxAbs = opts?.maxAbs ?? 99999;
+  if (Math.abs(rounded) > maxAbs) {
+    throw new CrudError(`${field} 超出范围`, 400);
+  }
+  if (!opts?.allowNegative && rounded < 0) {
+    throw new CrudError(`${field} 必须为非负数`, 400);
+  }
+  return rounded;
+}
+
 function normalizeOptionalText(
   value: unknown,
   field: string,
@@ -338,7 +359,7 @@ function normalizeWishBoardItemWrite(result: Record<string, unknown>, isCreate: 
   if (isCreate || 'cost_points' in result) {
     try {
       const raw = isCreate && result.cost_points == null ? 0 : result.cost_points;
-      result.cost_points = normalizeNonNegativeInt(raw, 'cost_points');
+      result.cost_points = normalizePointsNumber(raw, 'cost_points', { allowNegative: false });
     } catch {
       throw new CrudError('所需积分无效', 400);
     }
@@ -404,15 +425,12 @@ function normalizeWishBoardItemWrite(result: Record<string, unknown>, isCreate: 
 
 function normalizePointsLedgerWrite(result: Record<string, unknown>, isCreate: boolean): void {
   if (isCreate || 'delta' in result) {
-    const n = typeof result.delta === 'number' ? result.delta : Number(result.delta);
-    // 允许负 delta（*_undo / wish_redeem / points_reset 等扣回）
-    if (!Number.isFinite(n) || !Number.isInteger(n)) {
-      throw new CrudError('delta 必须为整数', 400);
-    }
-    result.delta = n;
+    result.delta = normalizePointsNumber(result.delta, 'delta', { allowNegative: true });
   }
   if (isCreate || 'balance_after' in result) {
-    result.balance_after = normalizeNonNegativeInt(result.balance_after, 'balance_after');
+    result.balance_after = normalizePointsNumber(result.balance_after, 'balance_after', {
+      allowNegative: true,
+    });
   }
   if (isCreate || 'reason' in result) {
     const reason = String(result.reason ?? '').trim();
@@ -433,7 +451,7 @@ function clampEisenhowerPriority(value: unknown): number {
 
 const YMD_RE = /^\d{4}-\d{2}-\d{2}$/;
 
-/** 保留整包 JSON；校验 reward_points(0~99999)；移除历史 completion_reward */
+/** 保留整包 JSON；校验 reward_points（可负可小数，|x|<=99999）；移除历史 completion_reward */
 function normalizeRewardPointsExtraData(extraData: unknown): unknown {
   if (extraData == null || extraData === '') return extraData;
   try {
@@ -457,9 +475,9 @@ function normalizeRewardPointsExtraData(extraData: unknown): unknown {
             ? Number(raw)
             : NaN;
       if (!Number.isFinite(n)) {
-        throw new CrudError('reward_points 必须为 0~99999 的整数', 400);
+        throw new CrudError('reward_points 必须为 -99999~99999 的数字（可含小数）', 400);
       }
-      const clamped = Math.min(99999, Math.max(0, Math.round(n)));
+      const clamped = Math.min(99999, Math.max(-99999, Math.round(n * 100) / 100));
       if (obj.reward_points !== clamped) {
         obj.reward_points = clamped;
         changed = true;

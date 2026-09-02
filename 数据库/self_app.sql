@@ -477,8 +477,8 @@ CREATE TABLE `persona_portrait_cache`  (
 DROP TABLE IF EXISTS `points_ledger`;
 CREATE TABLE `points_ledger`  (
   `id` varchar(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL,
-  `delta` int NOT NULL COMMENT '正数增加、负数扣减',
-  `balance_after` int NOT NULL COMMENT '变动后余额',
+  `delta` decimal(12,2) NOT NULL COMMENT '正数增加、负数扣减',
+  `balance_after` decimal(12,2) NOT NULL COMMENT '变动后余额（可为负）',
   `reason` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL COMMENT '如 wish_redeem / manual_adjust / task_earn',
   `ref_type` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL DEFAULT NULL COMMENT '如 wish_board_item',
   `ref_id` varchar(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL DEFAULT NULL,
@@ -498,7 +498,7 @@ CREATE TABLE `points_ledger`  (
 DROP TABLE IF EXISTS `points_wallet`;
 CREATE TABLE `points_wallet`  (
   `id` varchar(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL COMMENT '固定 default',
-  `balance` int NOT NULL DEFAULT 0 COMMENT '当前可用积分，>=0',
+  `balance` decimal(12,2) NOT NULL DEFAULT 0.00 COMMENT '当前可用积分（可为负）',
   `created_at` datetime(3) NOT NULL,
   `updated_at` datetime(3) NOT NULL,
   `sync_status` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL DEFAULT 'synced',
@@ -815,7 +815,7 @@ CREATE TABLE `wish_board_items`  (
   `id` varchar(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL,
   `title` varchar(80) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL COMMENT '心愿标题',
   `description` varchar(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL DEFAULT NULL COMMENT '描述（可选），对应添加弹层「描述」',
-  `cost_points` int NOT NULL DEFAULT 0 COMMENT '兑换所需积分，>=0',
+  `cost_points` decimal(12,2) NOT NULL DEFAULT 0.00 COMMENT '兑换所需积分，>=0，可含小数',
   `note` varchar(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL DEFAULT NULL COMMENT '备注',
   `icon_key` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL DEFAULT NULL COMMENT '图标 key，如 card-giftcard / movie',
   `wish_type` varchar(16) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL DEFAULT 'once' COMMENT 'once=一次性，repeat=重复性',

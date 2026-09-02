@@ -25,6 +25,12 @@ function nowUtcMysql(): string {
   return formatUtcMySQLDateTime(new Date());
 }
 
+function asPoints(raw: unknown): number {
+  const n = typeof raw === 'number' ? raw : Number(raw);
+  if (!Number.isFinite(n)) return 0;
+  return Math.round(n * 100) / 100;
+}
+
 async function lockOrCreateWallet(conn: PoolConnection): Promise<number> {
   const now = nowUtcMysql();
   await conn.query(
@@ -38,7 +44,7 @@ async function lockOrCreateWallet(conn: PoolConnection): Promise<number> {
     `SELECT balance FROM points_wallet WHERE id = ? FOR UPDATE`,
     [WALLET_ID],
   );
-  return Number(rows[0]?.balance ?? 0);
+  return asPoints(rows[0]?.balance ?? 0);
 }
 
 export interface RedeemResultItem {
@@ -84,9 +90,9 @@ export async function redeemWishBoardItem(wishBoardItemId: string): Promise<Rede
       throw new WishBoardError('该心愿已兑换', 409, { ok: false, error: '该心愿已兑换' });
     }
 
-    const costPoints = Number(wish.cost_points ?? 0);
+    const costPoints = asPoints(wish.cost_points);
     const balance = await lockOrCreateWallet(conn);
-    if (balance < costPoints) {
+    if (costPoints > 0 && balance < costPoints) {
       throw new WishBoardError(
         `积分不足（需要 ${costPoints}，当前 ${balance}）`,
         400,
@@ -282,8 +288,8 @@ export async function listPointsLedgerHistory(params?: {
     }
     return {
       id: String(row.id),
-      delta: Math.floor(Number(row.delta) || 0),
-      balance_after: Math.max(0, Math.floor(Number(row.balance_after) || 0)),
+      delta: asPoints(row.delta),
+      balance_after: asPoints(row.balance_after),
       reason,
       reason_label: pointsLedgerReasonLabel(reason),
       ref_type: row.ref_type == null ? null : String(row.ref_type),
@@ -350,15 +356,15 @@ export async function deletePointsLedgerEntry(ledgerId: string): Promise<DeleteP
       throw new WishBoardError('流水不存在', 404, { ok: false, error: '流水不存在' });
     }
 
-    const delta = Math.floor(Number(row.delta) || 0);
+    const delta = asPoints(row.delta);
     const reason = String(row.reason ?? '');
     const refType = row.ref_type == null ? null : String(row.ref_type);
     const refId = row.ref_id == null ? null : String(row.ref_id);
 
     await conn.query(`DELETE FROM points_ledger WHERE id = ?`, [id]);
 
-    // 回退：去掉该笔 delta 的影响；余额不可为负
-    const newBalance = Math.max(0, balance - delta);
+    // 回退：去掉该笔 delta 的影响；余额允许为负（负奖励扣除场景）
+    const newBalance = asPoints(balance - delta);
     const rollbackDelta = newBalance - balance;
     const now = nowUtcMysql();
 
@@ -428,11 +434,11 @@ export interface AdjustPointsResult {
 
 /** 原子调账：锁钱包 → 改余额 → 写流水 */
 export async function adjustPoints(input: AdjustPointsInput): Promise<AdjustPointsResult> {
-  let delta = input.delta;
-  if (!Number.isFinite(delta) || !Number.isInteger(delta)) {
-    throw new WishBoardError('delta 必须为整数', 400, {
+  let delta = asPoints(input.delta);
+  if (!Number.isFinite(delta)) {
+    throw new WishBoardError('delta 必须为数字', 400, {
       ok: false,
-      error: 'delta 必须为整数',
+      error: 'delta 必须为数字',
     });
   }
 
@@ -470,27 +476,18 @@ export async function adjustPoints(input: AdjustPointsInput): Promise<AdjustPoin
          WHERE ref_type = ? AND ref_id = ?`,
         [refType, refId],
       );
-      const netEarned = Math.max(0, Math.trunc(Number(netRows[0]?.net ?? 0)));
-      const maxUndo = Math.min(netEarned, balance);
+      const netEarned = Math.max(0, asPoints(netRows[0]?.net ?? 0));
+      const maxUndo = netEarned;
       if (maxUndo <= 0) {
         await conn.commit();
         return { ok: true, balance, ledger_id: '', delta: 0 };
       }
       if (Math.abs(delta) > maxUndo) {
-        delta = -maxUndo;
+        delta = asPoints(-maxUndo);
       }
     }
 
-    const newBalance = balance + delta;
-    if (newBalance < 0) {
-      throw new WishBoardError(`积分不足（需要 ${Math.abs(delta)}，当前 ${balance}）`, 400, {
-        ok: false,
-        error: '积分不足',
-        balance,
-        delta,
-        needed: Math.abs(delta),
-      });
-    }
+    const newBalance = asPoints(balance + delta);
 
     const now = nowUtcMysql();
     const ledgerId = newLedgerId();
@@ -555,12 +552,12 @@ export async function resetPoints(): Promise<ResetPointsResult> {
     await conn.beginTransaction();
 
     const balance = await lockOrCreateWallet(conn);
-    if (balance <= 0) {
+    if (balance === 0) {
       await conn.commit();
       return { balance: 0, delta: 0, ledger_id: null };
     }
 
-    const delta = -balance;
+    const delta = asPoints(-balance);
     const now = nowUtcMysql();
     const ledgerId = newLedgerId();
 
@@ -614,7 +611,7 @@ export async function getOrCreateDefaultWallet(): Promise<PointsWalletRecord> {
     const row = existing[0];
     return {
       id: String(row.id),
-      balance: Number(row.balance ?? 0),
+      balance: asPoints(row.balance ?? 0),
       created_at: formatDbDateTimeForApi(row.created_at, 'utc') ?? String(row.created_at),
       updated_at: formatDbDateTimeForApi(row.updated_at, 'utc') ?? String(row.updated_at),
       sync_status: row.sync_status == null ? undefined : String(row.sync_status),
@@ -659,7 +656,7 @@ export async function reconcilePointsWalletFromLedger(): Promise<{ balance: numb
     const [sumRows] = await conn.query<RowDataPacket[]>(
       `SELECT COALESCE(SUM(delta), 0) AS total FROM points_ledger`,
     );
-    const total = Math.max(0, Math.trunc(Number(sumRows[0]?.total ?? 0)));
+    const total = asPoints(sumRows[0]?.total ?? 0);
 
     if (total !== balance) {
       const now = nowUtcMysql();
@@ -739,10 +736,10 @@ function normalizeTitle(raw: unknown): string {
 function normalizeCostPoints(raw: unknown, fallback = 0): number {
   const value = raw == null || raw === '' ? fallback : raw;
   const n = typeof value === 'number' ? value : Number(value);
-  if (!Number.isFinite(n) || !Number.isInteger(n) || n < 0) {
+  if (!Number.isFinite(n) || n < 0) {
     throw new WishBoardError('所需积分无效', 400, { ok: false, error: '所需积分无效' });
   }
-  return n;
+  return Math.round(n * 100) / 100;
 }
 
 function normalizeOptionalText(raw: unknown, field: string, maxChars: number): string | null {
