@@ -850,13 +850,13 @@ async function assertPointsWalletNotStale(
   }
 }
 
-/** 一次性已兑换：禁止改 title / cost_points / wish_type→repeat（同值回写允许，便于多端同步） */
+/** 一次性已兑换：禁止改 title / cost_points / wish_type→repeat / redeem_conditions（同值回写允许） */
 async function assertWishBoardItemMutable(
   id: string,
   data: Record<string, unknown>,
 ): Promise<void> {
   const [rows] = await db.query<RowDataPacket[]>(
-    `SELECT status, wish_type, title, cost_points FROM wish_board_items WHERE id = ? LIMIT 1`,
+    `SELECT status, wish_type, title, cost_points, extra_data FROM wish_board_items WHERE id = ? LIMIT 1`,
     [id],
   );
   const row = rows[0];
@@ -886,6 +886,36 @@ async function assertWishBoardItemMutable(
       throw new CrudError('已兑换的一次性心愿不可改为重复性', 400);
     }
   }
+
+  if (Object.prototype.hasOwnProperty.call(data, 'extra_data')) {
+    const prevConditions = JSON.stringify(
+      parseExtraObjectSafe(row.extra_data).redeem_conditions ?? null,
+    );
+    const nextConditions = JSON.stringify(
+      parseExtraObjectSafe(data.extra_data).redeem_conditions ?? null,
+    );
+    if (prevConditions !== nextConditions) {
+      throw new CrudError('已兑换的心愿不可修改兑换条件', 400);
+    }
+  }
+}
+
+function parseExtraObjectSafe(raw: unknown): Record<string, unknown> {
+  if (raw == null || raw === '') return {};
+  if (typeof raw === 'object' && !Array.isArray(raw)) {
+    return raw as Record<string, unknown>;
+  }
+  if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw) as unknown;
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        return parsed as Record<string, unknown>;
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+  return {};
 }
 
 export async function deleteRecord(tableName: string, pkValue: string) {

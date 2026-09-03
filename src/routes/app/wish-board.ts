@@ -51,6 +51,7 @@ router.post('/wish-board/items', async (req, res, next) => {
       icon_key: body.icon_key,
       wish_type: body.wish_type,
       sort_order: body.sort_order,
+      extra_data: body.extra_data,
     });
     return success(res, item, '????');
   } catch (err) {

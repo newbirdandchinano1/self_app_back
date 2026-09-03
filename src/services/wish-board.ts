@@ -31,6 +31,162 @@ function asPoints(raw: unknown): number {
   return Math.round(n * 100) / 100;
 }
 
+const REDEEM_CONDITIONS_KEY = 'redeem_conditions';
+
+type WishBoardRedeemConditions = {
+  project_ids: string[];
+  task_ids: string[];
+  todo_ids: string[];
+};
+
+function parseExtraObject(raw: unknown): Record<string, unknown> {
+  if (raw == null || raw === '') return {};
+  if (typeof raw === 'object' && !Array.isArray(raw)) {
+    return raw as Record<string, unknown>;
+  }
+  if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw) as unknown;
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        return parsed as Record<string, unknown>;
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+  return {};
+}
+
+function normalizeIdList(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  const out: string[] = [];
+  for (const item of raw) {
+    if (typeof item !== 'string') continue;
+    const trimmed = item.trim();
+    if (trimmed && !out.includes(trimmed)) out.push(trimmed);
+  }
+  return out;
+}
+
+function parseWishBoardRedeemConditions(extraData: unknown): WishBoardRedeemConditions {
+  const base = parseExtraObject(extraData);
+  const raw = base[REDEEM_CONDITIONS_KEY];
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    return { project_ids: [], task_ids: [], todo_ids: [] };
+  }
+  const obj = raw as Record<string, unknown>;
+  return {
+    project_ids: normalizeIdList(obj.project_ids),
+    task_ids: normalizeIdList(obj.task_ids),
+    todo_ids: normalizeIdList(obj.todo_ids),
+  };
+}
+
+function serializeWishBoardExtraData(raw: unknown): string | null {
+  if (raw == null || raw === '') return null;
+  if (typeof raw === 'string') {
+    const trimmed = raw.trim();
+    if (!trimmed) return null;
+    try {
+      JSON.parse(trimmed);
+      return trimmed;
+    } catch {
+      throw new WishBoardError('extra_data 无效', 400, { ok: false, error: 'extra_data 无效' });
+    }
+  }
+  if (typeof raw === 'object') {
+    try {
+      return JSON.stringify(raw);
+    } catch {
+      throw new WishBoardError('extra_data 无效', 400, { ok: false, error: 'extra_data 无效' });
+    }
+  }
+  throw new WishBoardError('extra_data 无效', 400, { ok: false, error: 'extra_data 无效' });
+}
+
+/**
+ * 云端强制：积分之外的绑定项目 / 任务 / 待办须全部完成才可兑换。
+ * 项目：completed | archived；任务与待办：done。缺失绑定目标视为未完成。
+ */
+async function assertWishBoardRedeemConditionsMet(
+  conn: PoolConnection,
+  extraData: unknown,
+): Promise<void> {
+  const conditions = parseWishBoardRedeemConditions(extraData);
+  const pendingTitles: string[] = [];
+  const pendingDetails: Array<{
+    kind: 'project' | 'task' | 'todo';
+    id: string;
+    title: string;
+    missing: boolean;
+  }> = [];
+
+  if (conditions.project_ids.length > 0) {
+    const placeholders = conditions.project_ids.map(() => '?').join(', ');
+    const [rows] = await conn.query<RowDataPacket[]>(
+      `SELECT id, name, status FROM projects WHERE id IN (${placeholders})`,
+      conditions.project_ids,
+    );
+    const byId = new Map(rows.map((r) => [String(r.id), r]));
+    for (const projectId of conditions.project_ids) {
+      const row = byId.get(projectId);
+      const done =
+        row != null && (row.status === 'completed' || row.status === 'archived');
+      if (!done) {
+        const title = row?.name != null ? String(row.name).trim() || '未知项目' : '已删除的项目';
+        pendingTitles.push(title);
+        pendingDetails.push({
+          kind: 'project',
+          id: projectId,
+          title,
+          missing: !row,
+        });
+      }
+    }
+  }
+
+  const taskLike: Array<{ kind: 'task' | 'todo'; id: string }> = [
+    ...conditions.task_ids.map((id) => ({ kind: 'task' as const, id })),
+    ...conditions.todo_ids.map((id) => ({ kind: 'todo' as const, id })),
+  ];
+  if (taskLike.length > 0) {
+    const uniqueIds = [...new Set(taskLike.map((t) => t.id))];
+    const placeholders = uniqueIds.map(() => '?').join(', ');
+    const [rows] = await conn.query<RowDataPacket[]>(
+      `SELECT id, title, status FROM tasks WHERE id IN (${placeholders})`,
+      uniqueIds,
+    );
+    const byId = new Map(rows.map((r) => [String(r.id), r]));
+    for (const item of taskLike) {
+      const row = byId.get(item.id);
+      const done = row != null && row.status === 'done';
+      if (!done) {
+        const fallback = item.kind === 'todo' ? '已删除的待办' : '已删除的任务';
+        const unknown = item.kind === 'todo' ? '未知待办' : '未知任务';
+        const title =
+          row?.title != null ? String(row.title).trim() || unknown : fallback;
+        pendingTitles.push(title);
+        pendingDetails.push({
+          kind: item.kind,
+          id: item.id,
+          title,
+          missing: !row,
+        });
+      }
+    }
+  }
+
+  if (pendingDetails.length === 0) return;
+
+  const names = pendingTitles.slice(0, 3).map((t) => `「${t}」`);
+  const more = pendingTitles.length > 3 ? ` 等 ${pendingTitles.length} 项` : '';
+  throw new WishBoardError(`尚有绑定项未完成：${names.join('、')}${more}`, 400, {
+    ok: false,
+    error: '兑换条件未满足',
+    pending: pendingDetails,
+  });
+}
+
 async function lockOrCreateWallet(conn: PoolConnection): Promise<number> {
   const now = nowUtcMysql();
   await conn.query(
@@ -75,7 +231,7 @@ export async function redeemWishBoardItem(wishBoardItemId: string): Promise<Rede
     await conn.beginTransaction();
 
     const [wishRows] = await conn.query<RowDataPacket[]>(
-      `SELECT id, cost_points, status, wish_type FROM wish_board_items WHERE id = ? FOR UPDATE`,
+      `SELECT id, cost_points, status, wish_type, extra_data FROM wish_board_items WHERE id = ? FOR UPDATE`,
       [id],
     );
     const wish = wishRows[0];
@@ -89,6 +245,9 @@ export async function redeemWishBoardItem(wishBoardItemId: string): Promise<Rede
     if (wishType === 'once' && wish.status === 'redeemed') {
       throw new WishBoardError('该心愿已兑换', 409, { ok: false, error: '该心愿已兑换' });
     }
+
+    // 绑定项目 / 任务 / 待办完成情况（与 APP 本地规则一致）
+    await assertWishBoardRedeemConditionsMet(conn, wish.extra_data);
 
     const costPoints = asPoints(wish.cost_points);
     const balance = await lockOrCreateWallet(conn);
@@ -704,6 +863,8 @@ export interface CreateWishBoardItemInput {
   icon_key?: string | null;
   wish_type?: string | null;
   sort_order?: number | null;
+  /** 含 redeem_conditions 等扩展字段 */
+  extra_data?: unknown;
 }
 
 export interface RedeemedWishRecord {
@@ -821,14 +982,30 @@ export async function createWishBoardItem(
     throw new WishBoardError('id 最多 36 字', 400, { ok: false, error: 'id 最多 36 字' });
   }
 
+  const extraData = serializeWishBoardExtraData(
+    Object.prototype.hasOwnProperty.call(input, 'extra_data') ? input.extra_data : null,
+  );
+
   const now = nowUtcMysql();
   try {
     await db.query(
       `INSERT INTO wish_board_items
         (id, title, description, cost_points, note, icon_key, wish_type, status,
-         redeemed_at, sort_order, created_at, updated_at, sync_status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'active', NULL, ?, ?, ?, 'synced')`,
-      [id, title, description, costPoints, note, iconKey, wishTypeRaw, sortOrder, now, now],
+         redeemed_at, sort_order, created_at, updated_at, sync_status, extra_data)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'active', NULL, ?, ?, ?, 'synced', ?)`,
+      [
+        id,
+        title,
+        description,
+        costPoints,
+        note,
+        iconKey,
+        wishTypeRaw,
+        sortOrder,
+        now,
+        now,
+        extraData,
+      ],
     );
   } catch (err) {
     if ((err as { code?: string }).code === 'ER_DUP_ENTRY') {
