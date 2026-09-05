@@ -65,9 +65,25 @@ pipeline {
         stage('3. docker compose 部署') {
             steps {
                 echo '👉 本机 docker compose 构建并启动...'
-                dir("${DEPLOY_DIR}") {
-                    sh 'docker compose up -d --build'
-                }
+                // Jenkins 容器常有 docker CLI、无 compose 插件：自动降级到 docker:cli 镜像执行
+                sh '''
+                set -e
+                cd "$DEPLOY_DIR"
+
+                if docker compose version >/dev/null 2>&1; then
+                  docker compose up -d --build
+                elif command -v docker-compose >/dev/null 2>&1; then
+                  docker-compose up -d --build
+                else
+                  echo "未检测到 compose，改用 docker:cli 镜像执行 compose..."
+                  docker run --rm \
+                    -v /var/run/docker.sock:/var/run/docker.sock \
+                    -v "$DEPLOY_DIR:$DEPLOY_DIR" \
+                    -w "$DEPLOY_DIR" \
+                    docker:27-cli \
+                    compose up -d --build
+                fi
+                '''
             }
         }
 
