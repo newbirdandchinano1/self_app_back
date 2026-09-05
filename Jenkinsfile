@@ -1,45 +1,48 @@
 pipeline {
     agent any
+
+    // GitHub Webhook 触发（仓库在 GitHub，不是 Gitee）
+    // Jenkins Job 还需勾选：Build Triggers → GitHub hook trigger for GITScm polling
+    // GitHub 仓库 Settings → Webhooks → Payload URL: http://<Jenkins地址>/github-webhook/
     triggers {
-        // 如果想改成每 2 分钟检查一次，可以换成 'H/2 * * * *'
-        pollSCM('H/3 * * * *')
+        githubPush()
     }
+
     environment {
-        // 远程服务器凭据ID
-        SERVER_CREDENTIAL_ID = 'yun-server'
-        SERVER_IP = '1.14.76.59'
-        
-        // 远程部署的目标目录
-        DEPLOY_DIR = '/opt/self_app'
+        // 部署机 SSH 凭据 ID（与拉代码共用 github-token）
+        SERVER_CREDENTIAL_ID = 'github-token'
+        SERVER_IP = '124.223.161.79'
+        DEPLOY_DIR = '/root/self_app_back'
     }
 
     stages {
         stage('1. 拉取源码') {
             steps {
-                echo '👉 开始从 Gitee 仓库拉取最新代码...'
-                deleteDir()
-                git(
-                    branch: 'master', 
-                    url: 'https://gitee.com/zhen1594834072/self_app_back.git',
-                    credentialsId: 'gitee-auth'
-                )
+                echo '👉 拉取 GitHub 最新代码...'
+                // Job 请使用「Pipeline script from SCM」，指向本仓库 master
+                // SCM 凭据 ID 填：github-token
+                checkout scm
             }
         }
 
-        stage('2. 打包源码并传输到远程') {
+        stage('2. 打包并上传到部署机') {
             steps {
-                echo '👉 压缩所有源码文件并上传到远程服务器...'
+                echo '👉 打包源码并 SCP 到远程...'
                 sh '''
-                # 1. 把压缩包生成在系统的 /tmp 临时目录下，彻底避免套娃冲突
-                tar --exclude='.git' -czf /tmp/source.tar.gz .
-                
-                # 2. 打包完成后，把压缩包移动回当前目录，供后面的 scp 命令传输
+                tar --exclude='.git' \
+                    --exclude='node_modules' \
+                    --exclude='dist' \
+                    --exclude='source.tar.gz' \
+                    -czf /tmp/source.tar.gz .
                 mv /tmp/source.tar.gz .
                 '''
-                
-                withCredentials([usernamePassword(credentialsId: "${SERVER_CREDENTIAL_ID}", usernameVariable: 'USER', passwordVariable: 'SERVER_PASS')]) {
+
+                withCredentials([usernamePassword(
+                    credentialsId: "${SERVER_CREDENTIAL_ID}",
+                    usernameVariable: 'USER',
+                    passwordVariable: 'SERVER_PASS'
+                )]) {
                     sh '''
-                    # 确保远程目录存在，然后传过去
                     sshpass -p "$SERVER_PASS" ssh -o StrictHostKeyChecking=no "$USER"@"$SERVER_IP" "mkdir -p $DEPLOY_DIR"
                     sshpass -p "$SERVER_PASS" scp -o StrictHostKeyChecking=no source.tar.gz "$USER"@"$SERVER_IP":"$DEPLOY_DIR"/
                     '''
@@ -47,42 +50,71 @@ pipeline {
             }
         }
 
-        stage('3. 远程构建镜像并启动') {
+        stage('3. 远程 docker compose 部署') {
             steps {
-                echo '👉 远程服务器解压源码，并使用 docker-compose 构建并启动服务...'
-                withCredentials([usernamePassword(credentialsId: "${SERVER_CREDENTIAL_ID}", usernameVariable: 'USER', passwordVariable: 'SERVER_PASS')]) {
+                echo '👉 远程解压并用 docker compose 构建启动...'
+                withCredentials([usernamePassword(
+                    credentialsId: "${SERVER_CREDENTIAL_ID}",
+                    usernameVariable: 'USER',
+                    passwordVariable: 'SERVER_PASS'
+                )]) {
                     sh '''
                     sshpass -p "$SERVER_PASS" ssh -o StrictHostKeyChecking=no "$USER"@"$SERVER_IP" "
-                        cd $DEPLOY_DIR && \\
-                        
-                        # 1. 解压源码
-                        tar -xzf source.tar.gz && \\
-                        
-                        # 2. 停止并强制清理可能遗留的同名旧容器
-                        docker compose down || true && \\
-                        docker rm -f my_mysql || true && \\
-                        docker rm -f my_node_app || true && \\
-                        
-                        # 3. 重新构建镜像并后台启动容器
-                        docker compose up -d --build && \\
-                        
-                        # 4. 搞定后，清理掉源码压缩包，保持服务器干净
+                        set -e
+                        cd $DEPLOY_DIR
+
+                        # 若服务器上已有 .env，解压时先备份，避免被覆盖
+                        if [ -f .env ]; then cp .env .env.bak; fi
+
+                        tar -xzf source.tar.gz
+
+                        if [ -f .env.bak ]; then mv .env.bak .env; fi
+
+                        docker compose up -d --build
+
                         rm -f source.tar.gz
                     "
                     '''
                 }
-                echo '🎉 全自动 Docker 部署彻底完成！'
+            }
+        }
+
+        stage('4. 健康检查') {
+            steps {
+                echo '👉 检查 node-app 是否就绪...'
+                withCredentials([usernamePassword(
+                    credentialsId: "${SERVER_CREDENTIAL_ID}",
+                    usernameVariable: 'USER',
+                    passwordVariable: 'SERVER_PASS'
+                )]) {
+                    sh '''
+                    sshpass -p "$SERVER_PASS" ssh -o StrictHostKeyChecking=no "$USER"@"$SERVER_IP" "
+                        for i in 1 2 3 4 5 6 7 8 9 10; do
+                          if docker exec my_node_app wget -qO- http://127.0.0.1:3000/ >/dev/null 2>&1 \\
+                             || curl -fsS http://127.0.0.1:3000/ >/dev/null 2>&1; then
+                            echo '健康检查通过'
+                            exit 0
+                          fi
+                          echo \"等待服务启动... (\$i/10)\"
+                          sleep 6
+                        done
+                        echo '健康检查失败，最近日志：'
+                        docker logs --tail 80 my_node_app || true
+                        exit 1
+                    "
+                    '''
+                }
+                echo '🎉 部署完成'
             }
         }
     }
 
     post {
         always {
-            echo '清理 Jenkins 本地产生的临时压缩包...'
             sh 'rm -f source.tar.gz || true'
         }
         failure {
-            echo '❌ 流水线执行失败！请检查日志。'
+            echo '❌ 流水线失败，请查看日志'
         }
     }
 }

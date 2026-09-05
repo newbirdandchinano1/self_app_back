@@ -345,12 +345,49 @@ const POINTS_LEDGER_REASON_LABELS: Record<string, string> = {
   wish_redeem: '兑换心愿',
   points_reset: '重置积分',
   manual_adjust: '手动调整',
+  break_habit_penalty: '破戒扣分',
+  break_habit_penalty_undo: '撤销破戒扣分',
+  break_habit_clean: '未破戒加分',
+  break_habit_clean_undo: '撤销未破戒加分',
+  break_habit_goal: '戒除目标达成',
+  break_habit_goal_undo: '撤销戒除目标',
+  health_metric_complete: '健康指标达标',
+  health_metric_complete_undo: '撤销健康指标达标',
+  health_metric_over_penalty: '热量超额扣分',
+  health_metric_over_penalty_undo: '撤销热量超额扣分',
+};
+
+const HEALTH_METRIC_NAME_ZH: Record<string, string> = {
+  hydration: '水分',
+  protein: '蛋白质',
+  carbohydrate: '碳水',
+  calories: '热量',
 };
 
 export function pointsLedgerReasonLabel(reason: string): string {
   const key = String(reason ?? '').trim();
   if (!key) return '积分变动';
-  return POINTS_LEDGER_REASON_LABELS[key] ?? key;
+  if (POINTS_LEDGER_REASON_LABELS[key]) return POINTS_LEDGER_REASON_LABELS[key];
+  if (key.endsWith('_undo')) {
+    const base = key.slice(0, -'_undo'.length);
+    const baseLabel = POINTS_LEDGER_REASON_LABELS[base];
+    if (baseLabel) return `撤销${baseLabel}`;
+  }
+  return key;
+}
+
+/** 健康指标流水 ref_id：`YYYY-MM-DD:metric` → 可读标题 */
+function healthMetricRefTitle(refType: unknown, refId: unknown): string | null {
+  if (String(refType ?? '').trim() !== 'health_metric') return null;
+  const raw = String(refId ?? '').trim();
+  if (!raw) return null;
+  const colon = raw.lastIndexOf(':');
+  if (colon <= 0 || colon >= raw.length - 1) return raw;
+  const ymd = raw.slice(0, colon).trim();
+  const metric = raw.slice(colon + 1).trim();
+  const metricZh = HEALTH_METRIC_NAME_ZH[metric] ?? metric;
+  if (!ymd) return metricZh;
+  return `${ymd} · ${metricZh}`;
 }
 
 export type PointsLedgerHistoryItem = {
@@ -453,9 +490,14 @@ export async function listPointsLedgerHistory(params?: {
       reason_label: pointsLedgerReasonLabel(reason),
       ref_type: row.ref_type == null ? null : String(row.ref_type),
       ref_id: row.ref_id == null ? null : String(row.ref_id),
-      ref_title: row.ref_title == null || String(row.ref_title).trim() === ''
-        ? null
-        : String(row.ref_title).trim(),
+      ref_title: (() => {
+        const joined =
+          row.ref_title == null || String(row.ref_title).trim() === ''
+            ? null
+            : String(row.ref_title).trim();
+        if (joined) return joined;
+        return healthMetricRefTitle(row.ref_type, row.ref_id);
+      })(),
       note,
       created_at: formatDbDateTimeForApi(row.created_at, 'utc') ?? String(row.created_at),
     };
