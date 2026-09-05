@@ -1,27 +1,43 @@
 pipeline {
     agent any
 
-    // GitHub Webhook 触发（仓库在 GitHub，不是 Gitee）
+    // GitHub Webhook 触发（推送仍走 GitHub；拉代码走国内镜像）
     // Jenkins Job 还需勾选：Build Triggers → GitHub hook trigger for GITScm polling
-    // GitHub 仓库 Settings → Webhooks → Payload URL: http://<Jenkins地址>/github-webhook/
+    // 【重要】Job → Pipeline → SCM 的 Repository URL 也必须改成下面的镜像地址，
+    // 否则读取 Jenkinsfile 时仍会直连 GitHub 失败。
     triggers {
         githubPush()
     }
 
     environment {
-        // 部署机 SSH 凭据 ID（与拉代码共用 github-token）
         SERVER_CREDENTIAL_ID = 'github-token'
         SERVER_IP = '124.223.161.79'
         DEPLOY_DIR = '/root/self_app_back'
+        // 国内 GitHub 镜像（前缀代理）。失效可换：
+        // https://gh-proxy.com/https://github.com/newbirdandchinano1/self_app_back.git
+        // https://gitclone.com/github.com/newbirdandchinano1/self_app_back.git
+        GIT_REPO_URL = 'https://ghproxy.net/https://github.com/newbirdandchinano1/self_app_back.git'
     }
 
     stages {
         stage('1. 拉取源码') {
             steps {
-                echo '👉 拉取 GitHub 最新代码...'
-                // Job 请使用「Pipeline script from SCM」，指向本仓库 master
-                // SCM 凭据 ID 填：github-token
-                checkout scm
+                echo "👉 经国内镜像拉取代码: ${GIT_REPO_URL}"
+                checkout([
+                    $class: 'GitSCM',
+                    branches: [[name: '*/master']],
+                    extensions: [[
+                        $class: 'CloneOption',
+                        shallow: true,
+                        depth: 1,
+                        noTags: true,
+                        timeout: 20
+                    ]],
+                    userRemoteConfigs: [[
+                        credentialsId: 'github-token',
+                        url: "${GIT_REPO_URL}"
+                    ]]
+                ])
             }
         }
 
