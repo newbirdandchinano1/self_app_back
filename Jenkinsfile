@@ -10,7 +10,9 @@ pipeline {
     }
 
     environment {
+        // 部署机 SSH：凭据 ID 为 github-token（密码填服务器 SSH 密码）；登录用户固定 root
         SERVER_CREDENTIAL_ID = 'github-token'
+        SERVER_USER = 'root'
         SERVER_IP = '124.223.161.79'
         DEPLOY_DIR = '/root/self_app_back'
         // 国内 GitHub 镜像（前缀代理）。失效可换：
@@ -59,8 +61,8 @@ pipeline {
                     passwordVariable: 'SERVER_PASS'
                 )]) {
                     sh '''
-                    sshpass -p "$SERVER_PASS" ssh -o StrictHostKeyChecking=no "$USER"@"$SERVER_IP" "mkdir -p $DEPLOY_DIR"
-                    sshpass -p "$SERVER_PASS" scp -o StrictHostKeyChecking=no source.tar.gz "$USER"@"$SERVER_IP":"$DEPLOY_DIR"/
+                    sshpass -p "$SERVER_PASS" ssh -o StrictHostKeyChecking=no "$SERVER_USER"@"$SERVER_IP" "mkdir -p $DEPLOY_DIR"
+                    sshpass -p "$SERVER_PASS" scp -o StrictHostKeyChecking=no source.tar.gz "$SERVER_USER"@"$SERVER_IP":"$DEPLOY_DIR"/
                     '''
                 }
             }
@@ -75,7 +77,7 @@ pipeline {
                     passwordVariable: 'SERVER_PASS'
                 )]) {
                     sh '''
-                    sshpass -p "$SERVER_PASS" ssh -o StrictHostKeyChecking=no "$USER"@"$SERVER_IP" "
+                    sshpass -p "$SERVER_PASS" ssh -o StrictHostKeyChecking=no "$SERVER_USER"@"$SERVER_IP" "
                         set -e
                         cd $DEPLOY_DIR
 
@@ -104,7 +106,7 @@ pipeline {
                     passwordVariable: 'SERVER_PASS'
                 )]) {
                     sh '''
-                    sshpass -p "$SERVER_PASS" ssh -o StrictHostKeyChecking=no "$USER"@"$SERVER_IP" "
+                    sshpass -p "$SERVER_PASS" ssh -o StrictHostKeyChecking=no "$SERVER_USER"@"$SERVER_IP" "
                         for i in 1 2 3 4 5 6 7 8 9 10; do
                           if docker exec my_node_app wget -qO- http://127.0.0.1:3000/ >/dev/null 2>&1 \\
                              || curl -fsS http://127.0.0.1:3000/ >/dev/null 2>&1; then
