@@ -1,5 +1,9 @@
 # Jenkins 自身部署编排（与仓库根目录业务 docker-compose.yml 无关，请勿混用）
 # 若服务器上已有 Jenkins compose：只需把 image 改成 my-jenkins:lts，并保留原有 volume/端口/环境变量/网络。
+#
+# 关键点：业务部署目录必须用宿主机 bind mount，不能写在 jenkins_home named volume 里。
+# 原因：docker run -v /path:/path 挂载的是宿主机路径；named volume 内的文件对宿主机
+# /var/jenkins_home/... 不可见，会导致 compose 报 no configuration file provided。
 services:
   jenkins:
     image: my-jenkins:lts
@@ -13,6 +17,8 @@ services:
       - jenkins_home:/var/jenkins_home
       # 使用宿主机 Docker（Socket），不需要 privileged
       - /var/run/docker.sock:/var/run/docker.sock
+      # 业务部署目录：Jenkins 容器与宿主机 Docker 看到同一路径
+      - /opt/self_app_back:/opt/self_app_back
 
 volumes:
   jenkins_home:
