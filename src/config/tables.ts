@@ -27,6 +27,8 @@ export const ALLOWED_TABLES = [
   'points_ledger',
   'points_wallet',
   'project_categories',
+  'project_tag_links',
+  'project_tags',
   'projects',
   'recipe_categories',
   'recipe_items',
@@ -57,6 +59,8 @@ export const TABLE_PRIMARY_KEYS: Partial<Record<AllowedTable, string>> = {
 export const CLIENT_ID_TABLES: readonly AllowedTable[] = [
   'points_ledger',
   'project_categories',
+  'project_tag_links',
+  'project_tags',
   'projects',
   'task_categories',
   'wish_board_items',
@@ -80,6 +84,10 @@ export const TABLE_FOREIGN_KEYS: Partial<
   projects: {
     category_id: 'project_categories',
   },
+  project_tag_links: {
+    project_id: 'projects',
+    tag_id: 'project_tags',
+  },
   task_items: {
     task_id: 'tasks',
   },
@@ -96,6 +104,7 @@ export const TABLE_SYNC_DEPENDS_ON: Partial<Record<AllowedTable, AllowedTable[]>
   tasks: ['task_categories', 'project_categories', 'projects'],
   task_items: ['tasks'],
   projects: ['project_categories'],
+  project_tag_links: ['projects', 'project_tags'],
   memos: ['memo_dimensions'],
   recipe_items: ['recipe_categories'],
 };

@@ -29,6 +29,8 @@ export const TABLE_LABELS: Record<AllowedTable, string> = {
   points_ledger: '积分流水',
   points_wallet: '积分钱包',
   project_categories: '项目分类',
+  project_tag_links: '项目标签关联',
+  project_tags: '项目标签',
   projects: '项目',
   recipe_categories: '食谱分类',
   recipe_items: '食谱',
@@ -78,6 +80,7 @@ export const COLUMN_LABELS: Record<string, string> = {
   account_no: '账号编号',
   account_type: '账户类型',
   parent_id: '父级ID',
+  tag_id: '标签ID',
   project_id: '项目ID',
   task_id: '任务ID',
   habit_id: '习惯ID',
@@ -235,6 +238,14 @@ export const TABLE_COLUMN_LABELS: Partial<
   projects: {
     category_id: '项目分类ID',
     status: '状态（进行中/已完成/已归档）',
+  },
+  project_tags: {
+    weight: '权重',
+    color: '颜色',
+  },
+  project_tag_links: {
+    tag_id: '标签ID',
+    project_id: '项目ID',
   },
   memo_dimensions: {
     title: '名称（同 App name）',

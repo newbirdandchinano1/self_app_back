@@ -42,6 +42,8 @@ export const ADMIN_MODULES: readonly AdminModuleDef[] = [
       'task_execution_events',
       'project_categories',
       'projects',
+      'project_tags',
+      'project_tag_links',
       'frog_completion_events',
       'habits',
       'habit_contexts',
