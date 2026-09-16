@@ -9,8 +9,8 @@ pipeline {
     }
 
     environment {
-        // Jenkins 与业务跑在同一台机器，直接本机部署
-        DEPLOY_DIR = '/root/self_app_back'
+        // Jenkins 与业务跑在同一台机器；部署到 jenkins 用户家目录（有写权限）
+        DEPLOY_DIR = '/var/jenkins_home/self_app_back'
         // 国内 GitHub 镜像。失效可换：
         // https://gh-proxy.com/https://github.com/newbirdandchinano1/self_app_back.git
         // https://gitclone.com/github.com/newbirdandchinano1/self_app_back.git
