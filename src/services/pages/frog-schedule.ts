@@ -20,6 +20,13 @@ type AxisRow = {
   updatedAt?: string;
 };
 
+function snapHourMinutes(n: number, allow24: boolean): number {
+  const max = allow24 ? 24 * 60 : 23 * 60;
+  const clamped = Math.min(max, Math.max(0, Math.round(n)));
+  if (allow24 && clamped >= 24 * 60) return 24 * 60;
+  return Math.floor(clamped / 60) * 60;
+}
+
 function parseAxisJson(raw: unknown): AxisRow {
   const defaults = { startMinutes: 8 * 60, endMinutes: 22 * 60, slotHours: 2 };
   if (raw == null) return defaults;
@@ -29,8 +36,12 @@ function parseAxisJson(raw: unknown): AxisRow {
     const endMinutes = Number(o.endMinutes ?? defaults.endMinutes);
     const slotHours = Number(o.slotHours ?? defaults.slotHours);
     return {
-      startMinutes: Number.isFinite(startMinutes) ? startMinutes : defaults.startMinutes,
-      endMinutes: Number.isFinite(endMinutes) ? endMinutes : defaults.endMinutes,
+      startMinutes: Number.isFinite(startMinutes)
+        ? snapHourMinutes(startMinutes, false)
+        : defaults.startMinutes,
+      endMinutes: Number.isFinite(endMinutes)
+        ? snapHourMinutes(endMinutes, true)
+        : defaults.endMinutes,
       slotHours: slotHours === 1 || slotHours === 2 || slotHours === 3 || slotHours === 4 ? slotHours : 2,
       updatedAt: typeof o.updatedAt === 'string' ? o.updatedAt : undefined,
     };
@@ -144,14 +155,18 @@ export async function saveFrogScheduleAxis(body: {
   slotHours: number;
   updatedAt?: string;
 }) {
-  const startMinutes = Math.round(Number(body.startMinutes));
-  const endMinutes = Math.round(Number(body.endMinutes));
+  const snapHour = (n: number, allow24: boolean) => snapHourMinutes(Number(n), allow24);
+  const startMinutes = snapHour(body.startMinutes, false);
+  const endMinutes = snapHour(body.endMinutes, true);
   const slotHours = Number(body.slotHours);
   if (![1, 2, 3, 4].includes(slotHours)) {
     throw new FrogScheduleError('格宽仅允许 1–4 小时');
   }
   if (!(endMinutes > startMinutes)) {
     throw new FrogScheduleError('日结束时间必须晚于日开始时间');
+  }
+  if (endMinutes - startMinutes < slotHours * 60) {
+    throw new FrogScheduleError(`日时间范围至少需要容纳 1 个 ${slotHours} 小时格子`);
   }
   const payload = JSON.stringify({
     startMinutes,
