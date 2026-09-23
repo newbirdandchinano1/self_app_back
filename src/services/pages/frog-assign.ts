@@ -96,8 +96,10 @@ export type FrogAssignResult = {
 };
 
 async function loadTaskRow(id: string): Promise<RowDataPacket | null> {
+  const meta = await getTableMeta('tasks');
+  const frogSelect = meta.columns.includes('frog_assigned_on') ? ', frog_assigned_on' : '';
   const [rows] = await db.query<RowDataPacket[]>(
-    `SELECT id, project_id, parent_task_id, title, description, note, status, priority, due_date, extra_data, frog_assigned_on
+    `SELECT id, project_id, parent_task_id, title, description, note, status, priority, due_date, extra_data${frogSelect}
      FROM tasks WHERE id = ? LIMIT 1`,
     [id],
   );
@@ -105,8 +107,10 @@ async function loadTaskRow(id: string): Promise<RowDataPacket | null> {
 }
 
 async function loadProjectRow(id: string): Promise<RowDataPacket | null> {
+  const meta = await getTableMeta('projects');
+  const frogSelect = meta.columns.includes('frog_assigned_on') ? ', frog_assigned_on' : '';
   const [rows] = await db.query<RowDataPacket[]>(
-    `SELECT id, category_id, name, status, priority, note, due_date, extra_data, frog_assigned_on
+    `SELECT id, category_id, name, status, priority, note, due_date, extra_data${frogSelect}
      FROM projects WHERE id = ? LIMIT 1`,
     [id],
   );

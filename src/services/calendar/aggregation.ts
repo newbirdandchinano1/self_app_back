@@ -827,7 +827,8 @@ function isSubHabitCheckedOnDay(checkIns: unknown, subId: string, ymd: string): 
   return false;
 }
 
-/** 子习惯未全完成时父习惯不得显示完成；未启用子习惯时返回 null */
+/** 子习惯未全完成时父习惯不得显示完成；未启用子习惯时返回 null。
+ * 戒除：任一项已勾选（破戒）→ false；全无破戒 → null（由打卡记录决定是否守住）。 */
 export function areSubHabitsCompleteForDay(extraData: string | null, logicalYmd: string): boolean | null {
   const extra = parseExtraObject(extraData);
   if (extra.subHabitsEnabled !== true && extra.subHabitsEnabled !== 1 && extra.subHabitsEnabled !== 'true') {
@@ -835,6 +836,11 @@ export function areSubHabitsCompleteForDay(extraData: string | null, logicalYmd:
   }
   const ids = parseSubHabitIds(extraData);
   if (ids.length === 0) return null;
+  const kind = parseHabitKind(extraData);
+  if (kind === 'break') {
+    const anyBroken = ids.some((id) => isSubHabitCheckedOnDay(extra.subHabitCheckIns, id, logicalYmd));
+    return anyBroken ? false : null;
+  }
   return ids.every((id) => isSubHabitCheckedOnDay(extra.subHabitCheckIns, id, logicalYmd));
 }
 

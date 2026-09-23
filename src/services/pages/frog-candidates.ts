@@ -2,6 +2,7 @@ import type { RowDataPacket } from 'mysql2';
 import { db } from '../../db/index.js';
 import { isValidYmd } from '../../utils/ymd.js';
 import { collectFrogAssignedDates } from '../calendar/aggregation.js';
+import { getTableMeta } from '../crud.js';
 import {
   resolveTasksBootstrapContext,
   TASKS_PAGE_FILTERS_VERSION,
@@ -85,9 +86,21 @@ export async function getFrogCandidates(
     throw new FrogAssignError('assignYmd 必须为 YYYY-MM-DD');
   }
 
+  // 列可能尚未迁移：与 today-frogs / frog-assign 一致，按表元数据条件选取
+  const [taskMeta, projectMeta] = await Promise.all([
+    getTableMeta('tasks'),
+    getTableMeta('projects'),
+  ]);
+  const taskFrogSelect = taskMeta.columns.includes('frog_assigned_on')
+    ? ', t.frog_assigned_on'
+    : '';
+  const projectFrogSelect = projectMeta.columns.includes('frog_assigned_on')
+    ? ', frog_assigned_on'
+    : '';
+
   const [taskRows] = await db.query<RowDataPacket[]>(
     `SELECT t.id, t.project_id, t.parent_task_id, t.title, t.description, t.note,
-            t.status, t.priority, t.due_date, t.extra_data, t.frog_assigned_on,
+            t.status, t.priority, t.due_date, t.extra_data${taskFrogSelect},
             p.name AS project_name
      FROM tasks t
      LEFT JOIN projects p ON p.id = t.project_id
@@ -97,7 +110,7 @@ export async function getFrogCandidates(
   );
 
   const [projectRows] = await db.query<RowDataPacket[]>(
-    `SELECT id, category_id, name, status, priority, note, due_date, extra_data, frog_assigned_on
+    `SELECT id, category_id, name, status, priority, note, due_date, extra_data${projectFrogSelect}
      FROM projects
      WHERE status = 'active'
      ORDER BY priority DESC, updated_at DESC
