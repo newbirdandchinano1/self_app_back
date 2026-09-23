@@ -290,9 +290,6 @@ async function normalizeWriteData(
     result.persona_portrait = normalizePersonaPortrait(result.persona_portrait);
   }
 
-  if (table === 'wish_board_items') {
-    normalizeWishBoardItemWrite(result, isCreate);
-  }
 
   if (table === 'points_wallet' && 'balance' in result) {
     result.balance = normalizePointsNumber(result.balance, 'balance', { allowNegative: true });
@@ -367,80 +364,6 @@ function normalizeOptionalText(
   return text;
 }
 
-function normalizeWishBoardItemWrite(result: Record<string, unknown>, isCreate: boolean): void {
-  if (isCreate || 'title' in result) {
-    const title = String(result.title ?? '').trim();
-    if (!title) throw new CrudError('心愿名称无效', 400);
-    if ([...title].length > 80) throw new CrudError('心愿名称无效', 400);
-    result.title = title;
-  }
-
-  if (isCreate || 'cost_points' in result) {
-    try {
-      const raw = isCreate && result.cost_points == null ? 0 : result.cost_points;
-      result.cost_points = normalizePointsNumber(raw, 'cost_points', { allowNegative: false });
-    } catch {
-      throw new CrudError('所需积分无效', 400);
-    }
-  }
-
-  if ('description' in result) {
-    try {
-      result.description = normalizeOptionalText(result.description, 'description', 500);
-    } catch {
-      throw new CrudError('描述最多 500 字', 400);
-    }
-  }
-
-  if ('note' in result) {
-    try {
-      result.note = normalizeOptionalText(result.note, 'note', 500);
-    } catch {
-      throw new CrudError('描述最多 500 字', 400);
-    }
-  }
-
-  // 创建时 description / note 互相同步（客户端通常双写；缺一则对齐）
-  if (isCreate) {
-    if (result.description == null && result.note != null) {
-      result.description = result.note;
-    } else if (result.note == null && result.description != null) {
-      result.note = result.description;
-    }
-  }
-
-  if (isCreate || 'icon_key' in result) {
-    const raw = result.icon_key == null ? '' : String(result.icon_key).trim();
-    const iconKey = raw || 'card-giftcard';
-    if (iconKey.length > 64) throw new CrudError('icon_key 最多 64 字', 400);
-    result.icon_key = iconKey;
-  }
-
-  if (isCreate || 'wish_type' in result) {
-    const wishType = String(result.wish_type ?? (isCreate ? 'once' : '')).trim();
-    if (wishType !== 'once' && wishType !== 'repeat') {
-      throw new CrudError('心愿类型无效', 400);
-    }
-    result.wish_type = wishType;
-  }
-
-  // 同步可上传已兑换行：保留客户端 status / redeemed_at（勿强制 active）
-  if (isCreate || 'status' in result) {
-    const status = String(result.status ?? (isCreate ? 'active' : '')).trim();
-    if (status !== 'active' && status !== 'redeemed') {
-      throw new CrudError('status 仅支持 active / redeemed', 400);
-    }
-    result.status = status;
-  }
-
-  if (isCreate && !('redeemed_at' in result)) {
-    result.redeemed_at = null;
-  }
-
-  if (isCreate && result.sort_order == null) {
-    result.sort_order = 1000;
-  }
-}
 
 function normalizePointsLedgerWrite(result: Record<string, unknown>, isCreate: boolean): void {
   if (isCreate || 'delta' in result) {
@@ -726,7 +649,7 @@ export async function getRecord(tableName: string, pkValue: string) {
 
   // 缺省钱包：不存在则自动创建 balance=0
   if (table === 'points_wallet' && pkValue === 'default') {
-    const { getOrCreateDefaultWallet } = await import('./wish-board.js');
+    const { getOrCreateDefaultWallet } = await import('./points.js');
     return getOrCreateDefaultWallet();
   }
 
@@ -819,7 +742,7 @@ export async function createRecord(
 
   // 流水权威：同步追加（含负 delta 扣回）后按 SUM(delta) 校正钱包
   if (table === 'points_ledger' && !options.adminPanel) {
-    const { reconcilePointsWalletFromLedger } = await import('./wish-board.js');
+    const { reconcilePointsWalletFromLedger } = await import('./points.js');
     await reconcilePointsWalletFromLedger();
   }
 
@@ -835,9 +758,6 @@ export async function updateRecord(
   const table = assertTable(tableName);
   const meta = await getTableMeta(table);
 
-  if (table === 'wish_board_items') {
-    await assertWishBoardItemMutable(pkValue, data);
-  }
 
   if (table === 'points_wallet' && !options.adminPanel) {
     await assertPointsWalletNotStale(pkValue, data);
@@ -921,74 +841,6 @@ async function assertPointsWalletNotStale(
   if (clientInstant.getTime() < serverInstant.getTime()) {
     throw new CrudError('积分钱包已有更新版本，拒绝用过期数据覆盖', 409);
   }
-}
-
-/** 一次性已兑换：禁止改 title / cost_points / wish_type→repeat / redeem_conditions（同值回写允许） */
-async function assertWishBoardItemMutable(
-  id: string,
-  data: Record<string, unknown>,
-): Promise<void> {
-  const [rows] = await db.query<RowDataPacket[]>(
-    `SELECT status, wish_type, title, cost_points, extra_data FROM wish_board_items WHERE id = ? LIMIT 1`,
-    [id],
-  );
-  const row = rows[0];
-  if (!row) return;
-
-  const isRedeemedOnce = row.status === 'redeemed' && (row.wish_type ?? 'once') === 'once';
-  if (!isRedeemedOnce) return;
-
-  if (Object.prototype.hasOwnProperty.call(data, 'title')) {
-    const nextTitle = String(data.title ?? '').trim();
-    if (nextTitle !== String(row.title ?? '').trim()) {
-      throw new CrudError('已兑换的心愿不可修改 title / cost_points', 400);
-    }
-  }
-
-  if (Object.prototype.hasOwnProperty.call(data, 'cost_points')) {
-    const nextCost = Number(data.cost_points);
-    const serverCost = Number(row.cost_points ?? 0);
-    if (!Number.isFinite(nextCost) || Math.trunc(nextCost) !== serverCost) {
-      throw new CrudError('已兑换的心愿不可修改 title / cost_points', 400);
-    }
-  }
-
-  if (Object.prototype.hasOwnProperty.call(data, 'wish_type')) {
-    const nextType = String(data.wish_type ?? '').trim();
-    if (nextType === 'repeat') {
-      throw new CrudError('已兑换的一次性心愿不可改为重复性', 400);
-    }
-  }
-
-  if (Object.prototype.hasOwnProperty.call(data, 'extra_data')) {
-    const prevConditions = JSON.stringify(
-      parseExtraObjectSafe(row.extra_data).redeem_conditions ?? null,
-    );
-    const nextConditions = JSON.stringify(
-      parseExtraObjectSafe(data.extra_data).redeem_conditions ?? null,
-    );
-    if (prevConditions !== nextConditions) {
-      throw new CrudError('已兑换的心愿不可修改兑换条件', 400);
-    }
-  }
-}
-
-function parseExtraObjectSafe(raw: unknown): Record<string, unknown> {
-  if (raw == null || raw === '') return {};
-  if (typeof raw === 'object' && !Array.isArray(raw)) {
-    return raw as Record<string, unknown>;
-  }
-  if (typeof raw === 'string') {
-    try {
-      const parsed = JSON.parse(raw) as unknown;
-      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-        return parsed as Record<string, unknown>;
-      }
-    } catch {
-      /* ignore */
-    }
-  }
-  return {};
 }
 
 export async function deleteRecord(tableName: string, pkValue: string) {

@@ -196,7 +196,7 @@ CREATE TABLE `finance_account_types`  (
   `id` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `is_liability` int NOT NULL DEFAULT 0,
-  `icon_key` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'savings',
+  `icon_key` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'savings' COMMENT '已废弃：账户类型图标选择已下线，列保留兼容同步',
   `sort_order` int NOT NULL DEFAULT 1000,
   `created_at` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `updated_at` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
@@ -285,23 +285,7 @@ CREATE TABLE `frog_completion_events`  (
 ) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_unicode_ci ROW_FORMAT = DYNAMIC;
 
 -- ----------------------------
--- Table structure for goal_dimensions
--- ----------------------------
-DROP TABLE IF EXISTS `goal_dimensions`;
-CREATE TABLE `goal_dimensions`  (
-  `id` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `title` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `sort_order` int NOT NULL DEFAULT 1000,
-  `created_at` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `updated_at` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `deleted_at` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL DEFAULT NULL,
-  `sync_status` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'pending_create',
-  `version` int NOT NULL DEFAULT 1,
-  `extra_data` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL,
-  PRIMARY KEY (`id`) USING BTREE
-) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_unicode_ci ROW_FORMAT = DYNAMIC;
 
--- ----------------------------
 -- Table structure for habit_check_ins
 -- ----------------------------
 DROP TABLE IF EXISTS `habit_check_ins`;
@@ -460,18 +444,7 @@ CREATE TABLE `monthly_review_journal`  (
 ) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_unicode_ci ROW_FORMAT = Dynamic;
 
 -- ----------------------------
--- Table structure for persona_portrait_cache
--- ----------------------------
-DROP TABLE IF EXISTS `persona_portrait_cache`;
-CREATE TABLE `persona_portrait_cache`  (
-  `slug` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `cache_date_ymd` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `payload_json` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `updated_at` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  PRIMARY KEY (`slug`) USING BTREE
-) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_unicode_ci ROW_FORMAT = DYNAMIC;
 
--- ----------------------------
 -- Table structure for points_ledger
 -- ----------------------------
 DROP TABLE IF EXISTS `points_ledger`;
@@ -479,8 +452,8 @@ CREATE TABLE `points_ledger`  (
   `id` varchar(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL,
   `delta` decimal(12,2) NOT NULL COMMENT '正数增加、负数扣减',
   `balance_after` decimal(12,2) NOT NULL COMMENT '变动后余额（可为负）',
-  `reason` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL COMMENT '如 wish_redeem / manual_adjust / task_earn',
-  `ref_type` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL DEFAULT NULL COMMENT '如 wish_board_item',
+  `reason` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL COMMENT '如 manual_adjust / task_complete / habit_check_in',
+  `ref_type` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL DEFAULT NULL COMMENT '如 habit / task / project / points_wallet',
   `ref_id` varchar(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL DEFAULT NULL,
   `created_at` datetime(3) NOT NULL,
   `updated_at` datetime(3) NOT NULL,
@@ -796,27 +769,7 @@ CREATE TABLE `users`  (
 ) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_unicode_ci ROW_FORMAT = DYNAMIC;
 
 -- ----------------------------
--- Table structure for visions
--- ----------------------------
-DROP TABLE IF EXISTS `visions`;
-CREATE TABLE `visions`  (
-  `id` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `title` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `description` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL,
-  `track_kind` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `direction` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL DEFAULT NULL,
-  `bg_option_idx` int NOT NULL DEFAULT 0,
-  `sort_order` int NOT NULL DEFAULT 1000,
-  `created_at` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `updated_at` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `deleted_at` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL DEFAULT NULL,
-  `sync_status` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'pending_create',
-  `version` int NOT NULL DEFAULT 1,
-  `extra_data` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL,
-  PRIMARY KEY (`id`) USING BTREE
-) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_unicode_ci ROW_FORMAT = DYNAMIC;
 
--- ----------------------------
 -- Table structure for weekly_review_journal
 -- ----------------------------
 DROP TABLE IF EXISTS `weekly_review_journal`;
@@ -844,53 +797,9 @@ CREATE TABLE `weekly_review_journal`  (
 ) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_unicode_ci ROW_FORMAT = DYNAMIC;
 
 -- ----------------------------
--- Table structure for wish_board_items
+-- wish_board_items 已下线（心愿板功能移除，积分钱包/流水保留）
 -- ----------------------------
-DROP TABLE IF EXISTS `wish_board_items`;
-CREATE TABLE `wish_board_items`  (
-  `id` varchar(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL,
-  `title` varchar(80) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL COMMENT '心愿标题',
-  `description` varchar(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL DEFAULT NULL COMMENT '描述（可选），对应添加弹层「描述」',
-  `cost_points` decimal(12,2) NOT NULL DEFAULT 0.00 COMMENT '兑换所需积分，>=0，可含小数',
-  `note` varchar(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL DEFAULT NULL COMMENT '备注',
-  `icon_key` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL DEFAULT NULL COMMENT '图标 key，如 card-giftcard / movie',
-  `wish_type` varchar(16) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL DEFAULT 'once' COMMENT 'once=一次性，repeat=重复性',
-  `status` varchar(16) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL DEFAULT 'active' COMMENT 'active | redeemed',
-  `redeemed_at` datetime(3) NULL DEFAULT NULL,
-  `sort_order` int NOT NULL DEFAULT 1000,
-  `created_at` datetime(3) NOT NULL,
-  `updated_at` datetime(3) NOT NULL,
-  `sync_status` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL DEFAULT 'pending_create',
-  `extra_data` json NULL,
-  PRIMARY KEY (`id`) USING BTREE,
-  INDEX `idx_wish_board_items_status`(`status`) USING BTREE,
-  INDEX `idx_wish_board_items_updated_at`(`updated_at`) USING BTREE,
-  INDEX `idx_wish_board_items_sort_order`(`sort_order`) USING BTREE,
-  INDEX `idx_wish_board_items_wish_type`(`wish_type`) USING BTREE
-) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci ROW_FORMAT = Dynamic;
 
 -- ----------------------------
--- Table structure for wish_items
--- ----------------------------
-DROP TABLE IF EXISTS `wish_items`;
-CREATE TABLE `wish_items`  (
-  `id` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `price` double NOT NULL,
-  `category_id` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL DEFAULT NULL,
-  `category_label` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL DEFAULT NULL,
-  `desire_level` int NOT NULL DEFAULT 3,
-  `reason` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL,
-  `reference_image_uri` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL DEFAULT NULL,
-  `ai_comment` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL,
-  `ai_review_at` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL DEFAULT NULL,
-  `created_at` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `updated_at` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `deleted_at` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL DEFAULT NULL,
-  `sync_status` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'pending_create',
-  `version` int NOT NULL DEFAULT 1,
-  `extra_data` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL,
-  PRIMARY KEY (`id`) USING BTREE
-) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_unicode_ci ROW_FORMAT = DYNAMIC;
 
 SET FOREIGN_KEY_CHECKS = 1;

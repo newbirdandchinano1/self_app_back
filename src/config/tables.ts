@@ -15,7 +15,6 @@ export const ALLOWED_TABLES = [
   'finance_flow_categories',
   'finance_transactions',
   'frog_completion_events',
-  'goal_dimensions',
   'habit_check_ins',
   'habit_contexts',
   'habits',
@@ -41,10 +40,7 @@ export const ALLOWED_TABLES = [
   'task_items',
   'tasks',
   'users',
-  'visions',
   'weekly_review_journal',
-  'wish_board_items',
-  'wish_items',
 ] as const;
 
 export type AllowedTable = (typeof ALLOWED_TABLES)[number];
@@ -63,7 +59,6 @@ export const CLIENT_ID_TABLES: readonly AllowedTable[] = [
   'project_tags',
   'projects',
   'task_categories',
-  'wish_board_items',
 ];
 
 /**

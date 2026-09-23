@@ -10,7 +10,7 @@ const TABLE_LABELS = {
   cash_flow_holdings: '现金流持仓', cash_flow_incomes: '现金流收入', cash_flow_profile: '现金流配置',
   daily_review_journal: '每日复盘', finance_account_types: '财务账户类型',
   finance_accounts: '财务账户', finance_flow_categories: '财务流水分类', finance_transactions: '财务交易',
-  frog_completion_events: '青蛙完成事件', goal_dimensions: '目标维度', habit_check_ins: '习惯打卡',
+  frog_completion_events: '青蛙完成事件', habit_check_ins: '习惯打卡',
   habit_contexts: '习惯场景', habits: '习惯', health_daily_targets: '健康日目标', health_records: '健康摄入记录', memo_dimensions: '备忘录维度', memos: '备忘录',
   monthly_review_journal: '每月复盘',
   points_ledger: '积分流水', points_wallet: '积分钱包',
@@ -18,8 +18,7 @@ const TABLE_LABELS = {
   recipe_categories: '食谱分类', recipe_items: '食谱', review_columns: '复盘栏目', review_dimensions: '复盘维度',
   savings_plan_deposits: '储蓄存入记录', savings_plans: '储蓄计划', task_categories: '任务分类',
   task_execution_events: '任务执行事件', task_items: '任务子项', tasks: '任务',
-  users: '用户', visions: '愿景', weekly_review_journal: '每周复盘',
-  wish_board_items: '心愿板', wish_items: '心愿单',
+  users: '用户', weekly_review_journal: '每周复盘',
 };
 
 const COLUMN_LABELS = {
@@ -28,8 +27,8 @@ const COLUMN_LABELS = {
   description:'描述', detail:'详情', type:'类型', status:'状态', amount:'金额', balance:'余额', currency:'货币',
   category:'分类', dimension:'维度', category_id:'分类ID', category_label:'分类标签', account_id:'账户ID', account_no:'账号编号',
   account_type:'账户类型', parent_id:'父级ID', project_id:'项目ID', task_id:'任务ID', habit_id:'习惯ID',
-  user_id:'用户ID', wish_item_id:'心愿ID', wish_board_item_id:'心愿板条目ID', cost_points:'所需积分',
-  wish_type:'心愿类型', delta:'积分变动', balance_after:'变动后余额', ref_type:'关联类型', ref_id:'关联ID',
+  user_id:'用户ID', cost_points:'所需积分',
+  delta:'积分变动', balance_after:'变动后余额', ref_type:'关联类型', ref_id:'关联ID',
   savings_plan_id:'储蓄计划ID', flow_category_id:'流水分类ID',
   dimension_id:'维度ID', linked_task_id:'关联任务ID', parent_task_id:'父任务ID', source_id:'来源ID',
   source_type:'来源类型', source_title:'来源标题', reward_kind:'奖励类型', label:'标签', tag:'标签', icon:'图标',
@@ -62,11 +61,11 @@ const PK = { app_meta: 'key', app_settings: 'key' };
 const HIDDEN = { admin_users: ['password_hash'] };
 
 const MODULES = [
-  { title: '用户与管理员', tables: ['users', 'admin_users'] },
+  { title: '用户与管理员', tables: ['admin_users'] },
   { title: '任务与项目', tables: ['task_categories', 'tasks', 'task_items', 'task_execution_events', 'project_categories', 'projects', 'frog_completion_events'] },
   { title: '习惯', tables: ['habits', 'habit_check_ins', 'habit_contexts'] },
-  { title: '备忘录与愿景', tables: ['memo_dimensions', 'memos', 'visions', 'goal_dimensions', 'wish_items', 'wish_board_items', 'points_wallet', 'points_ledger'] },
-  { title: '健康与食谱', tables: ['health_records', 'health_daily_targets', 'recipe_categories', 'recipe_items'] },
+  { title: '备忘录与积分', tables: ['memo_dimensions', 'memos', 'points_wallet', 'points_ledger'] },
+  { title: '健康与食谱', tables: ['users', 'health_records', 'health_daily_targets', 'recipe_categories', 'recipe_items'] },
   { title: '财务与账户', tables: ['accounts', 'account_transactions', 'finance_accounts', 'finance_account_types', 'finance_flow_categories', 'finance_transactions', 'cash_flow_profile', 'cash_flow_incomes', 'cash_flow_expense_lines', 'cash_flow_holdings', 'savings_plans', 'savings_plan_deposits'] },
   { title: '复盘', tables: ['daily_review_journal', 'weekly_review_journal', 'monthly_review_journal', 'review_dimensions', 'review_columns'] },
   { title: '系统与缓存', tables: ['app_meta', 'app_settings'] },
@@ -126,10 +125,10 @@ function fieldNote(table, r) {
     notes.push('含 reward_points(0~99999) / is_long_term 等；整包存储；勿依赖旧键 completion_reward');
   }
   if (table === 'points_ledger' && r.col === 'reason') {
-    notes.push('如 wish_redeem / habit_check_in / task_complete / project_complete 及对应 _undo');
+    notes.push('如 habit_check_in / task_complete / project_complete / points_reset 及对应 _undo（历史 wish_redeem 保留）');
   }
   if (table === 'points_ledger' && r.col === 'ref_type') {
-    notes.push('如 wish_board_item / habit / task / project');
+    notes.push('如 habit / task / project / points_wallet');
   }
   return notes.length ? notes.join('；') : '-';
 }
@@ -528,7 +527,7 @@ async function request(path, options = {}) {
 | \`GET /api/pages/tasks/habits-grid\` | 首页习惯格；每项含 \`extra_data\` / \`context\` / \`hiddenOnViewDay\`，不含打卡数组 |
 | \`GET /api/pages/tasks/today-frogs\` | 今日青蛙：\`tasks\` + \`projectFrogs\` / \`projectFrogIds\`；\`meta.serverFiltered=true\` |
 | \`GET /api/pages/tasks/completion-heatmap\` | 完成热力图；待办为**净完成**口径，\`meta.todoNetCompleted=true\` |
-| \`GET /api/app/wish-board/balance\` | 积分余额 |
+| \`GET /api/app/points/balance\` | 积分余额 |
 
 **热力图口径**：非重复待办同一 \`task_id\` 只保留最新事件；最新为 \`reopened\` 则任何一天都不计。与青蛙完成互斥（同日同 \`task_id\` 只计青蛙）。时间按墙上时钟，禁止把无时区 DATETIME 当 UTC 再加偏移。
 

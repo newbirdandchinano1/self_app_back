@@ -421,16 +421,14 @@ export async function getReviewWeekMetrics(params: ReviewWeekMetricsParams) {
   assertRange(start, end, WEEK_METRICS_MAX_RANGE_DAYS, '周指标');
   const rangeKind = (params.rangeKind?.trim() || 'rolling-7') || 'rolling-7';
 
-  const [tasksMeta, habitsMeta, hciMeta, plansMeta, depositsMeta, txnMeta, wishMeta] =
-    await Promise.all([
-      loadMeta('tasks'),
-      loadMeta('habits'),
-      loadMeta('habit_check_ins'),
-      loadMeta('savings_plans'),
-      loadMeta('savings_plan_deposits'),
-      loadMeta('finance_transactions'),
-      loadMeta('wish_items'),
-    ]);
+  const [tasksMeta, habitsMeta, hciMeta, plansMeta, depositsMeta, txnMeta] = await Promise.all([
+    loadMeta('tasks'),
+    loadMeta('habits'),
+    loadMeta('habit_check_ins'),
+    loadMeta('savings_plans'),
+    loadMeta('savings_plan_deposits'),
+    loadMeta('finance_transactions'),
+  ]);
 
   const tasksActive = activeWhereSql(tasksMeta.columns);
   const habitsActive = activeWhereSql(habitsMeta.columns, 'h');
@@ -438,13 +436,11 @@ export async function getReviewWeekMetrics(params: ReviewWeekMetricsParams) {
   const plansActive = activeWhereSql(plansMeta.columns, 'p');
   const depositsActive = activeWhereSql(depositsMeta.columns, 'd');
   const txnActive = activeWhereSql(txnMeta.columns);
-  const wishActive = activeWhereSql(wishMeta.columns);
 
   const completedAtYmd = wallClockYmdSql('completed_at');
   const createdAtYmd = wallClockYmdSql('created_at');
   const depositCreatedYmd = wallClockYmdSql('created_at', 'd');
   const happenedYmd = wallClockYmdSql('happened_at');
-  const wishUpdatedYmd = wallClockYmdSql('updated_at');
 
   const [
     tasksCompleted,
@@ -453,7 +449,6 @@ export async function getReviewWeekMetrics(params: ReviewWeekMetricsParams) {
     savingsWeekTotal,
     financeIncome,
     financeExpense,
-    wishUpdates,
   ] = await Promise.all([
     countScalar(
       `SELECT COUNT(*) AS cnt FROM ${quoteIdent('tasks')}
@@ -503,12 +498,6 @@ export async function getReviewWeekMetrics(params: ReviewWeekMetricsParams) {
          AND ${happenedYmd} BETWEEN ? AND ?`,
       [start, end],
     ),
-    countScalar(
-      `SELECT COUNT(*) AS cnt FROM ${quoteIdent('wish_items')}
-       WHERE ${wishActive}
-         AND ${wishUpdatedYmd} BETWEEN ? AND ?`,
-      [start, end],
-    ),
   ]);
 
   return {
@@ -523,7 +512,6 @@ export async function getReviewWeekMetrics(params: ReviewWeekMetricsParams) {
     savingsWeekTotal: Math.round(savingsWeekTotal),
     financeIncome: Math.round(financeIncome),
     financeExpense: Math.round(financeExpense),
-    wishUpdates,
     meta: {
       serverTime: serverNowIso(),
       start,

@@ -794,7 +794,7 @@ export async function getTasksPageBootstrap(
   }
   if (include.pointsWallet) {
     loaders.push(
-      import('../wish-board.js').then(({ getOrCreateDefaultWallet }) =>
+      import('../points.js').then(({ getOrCreateDefaultWallet }) =>
         getOrCreateDefaultWallet().then((wallet) => {
           result.pointsWallet = wallet as unknown as Record<string, unknown>;
         }),

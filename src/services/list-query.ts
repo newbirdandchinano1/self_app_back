@@ -132,8 +132,8 @@ export function buildListQuery(
     maxLimit = 2000;
   }
 
-  // 心愿板「已兑换」依赖全量 wish_redeem 流水；提高单页上限避免同步截断
-  if (table === 'points_ledger' || table === 'wish_board_items') {
+  // 积分流水可能较长；提高单页上限避免同步截断
+  if (table === 'points_ledger') {
     maxLimit = 2000;
   }
 

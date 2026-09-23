@@ -23,7 +23,7 @@ export type AdminModuleDef = {
 };
 
 /**
- * 管理后台侧边栏：10 个一级模块 → 细分数据表。
+ * 管理后台侧边栏：一级模块 → 细分数据表。
  * 未出现在任何模块中的表白名单表会落入「未分类」。
  */
 export const ADMIN_MODULES: readonly AdminModuleDef[] = [
@@ -95,16 +95,9 @@ export const ADMIN_MODULES: readonly AdminModuleDef[] = [
     tables: ['memo_dimensions', 'memos'],
   },
   {
-    id: 'wish',
-    title: '心愿板模块',
-    tables: [
-      'wish_board_items',
-      'wish_items',
-      'points_wallet',
-      'points_ledger',
-      'visions',
-      'goal_dimensions',
-    ],
+    id: 'points',
+    title: '积分模块',
+    tables: ['points_wallet', 'points_ledger'],
   },
   {
     id: 'system',

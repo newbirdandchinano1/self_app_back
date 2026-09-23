@@ -7,7 +7,6 @@ const ENTITY_TABLES = ['habits', 'tasks', 'projects'] as const;
  * 幂等：方案 B 下线完成奖励。
  * - 删除 earned_rewards 表
  * - 从 habits / tasks / projects 的 extra_data 移除 completion_reward
- * 不触碰 wish_items。
  */
 export async function ensureDropEarnedRewards(): Promise<void> {
   const [tables] = await db.query<RowDataPacket[]>(

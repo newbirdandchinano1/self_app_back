@@ -5,9 +5,6 @@ import {
   analyzeFinanceTxnCommentFromText as analyzeFinanceTxnCommentFromTextCore,
   analyzeFoodNutritionFromImage as analyzeFoodNutritionFromImageCore,
   analyzeMemoReviewFromText as analyzeMemoReviewFromTextCore,
-  analyzeVisionWallGoalsFromText as analyzeVisionWallGoalsFromTextCore,
-  analyzeWishItemAiCommentFromText as analyzeWishItemAiCommentFromTextCore,
-  analyzeWishListRationalReviewFromText as analyzeWishListRationalReviewFromTextCore,
   estimateDailyIntakeTargetsFromContext as estimateDailyIntakeTargetsFromContextCore,
   generateWeeklyReviewCoachingFromText as generateWeeklyReviewCoachingFromTextCore,
   getZhipuApiKey,
@@ -159,20 +156,6 @@ export async function analyzeCashFlowDashboardFromText(summaryText: string) {
   return { analysis: result.analysis };
 }
 
-export async function analyzeWishListRationalReviewFromText(contextText: string) {
-  const result = requireOk(
-    await analyzeWishListRationalReviewFromTextCore({ apiKey: apiKey(), contextText }),
-  );
-  return { headline: result.headline, review: result.review };
-}
-
-export async function analyzeWishItemAiCommentFromText(summaryText: string) {
-  const result = requireOk(
-    await analyzeWishItemAiCommentFromTextCore({ apiKey: apiKey(), summaryText }),
-  );
-  return { comment: result.comment };
-}
-
 export async function analyzeMemoReviewFromText(memoContextText: string) {
   const result = requireOk(
     await analyzeMemoReviewFromTextCore({ apiKey: apiKey(), memoContextText }),
@@ -185,22 +168,6 @@ export async function generateWeeklyReviewCoachingFromText(userPrompt: string) {
     await generateWeeklyReviewCoachingFromTextCore({ apiKey: apiKey(), userPrompt }),
   );
   return { text: result.text };
-}
-
-export async function analyzeVisionWallGoalsFromText(
-  planDigestText: string,
-  expectedGoalIds: string[],
-  userDisplayName?: string,
-) {
-  const result = requireOk(
-    await analyzeVisionWallGoalsFromTextCore({
-      apiKey: apiKey(),
-      planDigestText,
-      expectedGoalIds,
-      userDisplayName,
-    }),
-  );
-  return result.data;
 }
 
 export async function probeZhipuConnectivity() {

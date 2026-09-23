@@ -9,9 +9,6 @@ import {
   analyzeFinanceTxnCommentFromText,
   analyzeFoodNutritionFromImage,
   analyzeMemoReviewFromText,
-  analyzeVisionWallGoalsFromText,
-  analyzeWishItemAiCommentFromText,
-  analyzeWishListRationalReviewFromText,
   estimateDailyIntakeTargetsFromContext,
   generateWeeklyReviewCoachingFromText,
   parseFinanceOneLinerFromImage,
@@ -176,32 +173,6 @@ router.post('/finance/cash-flow-analysis', async (req, res, next) => {
   }
 });
 
-router.post('/wish-list/rational-review', async (req, res, next) => {
-  try {
-    const { context_text } = req.body ?? {};
-    const contextErr = requireNonEmptyString(context_text, 'context_text');
-    if (contextErr) return fail(res, contextErr);
-
-    const data = await analyzeWishListRationalReviewFromText(String(context_text));
-    success(res, data);
-  } catch (err) {
-    handleAiError(err, res, next);
-  }
-});
-
-router.post('/wish-item/comment', async (req, res, next) => {
-  try {
-    const { summary_text } = req.body ?? {};
-    const summaryErr = requireNonEmptyString(summary_text, 'summary_text');
-    if (summaryErr) return fail(res, summaryErr);
-
-    const data = await analyzeWishItemAiCommentFromText(String(summary_text));
-    success(res, data);
-  } catch (err) {
-    handleAiError(err, res, next);
-  }
-});
-
 router.post('/memo/review', async (req, res, next) => {
   try {
     const { memo_context_text } = req.body ?? {};
@@ -222,31 +193,6 @@ router.post('/weekly-review/coaching', async (req, res, next) => {
     if (promptErr) return fail(res, promptErr);
 
     const data = await generateWeeklyReviewCoachingFromText(String(user_prompt));
-    success(res, data);
-  } catch (err) {
-    handleAiError(err, res, next);
-  }
-});
-
-router.post('/vision-wall/assessment', async (req, res, next) => {
-  try {
-    const { user_display_name, plan_digest_text, expected_goal_ids } = req.body ?? {};
-    const digestErr = requireNonEmptyString(plan_digest_text, 'plan_digest_text');
-    if (digestErr) return fail(res, digestErr);
-    if (!Array.isArray(expected_goal_ids) || expected_goal_ids.length === 0) {
-      return fail(res, 'expected_goal_ids 必须为非空数组');
-    }
-
-    const goalIds = expected_goal_ids.map((id) => String(id)).filter(Boolean);
-    if (goalIds.length === 0) {
-      return fail(res, 'expected_goal_ids 必须包含有效 goal_id');
-    }
-
-    const data = await analyzeVisionWallGoalsFromText(
-      String(plan_digest_text),
-      goalIds,
-      user_display_name ? String(user_display_name) : undefined,
-    );
     success(res, data);
   } catch (err) {
     handleAiError(err, res, next);

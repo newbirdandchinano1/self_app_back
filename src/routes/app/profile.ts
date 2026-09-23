@@ -1,15 +1,11 @@
 import { Router } from 'express';
 import { requireAuth } from '../../middlewares/auth.js';
 import { fail, success } from '../../utils/response.js';
-import { parseIntQuery } from './pages/query.js';
 import {
   ProfilePageError,
-  getProfileHome,
   getProfileMemoList,
   getProfileRecipes,
-  getProfileVisionWall,
-  getProfileWishBoard,
-  getProfileWishList,
+  getProfilePoints,
 } from '../../services/pages/profile.js';
 
 /**
@@ -32,28 +28,6 @@ function handleProfileError(
   next(err);
 }
 
-/** GET /pages/profile/home — 「我的」Tab 冷启动 / 下拉刷新 */
-router.get('/pages/profile/home', async (req, res, next) => {
-  try {
-    const data = await getProfileHome({
-      wishPreviewLimit: parseIntQuery(req.query.wishPreviewLimit),
-    });
-    success(res, data);
-  } catch (err) {
-    handleProfileError(err, res, next);
-  }
-});
-
-/** GET /pages/profile/wish-list — 心愿清单子页（含攒钱关联） */
-router.get('/pages/profile/wish-list', async (_req, res, next) => {
-  try {
-    const data = await getProfileWishList();
-    success(res, data);
-  } catch (err) {
-    handleProfileError(err, res, next);
-  }
-});
-
 /** GET /pages/profile/memo-list — 备忘录列表子页 */
 router.get('/pages/profile/memo-list', async (_req, res, next) => {
   try {
@@ -64,20 +38,10 @@ router.get('/pages/profile/memo-list', async (_req, res, next) => {
   }
 });
 
-/** GET /pages/profile/vision-wall — 愿景墙 / 目标维度子页 */
-router.get('/pages/profile/vision-wall', async (_req, res, next) => {
+/** GET /pages/profile/points — 积分钱包/流水子页 */
+router.get('/pages/profile/points', async (_req, res, next) => {
   try {
-    const data = await getProfileVisionWall();
-    success(res, data);
-  } catch (err) {
-    handleProfileError(err, res, next);
-  }
-});
-
-/** GET /pages/profile/wish-board — 积分看板子页 */
-router.get('/pages/profile/wish-board', async (_req, res, next) => {
-  try {
-    const data = await getProfileWishBoard();
+    const data = await getProfilePoints();
     success(res, data);
   } catch (err) {
     handleProfileError(err, res, next);
