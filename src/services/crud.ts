@@ -267,6 +267,25 @@ async function normalizeWriteData(
     result.priority = clampEisenhowerPriority(result.priority);
   }
 
+  // 任务：验收标准优先；备注并入 description 后清空 note
+  if (table === 'tasks' && meta.columns.includes('description') && meta.columns.includes('note')) {
+    if (isCreate || 'description' in result || 'note' in result) {
+      const hasDesc = 'description' in result;
+      const hasNote = 'note' in result;
+      let description =
+        hasDesc && result.description != null && result.description !== ''
+          ? String(result.description)
+          : null;
+      const note =
+        hasNote && result.note != null && result.note !== '' ? String(result.note) : null;
+      if (!description && note) description = note;
+      if (isCreate || hasDesc || hasNote) {
+        if (description != null) result.description = description;
+        result.note = null;
+      }
+    }
+  }
+
   if (table === 'users' && meta.columns.includes('persona_portrait') && 'persona_portrait' in result) {
     result.persona_portrait = normalizePersonaPortrait(result.persona_portrait);
   }
@@ -733,6 +752,36 @@ export interface CrudWriteOptions {
   adminPanel?: boolean;
 }
 
+async function inheritTaskPriorityFromProject(
+  payload: Record<string, unknown>,
+  existingProjectId?: string | null,
+): Promise<void> {
+  let projectId: string | null = null;
+  if ('project_id' in payload) {
+    projectId =
+      payload.project_id == null || payload.project_id === ''
+        ? null
+        : String(payload.project_id);
+  } else if (existingProjectId) {
+    projectId = existingProjectId;
+  }
+  if (!projectId) return;
+  const [rows] = await db.query<RowDataPacket[]>(
+    `SELECT priority FROM projects WHERE id = ? LIMIT 1`,
+    [projectId],
+  );
+  if (rows[0] && rows[0].priority != null) {
+    payload.priority = clampEisenhowerPriority(rows[0].priority);
+  }
+}
+
+async function cascadeProjectPriorityToTasks(projectId: string, priority: number): Promise<void> {
+  await db.query<ResultSetHeader>(`UPDATE tasks SET priority = ? WHERE project_id = ?`, [
+    clampEisenhowerPriority(priority),
+    projectId,
+  ]);
+}
+
 export async function createRecord(
   tableName: string,
   data: Record<string, unknown>,
@@ -744,6 +793,10 @@ export async function createRecord(
 
   if (!payload[meta.primaryKey]) {
     throw new CrudError(`创建 ${table} 时必须提供 ${meta.primaryKey}`);
+  }
+
+  if (table === 'tasks') {
+    await inheritTaskPriorityFromProject(payload);
   }
 
   await validateForeignKeys(table, payload);
@@ -792,6 +845,21 @@ export async function updateRecord(
 
   const payload = await normalizeWriteData(table, meta, data, false, options.adminPanel);
 
+  if (table === 'tasks') {
+    let existingProjectId: string | null = null;
+    if (!('project_id' in payload)) {
+      const [rows] = await db.query<RowDataPacket[]>(
+        `SELECT project_id FROM tasks WHERE id = ? LIMIT 1`,
+        [pkValue],
+      );
+      existingProjectId =
+        rows[0]?.project_id == null || rows[0]?.project_id === ''
+          ? null
+          : String(rows[0].project_id);
+    }
+    await inheritTaskPriorityFromProject(payload, existingProjectId);
+  }
+
   const keys = Object.keys(payload);
   if (keys.length === 0) {
     throw new CrudError('没有可更新的字段');
@@ -811,6 +879,11 @@ export async function updateRecord(
   if (result.affectedRows === 0) {
     return null;
   }
+
+  if (table === 'projects' && 'priority' in payload) {
+    await cascadeProjectPriorityToTasks(pkValue, Number(payload.priority ?? 0));
+  }
+
   return getRecord(table, pkValue);
 }
 

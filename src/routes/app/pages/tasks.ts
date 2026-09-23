@@ -9,6 +9,12 @@ import {
   getTasksPageSummary,
 } from '../../../services/pages/tasks-bootstrap.js';
 import { getTodayFrogTasks } from '../../../services/pages/today-frogs.js';
+import {
+  assignOrUnassignFrog,
+  FrogAssignError,
+  type FrogSubjectKind,
+} from '../../../services/pages/frog-assign.js';
+import { getFrogCandidates } from '../../../services/pages/frog-candidates.js';
 import { success } from '../../../utils/response.js';
 import {
   parseBoolQuery,
@@ -34,6 +40,42 @@ router.get('/pages/tasks/today-frogs', async (req, res, next) => {
     const data = await getTodayFrogTasks(parseTasksBootstrapParams(req));
     success(res, data);
   } catch (err) {
+    next(err);
+  }
+});
+
+/** 青蛙候选（轻量挑选列表，含无项目待办） */
+router.get('/pages/tasks/frog-candidates', async (req, res, next) => {
+  try {
+    const data = await getFrogCandidates({
+      ...parseTasksBootstrapParams(req),
+      assignYmd: parseStringQuery(req.query.assignYmd),
+    });
+    success(res, data);
+  } catch (err) {
+    if (err instanceof FrogAssignError) {
+      res.status(err.status).json({ success: false, message: err.message });
+      return;
+    }
+    next(err);
+  }
+});
+
+/** 指派 / 取消青蛙（任意日） */
+router.post('/pages/tasks/frog-assign', async (req, res, next) => {
+  try {
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const kind = String(body.kind ?? '') as FrogSubjectKind;
+    const id = String(body.id ?? '');
+    const assignYmd = String(body.assignYmd ?? '');
+    const action = body.action === 'unassign' ? 'unassign' : 'assign';
+    const data = await assignOrUnassignFrog({ kind, id, assignYmd, action });
+    success(res, data);
+  } catch (err) {
+    if (err instanceof FrogAssignError) {
+      res.status(err.status).json({ success: false, message: err.message });
+      return;
+    }
     next(err);
   }
 });
