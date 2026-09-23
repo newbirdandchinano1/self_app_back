@@ -10,6 +10,7 @@ import { ensureProjectTagsTables } from './db/ensure-project-tags.js';
 import { ensureUsersPersonaPortraitColumn } from './db/ensure-users-persona-portrait.js';
 import { ensurePointsTables } from './db/ensure-points.js';
 import { ensureWishBoardTables } from './db/ensure-wish-board.js';
+import { ensureFrogScheduleTables } from './db/ensure-frog-schedule.js';
 import { initAdminTable } from './db/init-admin.js';
 import { ensureInboxCatalogSeed } from './services/pages/catalog-inbox-seed.js';
 import { ensureHealthIntakeUploadDir } from './services/health-intake-upload.js';
@@ -41,6 +42,7 @@ async function bootstrap() {
   await ensurePointsTables();
   await ensureWishBoardTables();
   await ensureProjectTagsTables();
+  await ensureFrogScheduleTables();
   await ensureInboxCatalogSeed();
   await ensureHealthIntakeUploadDir();
 }

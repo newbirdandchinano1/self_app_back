@@ -265,7 +265,7 @@ check(
   (frogProjectReopened.countsByDay['2026-08-21'] ?? 0) === 0,
 );
 
-console.log('\n=== P1 今日青蛙指派日 ===\n');
+console.log('\n=== P1 青蛙指派日 ===\n');
 
 check(
   'extra_data.frogAssignedOn = 今日',

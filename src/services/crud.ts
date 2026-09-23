@@ -84,10 +84,12 @@ export class CrudError extends Error {
   }
 }
 
-export async function getTableMeta(table: AllowedTable): Promise<TableMeta> {
-  const cached = tableMetaCache.get(table);
-  if (cached) return cached;
+const ENSURE_ON_MISSING_TABLES = new Set<AllowedTable>([
+  'schedule_week_axis_snapshot',
+  'schedule_placements',
+]);
 
+async function loadTableColumns(table: AllowedTable): Promise<RowDataPacket[]> {
   const [rows] = await db.query<RowDataPacket[]>(
     `SELECT COLUMN_NAME, COLUMN_KEY
      FROM information_schema.COLUMNS
@@ -95,6 +97,21 @@ export async function getTableMeta(table: AllowedTable): Promise<TableMeta> {
      ORDER BY ORDINAL_POSITION`,
     [table],
   );
+  return rows;
+}
+
+export async function getTableMeta(table: AllowedTable): Promise<TableMeta> {
+  const cached = tableMetaCache.get(table);
+  if (cached) return cached;
+
+  let rows = await loadTableColumns(table);
+
+  // 白名单已登记但物理表尚未创建（部署后未重启 / ensure 未跑）：按需补建
+  if (rows.length === 0 && ENSURE_ON_MISSING_TABLES.has(table)) {
+    const { ensureFrogScheduleTables } = await import('../db/ensure-frog-schedule.js');
+    await ensureFrogScheduleTables();
+    rows = await loadTableColumns(table);
+  }
 
   if (rows.length === 0) {
     throw new CrudError(`表 ${table} 不存在`, 404);

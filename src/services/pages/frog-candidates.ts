@@ -73,7 +73,7 @@ function dueYmd(value: unknown): string | null {
 const YMD_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 /**
- * 轻量候选列表：供「今日青蛙 · 添加」挑选。
+ * 轻量候选列表：供周课程表「放置青蛙」挑选。
  * 含任务（含无项目待办）与无子任务活跃项目；已指派项标记 alreadyAssigned。
  * 锁定（前置/日程）由客户端用本地 lockMap 再过滤。
  */
@@ -86,7 +86,7 @@ export async function getFrogCandidates(
     throw new FrogAssignError('assignYmd 必须为 YYYY-MM-DD');
   }
 
-  // 列可能尚未迁移：与 today-frogs / frog-assign 一致，按表元数据条件选取
+  // 列可能尚未迁移：与 frog-assign 一致，按表元数据条件选取
   const [taskMeta, projectMeta] = await Promise.all([
     getTableMeta('tasks'),
     getTableMeta('projects'),

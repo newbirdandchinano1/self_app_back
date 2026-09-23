@@ -525,13 +525,10 @@ async function request(path, options = {}) {
 | \`GET /api/pages/tasks?include=tasks&taskView=matrixWeek\` | 四象限本周列表：计划窗与 \`weekStart\`–\`weekEnd\` 有交集的项目任务；可分页 |
 | \`GET /api/pages/projects\` | 项目列表：\`limit\` 只限制项目条数；每项带完整 \`tasks\` 树 + \`taskCount\` |
 | \`GET /api/pages/tasks/habits-grid\` | 首页习惯格；每项含 \`extra_data\` / \`context\` / \`hiddenOnViewDay\`，不含打卡数组 |
-| \`GET /api/pages/tasks/today-frogs\` | 今日青蛙：\`tasks\` + \`projectFrogs\` / \`projectFrogIds\`；\`meta.serverFiltered=true\` |
 | \`GET /api/pages/tasks/completion-heatmap\` | 完成热力图；待办为**净完成**口径，\`meta.todoNetCompleted=true\` |
 | \`GET /api/app/points/balance\` | 积分余额 |
 
 **热力图口径**：非重复待办同一 \`task_id\` 只保留最新事件；最新为 \`reopened\` 则任何一天都不计。与青蛙完成互斥（同日同 \`task_id\` 只计青蛙）。时间按墙上时钟，禁止把无时区 DATETIME 当 UTC 再加偏移。
-
-**今日青蛙**：判定与 \`extra_data.frogAssignedOn\` / \`frogAssignedDates\` 一致。任务 id 与项目 id 碰撞时项目优先。\`meta.serverTime\` / \`serverFiltered\` / \`filtersVersion=tasks-page-v1\` 必带。
 
 **习惯格**：每项带回 \`habits.extra_data\` 原文（含子习惯、积分）。任务型打勾只看周期目标；子习惯未全完成则父习惯不显示完成。创建日晚于查看日的习惯 \`hiddenOnViewDay=true\`。\`meta.filtersVersion\` 为 \`tasks-page-v1\`。
 

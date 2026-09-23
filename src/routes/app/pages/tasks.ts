@@ -8,7 +8,6 @@ import {
   getTasksPageBootstrap,
   getTasksPageSummary,
 } from '../../../services/pages/tasks-bootstrap.js';
-import { getTodayFrogTasks } from '../../../services/pages/today-frogs.js';
 import {
   assignOrUnassignFrog,
   FrogAssignError,
@@ -36,15 +35,6 @@ const router = Router();
 router.get('/pages/tasks/summary', async (req, res, next) => {
   try {
     const data = await getTasksPageSummary(parseTasksBootstrapParams(req));
-    success(res, data);
-  } catch (err) {
-    next(err);
-  }
-});
-
-router.get('/pages/tasks/today-frogs', async (req, res, next) => {
-  try {
-    const data = await getTodayFrogTasks(parseTasksBootstrapParams(req));
     success(res, data);
   } catch (err) {
     next(err);
