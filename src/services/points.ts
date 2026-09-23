@@ -6,6 +6,37 @@ import { formatDbDateTimeForApi, formatUtcMySQLDateTime } from './calendar/logic
 
 const WALLET_ID = 'default';
 
+const POINTS_LEDGER_REASON_LABELS: Record<string, string> = {
+  habit_check_in: '习惯打卡',
+  habit_check_in_undo: '撤销习惯打卡',
+  habit_goal_complete: '完成习惯目标',
+  habit_goal_complete_undo: '撤销习惯目标',
+  task_complete: '完成任务',
+  task_complete_undo: '撤销任务完成',
+  project_complete: '完成项目',
+  project_complete_undo: '撤销项目完成',
+  wish_redeem: '兑换心愿',
+  points_reset: '重置积分',
+  manual_adjust: '手动调整',
+  break_habit_penalty: '破戒扣分',
+  break_habit_penalty_undo: '撤销破戒扣分',
+  break_habit_clean: '未破戒加分',
+  break_habit_clean_undo: '撤销未破戒加分',
+  break_habit_goal: '戒除目标达成',
+  break_habit_goal_undo: '撤销戒除目标',
+  health_metric_complete: '健康指标达标',
+  health_metric_complete_undo: '撤销健康指标达标',
+  health_metric_over_penalty: '热量超额扣分',
+  health_metric_over_penalty_undo: '撤销热量超额扣分',
+};
+
+const HEALTH_METRIC_NAME_ZH: Record<string, string> = {
+  hydration: '水分',
+  protein: '蛋白质',
+  carbohydrate: '碳水',
+  calories: '热量',
+};
+
 export class PointsError extends Error {
   constructor(
     message: string,
@@ -254,6 +285,26 @@ export async function deletePointsLedgerEntry(ledgerId: string): Promise<DeleteP
        WHERE id = ?`,
       [newBalance, now, WALLET_ID],
     );
+
+    // 删除 wish_redeem 流水时：一次性心愿恢复为可兑换
+    if (
+      reason === 'wish_redeem' &&
+      refType === 'wish_board_item' &&
+      refId &&
+      String(refId).trim()
+    ) {
+      await conn.query(
+        `UPDATE wish_board_items
+         SET status = 'active',
+             redeemed_at = NULL,
+             updated_at = ?,
+             sync_status = 'synced'
+         WHERE id = ?
+           AND wish_type = 'once'
+           AND status = 'redeemed'`,
+        [now, String(refId).trim()],
+      );
+    }
 
     await conn.commit();
 

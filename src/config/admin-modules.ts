@@ -9,7 +9,7 @@ export type AdminModuleId =
   | 'profile'
   | 'recipes'
   | 'memos'
-  | 'wish'
+  | 'points'
   | 'system'
   | 'ai';
 
@@ -96,8 +96,8 @@ export const ADMIN_MODULES: readonly AdminModuleDef[] = [
   },
   {
     id: 'points',
-    title: '积分模块',
-    tables: ['points_wallet', 'points_ledger'],
+    title: '积分 / 心愿板',
+    tables: ['wish_board_items', 'points_wallet', 'points_ledger'],
   },
   {
     id: 'system',

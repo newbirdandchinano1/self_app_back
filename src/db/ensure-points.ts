@@ -54,7 +54,8 @@ async function columnDataType(tableName: string, columnName: string): Promise<st
 }
 
 /**
- * 幂等：积分钱包/流水表 + default 钱包；并 DROP 已下线的 wish_board_items。
+ * 幂等：积分钱包/流水表 + default 钱包。
+ * 心愿板表由 ensureWishBoardTables 负责，此处不再 DROP。
  */
 export async function ensurePointsTables(): Promise<void> {
   if (!(await tableExists('points_wallet'))) {
@@ -97,12 +98,6 @@ export async function ensurePointsTables(): Promise<void> {
   }
 
   await ensurePointsDecimalAndSignedBalance();
-
-  // 历史心愿板表下线（保留积分表）
-  if (await tableExists('wish_board_items')) {
-    await db.query(`DROP TABLE IF EXISTS wish_board_items`);
-    console.log('[DB] 已删除表 wish_board_items（心愿板功能下线）');
-  }
 
   const [result] = await db.query<ResultSetHeader>(
     `INSERT INTO points_wallet (id, balance, created_at, updated_at, sync_status)

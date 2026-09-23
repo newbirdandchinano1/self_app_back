@@ -27,6 +27,7 @@ export const TABLE_LABELS: Record<AllowedTable, string> = {
   monthly_review_journal: '每月复盘',
   points_ledger: '积分流水',
   points_wallet: '积分钱包',
+  wish_board_items: '心愿板',
   project_categories: '项目分类',
   project_tag_links: '项目标签关联',
   project_tags: '项目标签',
@@ -247,11 +248,20 @@ export const TABLE_COLUMN_LABELS: Partial<
     dimension: '维度名称（冗余）',
   },
   points_ledger: {
-    reason: '变动原因（habit/task/project_complete / points_reset 等；历史 wish_redeem 保留）',
-    ref_type: '关联类型（habit/task/project / points_wallet）',
-    ref_id: '关联实体ID',
-    delta: '积分变动',
+    reason: '变动原因（wish_redeem=已兑换记录来源；另有 habit/task/project_complete / points_reset 等）',
+    ref_type: '关联类型（habit/task/project/wish_board_item / points_wallet）',
+    ref_id: '关联实体ID（兑换时为心愿 id）',
+    delta: '积分变动（兑换为负）',
     balance_after: '变动后余额',
+  },
+  wish_board_items: {
+    title: '心愿标题',
+    description: '描述',
+    cost_points: '兑换所需积分',
+    icon_key: '图标',
+    wish_type: '心愿类型（once/repeat）',
+    status: '状态（active=心愿列表 / redeemed=一次性已兑完）',
+    redeemed_at: '最近兑换时间',
   },
 };
 

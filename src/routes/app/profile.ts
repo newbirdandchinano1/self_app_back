@@ -6,6 +6,7 @@ import {
   getProfileMemoList,
   getProfileRecipes,
   getProfilePoints,
+  getProfileWishBoard,
 } from '../../services/pages/profile.js';
 
 /**
@@ -42,6 +43,16 @@ router.get('/pages/profile/memo-list', async (_req, res, next) => {
 router.get('/pages/profile/points', async (_req, res, next) => {
   try {
     const data = await getProfilePoints();
+    success(res, data);
+  } catch (err) {
+    handleProfileError(err, res, next);
+  }
+});
+
+/** GET /pages/profile/wish-board — 心愿板子页 */
+router.get('/pages/profile/wish-board', async (_req, res, next) => {
+  try {
+    const data = await getProfileWishBoard();
     success(res, data);
   } catch (err) {
     handleProfileError(err, res, next);

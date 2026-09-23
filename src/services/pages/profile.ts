@@ -18,6 +18,7 @@ const MEMO_DIM_TABLE = 'memo_dimensions' as const;
 const MEMO_TABLE = 'memos' as const;
 const WALLET_TABLE = 'points_wallet' as const;
 const LEDGER_TABLE = 'points_ledger' as const;
+const WISH_BOARD_TABLE = 'wish_board_items' as const;
 const RECIPE_CAT_TABLE = 'recipe_categories' as const;
 const RECIPE_ITEM_TABLE = 'recipe_items' as const;
 
@@ -132,6 +133,20 @@ export async function getProfilePoints() {
   ]);
   return {
     pointsWallet,
+    pointsLedger,
+    meta: { serverTime: serverNowIso() },
+  };
+}
+
+export async function getProfileWishBoard() {
+  const [pointsWallet, items, pointsLedger] = await Promise.all([
+    loadSortedRows(WALLET_TABLE, 'id ASC'),
+    loadSortedRows(WISH_BOARD_TABLE, 'sort_order ASC, updated_at DESC, id ASC', `status = 'active'`),
+    loadSortedRows(LEDGER_TABLE, 'created_at DESC, id DESC'),
+  ]);
+  return {
+    pointsWallet,
+    items,
     pointsLedger,
     meta: { serverTime: serverNowIso() },
   };

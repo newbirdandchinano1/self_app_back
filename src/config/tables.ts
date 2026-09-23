@@ -25,6 +25,7 @@ export const ALLOWED_TABLES = [
   'monthly_review_journal',
   'points_ledger',
   'points_wallet',
+  'wish_board_items',
   'project_categories',
   'project_tag_links',
   'project_tags',
@@ -54,6 +55,7 @@ export const TABLE_PRIMARY_KEYS: Partial<Record<AllowedTable, string>> = {
 /** 创建时必须由客户端提供 id，服务端不自动生成（用于多端同步） */
 export const CLIENT_ID_TABLES: readonly AllowedTable[] = [
   'points_ledger',
+  'wish_board_items',
   'project_categories',
   'project_tag_links',
   'project_tags',

@@ -129,4 +129,107 @@ router.post('/points/reset', async (_req, res, next) => {
   }
 });
 
+/**
+ * 兼容旧路径：生产端仍挂 /wish-board/points/*
+ * 新路径优先 /points/*；旧路径保留余额/调账/重置/流水。
+ */
+router.post('/wish-board/points/adjust', async (req, res, next) => {
+  try {
+    const body = req.body ?? {};
+    const deltaRaw = body.delta;
+    const delta =
+      typeof deltaRaw === 'number'
+        ? deltaRaw
+        : typeof deltaRaw === 'string'
+          ? Number(deltaRaw)
+          : NaN;
+
+    const result = await adjustPoints({
+      delta,
+      reason: typeof body.reason === 'string' ? body.reason : '',
+      ref_type: typeof body.ref_type === 'string' ? body.ref_type : null,
+      ref_id: typeof body.ref_id === 'string' ? body.ref_id : null,
+      note: typeof body.note === 'string' ? body.note : null,
+    });
+    const { ok: _ok, ...data } = result;
+    return success(res, data);
+  } catch (err) {
+    if (err instanceof PointsError) {
+      return sendPointsError(res, err);
+    }
+    next(err);
+  }
+});
+
+router.get('/wish-board/points/balance', async (_req, res, next) => {
+  try {
+    const result = await getPointsBalance();
+    return success(res, result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/wish-board/points/reset', async (_req, res, next) => {
+  try {
+    const data = await resetPoints();
+    return success(res, data);
+  } catch (err) {
+    if (err instanceof PointsError) {
+      return sendPointsError(res, err);
+    }
+    next(err);
+  }
+});
+
+/** GET /wish-board/points/ledger — 与 /points/ledger 相同 */
+router.get('/wish-board/points/ledger', async (req, res, next) => {
+  try {
+    const pageRaw = typeof req.query.page === 'string' ? Number(req.query.page) : Number(req.query.page);
+    const limitRaw =
+      typeof req.query.limit === 'string' ? Number(req.query.limit) : Number(req.query.limit);
+    const result = await listPointsLedgerHistory({
+      page: Number.isFinite(pageRaw) ? pageRaw : 1,
+      limit: Number.isFinite(limitRaw) ? limitRaw : 50,
+    });
+    return success(res, result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.delete('/wish-board/points/ledger', async (req, res, next) => {
+  try {
+    const body = req.body ?? {};
+    const idRaw =
+      typeof body.id === 'string' && body.id.trim()
+        ? body.id
+        : typeof req.query.id === 'string'
+          ? req.query.id
+          : '';
+    if (!String(idRaw).trim()) {
+      return fail(res, '参数缺失');
+    }
+    const data = await deletePointsLedgerEntry(String(idRaw));
+    return success(res, data);
+  } catch (err) {
+    if (err instanceof PointsError) {
+      return sendPointsError(res, err);
+    }
+    next(err);
+  }
+});
+
+router.delete('/wish-board/points/ledger/:id', async (req, res, next) => {
+  try {
+    const data = await deletePointsLedgerEntry(String(req.params.id ?? ''));
+    return success(res, data);
+  } catch (err) {
+    if (err instanceof PointsError) {
+      return sendPointsError(res, err);
+    }
+    next(err);
+  }
+});
+
 export default router;
