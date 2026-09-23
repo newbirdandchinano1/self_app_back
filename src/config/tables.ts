@@ -36,6 +36,8 @@ export const ALLOWED_TABLES = [
   'review_dimensions',
   'savings_plan_deposits',
   'savings_plans',
+  'schedule_placements',
+  'schedule_week_axis_snapshot',
   'task_categories',
   'task_execution_events',
   'task_items',
@@ -50,6 +52,7 @@ export type AllowedTable = (typeof ALLOWED_TABLES)[number];
 export const TABLE_PRIMARY_KEYS: Partial<Record<AllowedTable, string>> = {
   app_meta: 'key',
   app_settings: 'key',
+  schedule_week_axis_snapshot: 'week_start_ymd',
 };
 
 /** 创建时必须由客户端提供 id，服务端不自动生成（用于多端同步） */
@@ -60,6 +63,7 @@ export const CLIENT_ID_TABLES: readonly AllowedTable[] = [
   'project_tag_links',
   'project_tags',
   'projects',
+  'schedule_placements',
   'task_categories',
 ];
 

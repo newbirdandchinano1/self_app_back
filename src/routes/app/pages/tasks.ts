@@ -15,6 +15,13 @@ import {
   type FrogSubjectKind,
 } from '../../../services/pages/frog-assign.js';
 import { getFrogCandidates } from '../../../services/pages/frog-candidates.js';
+import {
+  deleteFrogSchedulePlacement,
+  FrogScheduleError,
+  getFrogScheduleWeek,
+  saveFrogScheduleAxis,
+  upsertFrogSchedulePlacement,
+} from '../../../services/pages/frog-schedule.js';
 import { success } from '../../../utils/response.js';
 import {
   parseBoolQuery,
@@ -73,6 +80,80 @@ router.post('/pages/tasks/frog-assign', async (req, res, next) => {
     success(res, data);
   } catch (err) {
     if (err instanceof FrogAssignError) {
+      res.status(err.status).json({ success: false, message: err.message });
+      return;
+    }
+    next(err);
+  }
+});
+
+/** 周课程表：读一周占用 + 轴 */
+router.get('/pages/tasks/frog-schedule', async (req, res, next) => {
+  try {
+    const data = await getFrogScheduleWeek({
+      weekStartYmd: parseStringQuery(req.query.weekStartYmd) ?? '',
+      logicalTodayYmd: parseStringQuery(req.query.logicalTodayYmd),
+    });
+    success(res, data);
+  } catch (err) {
+    if (err instanceof FrogScheduleError) {
+      res.status(err.status).json({ success: false, message: err.message });
+      return;
+    }
+    next(err);
+  }
+});
+
+/** 周课程表：保存全局时间轴 */
+router.post('/pages/tasks/frog-schedule/axis', async (req, res, next) => {
+  try {
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const data = await saveFrogScheduleAxis({
+      startMinutes: Number(body.startMinutes),
+      endMinutes: Number(body.endMinutes),
+      slotHours: Number(body.slotHours),
+      updatedAt: typeof body.updatedAt === 'string' ? body.updatedAt : undefined,
+    });
+    success(res, data);
+  } catch (err) {
+    if (err instanceof FrogScheduleError) {
+      res.status(err.status).json({ success: false, message: err.message });
+      return;
+    }
+    next(err);
+  }
+});
+
+/** 周课程表：写入 / 删除占用 */
+router.post('/pages/tasks/frog-schedule/placement', async (req, res, next) => {
+  try {
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const action = body.action === 'delete' ? 'delete' : 'upsert';
+    if (action === 'delete') {
+      const id = String(body.id ?? '');
+      const data = await deleteFrogSchedulePlacement(id);
+      success(res, data);
+      return;
+    }
+    const p = (body.placement ?? body) as Record<string, unknown>;
+    const data = await upsertFrogSchedulePlacement({
+      id: String(p.id ?? ''),
+      weekStartYmd: String(p.weekStartYmd ?? p.week_start_ymd ?? ''),
+      weekday: Number(p.weekday),
+      startSlotIndex:
+        p.startSlotIndex == null && p.start_slot_index == null
+          ? null
+          : Number(p.startSlotIndex ?? p.start_slot_index),
+      spanSlots: Number(p.spanSlots ?? p.span_slots ?? 1),
+      subjectKind: p.subjectKind === 'project' || p.subject_kind === 'project' ? 'project' : 'task',
+      subjectId: String(p.subjectId ?? p.subject_id ?? ''),
+      orphaned: Number(p.orphaned ?? 0),
+      createdAt: typeof p.createdAt === 'string' ? p.createdAt : typeof p.created_at === 'string' ? p.created_at : undefined,
+      updatedAt: typeof p.updatedAt === 'string' ? p.updatedAt : typeof p.updated_at === 'string' ? p.updated_at : undefined,
+    });
+    success(res, data);
+  } catch (err) {
+    if (err instanceof FrogScheduleError) {
       res.status(err.status).json({ success: false, message: err.message });
       return;
     }

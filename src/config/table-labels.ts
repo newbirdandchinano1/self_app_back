@@ -38,6 +38,8 @@ export const TABLE_LABELS: Record<AllowedTable, string> = {
   review_dimensions: '复盘维度',
   savings_plan_deposits: '储蓄存入记录',
   savings_plans: '储蓄计划',
+  schedule_placements: '课程表占用',
+  schedule_week_axis_snapshot: '课程表周轴快照',
   task_categories: '任务分类',
   task_execution_events: '待办事项',
   task_items: '任务子项',
