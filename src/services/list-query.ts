@@ -9,6 +9,8 @@ export interface ListQueryParams {
   updatedSince?: string;
   startDate?: string;
   endDate?: string;
+  /** habit_check_ins：按习惯主键过滤 */
+  habitId?: string;
   dueDateGte?: string;
   dueDateLte?: string;
   frogAssignedOnGte?: string;
@@ -147,6 +149,11 @@ export function buildListQuery(
 
   if (table === 'habit_check_ins') {
     pushYmdRange(clauses, values, 'record_date', params.startDate, params.endDate);
+    const habitId = params.habitId?.trim();
+    if (habitId) {
+      clauses.push('habit_id = ?');
+      values.push(habitId);
+    }
   }
 
   if (table === 'task_execution_events') {
@@ -229,6 +236,7 @@ export function parseListQueryFromRequest(query: Record<string, unknown>): ListQ
     updatedSince: typeof query.updatedSince === 'string' ? query.updatedSince : undefined,
     startDate: typeof query.startDate === 'string' ? query.startDate : undefined,
     endDate: typeof query.endDate === 'string' ? query.endDate : undefined,
+    habitId: typeof query.habitId === 'string' ? query.habitId : undefined,
     dueDateGte: typeof query.dueDateGte === 'string' ? query.dueDateGte : undefined,
     dueDateLte: typeof query.dueDateLte === 'string' ? query.dueDateLte : undefined,
     frogAssignedOnGte: typeof query.frogAssignedOnGte === 'string' ? query.frogAssignedOnGte : undefined,
