@@ -6,6 +6,7 @@ import { ensureDropEarnedRewards } from './db/ensure-drop-earned-rewards.js';
 import { ensureDropProfileFeatures } from './db/ensure-drop-profile-features.js';
 import { ensureHealthDropUserId } from './db/ensure-health-drop-user-id.js';
 import { ensureProjectsPriorityColumn } from './db/ensure-projects-priority.js';
+import { ensureMemosPinnedColumn } from './db/ensure-memos-pinned.js';
 import { ensureProjectTagsTables } from './db/ensure-project-tags.js';
 import { ensureUsersPersonaPortraitColumn } from './db/ensure-users-persona-portrait.js';
 import { ensurePointsTables } from './db/ensure-points.js';
@@ -35,6 +36,7 @@ async function bootstrap() {
   await waitForDb();
   await initAdminTable();
   await ensureProjectsPriorityColumn();
+  await ensureMemosPinnedColumn();
   await ensureUsersPersonaPortraitColumn();
   await ensureDropProfileFeatures();
   await ensureDropEarnedRewards();

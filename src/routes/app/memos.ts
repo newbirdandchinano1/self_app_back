@@ -120,6 +120,7 @@ router.post('/memos', async (req, res, next) => {
       body: body.body,
       dimension_id: body.dimension_id,
       linked_task_id: body.linked_task_id,
+      is_pinned: body.is_pinned,
     });
     success(res, data, '创建成功');
   } catch (err) {
@@ -136,6 +137,7 @@ router.put('/memos/:id', async (req, res, next) => {
       body: body.body,
       dimension_id: body.dimension_id,
       linked_task_id: body.linked_task_id,
+      is_pinned: body.is_pinned,
     });
     success(res, data, '更新成功');
   } catch (err) {

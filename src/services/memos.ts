@@ -44,7 +44,13 @@ type MemoRow = {
   version: number;
   dimension: string | null;
   dimension_id: string | null;
+  is_pinned?: number | null;
 };
+
+function coercePinned(value: unknown): number {
+  if (value === true || value === 1 || value === '1') return 1;
+  return 0;
+}
 
 function nowUtcMysql(): string {
   return formatUtcMySQLDateTime(new Date());
@@ -88,6 +94,7 @@ function formatMemo(row: MemoRow) {
       linked_task_id: row.linked_task_id,
       dimension: row.dimension,
       dimension_id: row.dimension_id,
+      is_pinned: coercePinned(row.is_pinned),
       created_at: row.created_at,
       updated_at: row.updated_at,
       sync_status: row.sync_status,
@@ -111,7 +118,8 @@ async function getActiveDimension(id: string): Promise<DimensionRow | null> {
 async function getActiveMemo(id: string): Promise<MemoRow | null> {
   const [rows] = await db.query<RowDataPacket[]>(
     `SELECT id, title, body, ai_evaluation, ai_suggestions, ai_review_at, linked_task_id,
-            created_at, updated_at, deleted_at, sync_status, version, dimension, dimension_id
+            created_at, updated_at, deleted_at, sync_status, version, dimension, dimension_id,
+            COALESCE(is_pinned, 0) AS is_pinned
      FROM memos
      WHERE id = ? AND deleted_at IS NULL
      LIMIT 1`,
@@ -264,10 +272,11 @@ export async function deleteMemoDimension(dimensionId: string) {
 export async function listMemos() {
   const [rows] = await db.query<RowDataPacket[]>(
     `SELECT id, title, body, ai_evaluation, ai_suggestions, ai_review_at, linked_task_id,
-            created_at, updated_at, deleted_at, sync_status, version, dimension, dimension_id
+            created_at, updated_at, deleted_at, sync_status, version, dimension, dimension_id,
+            COALESCE(is_pinned, 0) AS is_pinned
      FROM memos
      WHERE deleted_at IS NULL
-     ORDER BY updated_at DESC, created_at DESC, id ASC`,
+     ORDER BY COALESCE(is_pinned, 0) DESC, updated_at DESC, created_at DESC, id ASC`,
   );
   return (rows as MemoRow[]).map(formatMemo);
 }
@@ -282,10 +291,11 @@ export async function listMemosByDimension(dimensionId: string) {
 
   const [rows] = await db.query<RowDataPacket[]>(
     `SELECT id, title, body, ai_evaluation, ai_suggestions, ai_review_at, linked_task_id,
-            created_at, updated_at, deleted_at, sync_status, version, dimension, dimension_id
+            created_at, updated_at, deleted_at, sync_status, version, dimension, dimension_id,
+            COALESCE(is_pinned, 0) AS is_pinned
      FROM memos
      WHERE dimension_id = ? AND deleted_at IS NULL
-     ORDER BY updated_at DESC, created_at DESC, id ASC`,
+     ORDER BY COALESCE(is_pinned, 0) DESC, updated_at DESC, created_at DESC, id ASC`,
     [id],
   );
 
@@ -318,6 +328,7 @@ export type CreateMemoInput = {
   body?: unknown;
   dimension_id?: unknown;
   linked_task_id?: unknown;
+  is_pinned?: unknown;
 };
 
 /** 新建备忘 */
@@ -341,6 +352,7 @@ export async function createMemo(input: CreateMemoInput) {
       ? null
       : asTrimmedString(input.linked_task_id) || null;
 
+  const isPinned = coercePinned(input.is_pinned);
   const id = asTrimmedString(input.id) || randomUUID();
   const now = nowUtcMysql();
 
@@ -348,9 +360,9 @@ export async function createMemo(input: CreateMemoInput) {
     await db.query(
       `INSERT INTO memos
          (id, title, body, ai_evaluation, ai_suggestions, ai_review_at, linked_task_id,
-          created_at, updated_at, deleted_at, sync_status, version, dimension, dimension_id)
-       VALUES (?, ?, ?, NULL, NULL, NULL, ?, ?, ?, NULL, 'synced', 1, ?, ?)`,
-      [id, title, body, linkedTaskId, now, now, dimensionName, dimensionId],
+          created_at, updated_at, deleted_at, sync_status, version, dimension, dimension_id, is_pinned)
+       VALUES (?, ?, ?, NULL, NULL, NULL, ?, ?, ?, NULL, 'synced', 1, ?, ?, ?)`,
+      [id, title, body, linkedTaskId, now, now, dimensionName, dimensionId, isPinned],
     );
   } catch (err) {
     if ((err as { code?: string }).code === 'ER_DUP_ENTRY') {
@@ -369,6 +381,7 @@ export type UpdateMemoInput = {
   body?: unknown;
   dimension_id?: unknown;
   linked_task_id?: unknown;
+  is_pinned?: unknown;
 };
 
 /** 修改备忘 */
@@ -411,6 +424,10 @@ export async function updateMemo(memoId: string, input: UpdateMemoInput) {
         ? null
         : asTrimmedString(input.linked_task_id) || null,
     );
+  }
+  if (input.is_pinned !== undefined) {
+    updates.push('is_pinned = ?');
+    values.push(coercePinned(input.is_pinned));
   }
 
   if (updates.length === 0) throw new MemoError('没有可更新的字段');

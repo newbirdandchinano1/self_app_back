@@ -273,7 +273,7 @@ export const TABLE_COLUMN_LABELS: Partial<
   },
   tag_links: {
     tag_id: '标签ID',
-    entity_type: '实体类型（project|habit|task）',
+    entity_type: '实体类型（project|habit|task|memo）',
     entity_id: '实体ID',
   },
   memo_dimensions: {
@@ -282,6 +282,7 @@ export const TABLE_COLUMN_LABELS: Partial<
   memos: {
     dimension_id: '备忘录维度ID',
     dimension: '维度名称（冗余）',
+    is_pinned: '是否置顶（0/1）',
   },
   points_ledger: {
     reason: '变动原因（wish_redeem=已兑换记录来源；另有 habit/task/project_complete / points_reset 等）',

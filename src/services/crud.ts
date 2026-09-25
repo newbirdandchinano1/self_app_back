@@ -87,6 +87,8 @@ export class CrudError extends Error {
 const ENSURE_ON_MISSING_TABLES = new Set<AllowedTable>([
   'schedule_week_axis_snapshot',
   'schedule_placements',
+  'tags',
+  'tag_links',
 ]);
 
 async function loadTableColumns(table: AllowedTable): Promise<RowDataPacket[]> {
@@ -108,8 +110,13 @@ export async function getTableMeta(table: AllowedTable): Promise<TableMeta> {
 
   // 白名单已登记但物理表尚未创建（部署后未重启 / ensure 未跑）：按需补建
   if (rows.length === 0 && ENSURE_ON_MISSING_TABLES.has(table)) {
-    const { ensureFrogScheduleTables } = await import('../db/ensure-frog-schedule.js');
-    await ensureFrogScheduleTables();
+    if (table === 'schedule_week_axis_snapshot' || table === 'schedule_placements') {
+      const { ensureFrogScheduleTables } = await import('../db/ensure-frog-schedule.js');
+      await ensureFrogScheduleTables();
+    } else if (table === 'tags' || table === 'tag_links') {
+      const { ensureProjectTagsTables } = await import('../db/ensure-project-tags.js');
+      await ensureProjectTagsTables();
+    }
     rows = await loadTableColumns(table);
   }
 

@@ -183,6 +183,7 @@ export const TABLE_ENUM_COLUMNS: Partial<
       { value: 'project', label: '项目' },
       { value: 'habit', label: '习惯' },
       { value: 'task', label: '任务/待办' },
+      { value: 'memo', label: '备忘录' },
     ],
   },
   tasks: {
