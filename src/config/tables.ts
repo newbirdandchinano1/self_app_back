@@ -28,6 +28,7 @@ export const ALLOWED_TABLES = [
   'points_wallet',
   'wish_board_items',
   'project_categories',
+  'project_completion_logs',
   'project_tag_links',
   'project_tags',
   'projects',
