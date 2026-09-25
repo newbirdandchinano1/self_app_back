@@ -57,6 +57,7 @@ export const ADMIN_MODULES: readonly AdminModuleDef[] = [
       'finance_account_types',
       'finance_accounts',
       'finance_flow_categories',
+      'finance_scheduled_expenses',
       'finance_transactions',
       'accounts',
       'account_transactions',

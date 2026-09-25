@@ -26,6 +26,7 @@ const TXN_TABLE = 'finance_transactions' as const;
 const ACCOUNT_TABLE = 'finance_accounts' as const;
 const ACCOUNT_TYPE_TABLE = 'finance_account_types' as const;
 const CATEGORY_TABLE = 'finance_flow_categories' as const;
+const SCHEDULED_EXPENSE_TABLE = 'finance_scheduled_expenses' as const;
 
 const DEFAULT_DAYS_BACK = 90;
 const MAX_DAYS_BACK = 366;
@@ -629,6 +630,10 @@ async function loadAccountTypes(): Promise<Record<string, unknown>[]> {
   return loadSortedRows(ACCOUNT_TYPE_TABLE, 'sort_order ASC, name ASC, id ASC');
 }
 
+async function loadScheduledExpenses(): Promise<Record<string, unknown>[]> {
+  return loadSortedRows(SCHEDULED_EXPENSE_TABLE, 'created_at ASC, id ASC');
+}
+
 async function existsTxnBeforeDay(logicalDayExpr: string, beforeYmd: string, extraWhere = '', extraValues: unknown[] = []): Promise<boolean> {
   const { columns } = await loadMeta(TXN_TABLE);
   const [rows] = await db.query<RowDataPacket[]>(
@@ -734,18 +739,21 @@ export async function getFinanceHome(params: FinanceHomeParams) {
     )`;
   const txnValues: unknown[] = [window.windowStart, logicalToday, ...historyDayList];
 
-  const [accountsPayload, categories, transactions, historyHasMore, monthly] = await Promise.all([
-    loadAccountsWithBalance(),
-    loadCategories(),
-    loadTransactionsWhere(txnWhere, txnValues),
-    existsTxnBeforeDay(logicalDayExpr, window.windowStart),
-    loadMonthlyIncomeExpense(logicalDayExpr, monthKeyFromYmd(logicalToday)),
-  ]);
+  const [accountsPayload, categories, transactions, historyHasMore, monthly, scheduledExpenses] =
+    await Promise.all([
+      loadAccountsWithBalance(),
+      loadCategories(),
+      loadTransactionsWhere(txnWhere, txnValues),
+      existsTxnBeforeDay(logicalDayExpr, window.windowStart),
+      loadMonthlyIncomeExpense(logicalDayExpr, monthKeyFromYmd(logicalToday)),
+      loadScheduledExpenses(),
+    ]);
 
   return {
     accounts: accountsPayload.accounts,
     categories,
     transactions,
+    scheduledExpenses,
     historyHasMore,
     netWorth: accountsPayload.netWorth,
     monthly,
@@ -760,26 +768,38 @@ export async function getFinanceHome(params: FinanceHomeParams) {
 }
 
 export async function getFinanceCatalog() {
-  const [accountsPayload, accountTypes, categories, accountCount, typeCount, categoryCount] =
-    await Promise.all([
-      loadAccountsWithBalance(),
-      loadAccountTypes(),
-      loadCategories(),
-      tableCount(ACCOUNT_TABLE),
-      tableCount(ACCOUNT_TYPE_TABLE),
-      tableCount(CATEGORY_TABLE),
-    ]);
+  const [
+    accountsPayload,
+    accountTypes,
+    categories,
+    scheduledExpenses,
+    accountCount,
+    typeCount,
+    categoryCount,
+    scheduledExpenseCount,
+  ] = await Promise.all([
+    loadAccountsWithBalance(),
+    loadAccountTypes(),
+    loadCategories(),
+    loadScheduledExpenses(),
+    tableCount(ACCOUNT_TABLE),
+    tableCount(ACCOUNT_TYPE_TABLE),
+    tableCount(CATEGORY_TABLE),
+    tableCount(SCHEDULED_EXPENSE_TABLE),
+  ]);
 
   return {
     accounts: accountsPayload.accounts,
     accountTypes,
     categories,
+    scheduledExpenses,
     meta: {
       serverTime: serverNowIso(),
       tablesVersion: {
         finance_accounts: { count: accountCount },
         finance_account_types: { count: typeCount },
         finance_flow_categories: { count: categoryCount },
+        finance_scheduled_expenses: { count: scheduledExpenseCount },
       },
     },
   };

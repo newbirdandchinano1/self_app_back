@@ -1,0 +1,27 @@
+-- 定时支出规则表（已有库增量迁移）
+CREATE TABLE IF NOT EXISTS `finance_scheduled_expenses`  (
+  `id` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `amount` double NOT NULL,
+  `account_id` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `repeat_option` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'daily',
+  `weekly_days` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL,
+  `monthly_days` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL,
+  `hour` int NOT NULL DEFAULT 8,
+  `minute` int NOT NULL DEFAULT 0,
+  `times_per_day` int NOT NULL DEFAULT 1,
+  `flow_category_id` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL DEFAULT NULL,
+  `category_key` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL DEFAULT NULL,
+  `category_label` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL DEFAULT NULL,
+  `include_in_budget` int NOT NULL DEFAULT 1,
+  `enabled` int NOT NULL DEFAULT 1,
+  `created_at` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `updated_at` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `deleted_at` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL DEFAULT NULL,
+  `sync_status` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'pending_create',
+  `version` int NOT NULL DEFAULT 1,
+  `extra_data` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL,
+  PRIMARY KEY (`id`) USING BTREE,
+  INDEX `idx_fse_account_id`(`account_id`) USING BTREE,
+  INDEX `idx_fse_updated_at`(`updated_at`) USING BTREE
+) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_unicode_ci ROW_FORMAT = DYNAMIC;

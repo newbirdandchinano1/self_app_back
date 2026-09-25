@@ -24,12 +24,26 @@ export async function ensureFrogScheduleTables(): Promise<void> {
         start_minutes INT NOT NULL,
         end_minutes INT NOT NULL,
         slot_hours INT NOT NULL,
+        breaks_json TEXT NULL,
         created_at VARCHAR(255) NOT NULL,
         sync_status VARCHAR(64) NOT NULL DEFAULT 'synced',
         PRIMARY KEY (week_start_ymd)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC
     `);
     console.log('[DB] 已创建表 schedule_week_axis_snapshot');
+  } else {
+    const [cols] = await db.query<RowDataPacket[]>(
+      `SELECT COLUMN_NAME AS name FROM information_schema.COLUMNS
+       WHERE TABLE_SCHEMA = DATABASE()
+         AND TABLE_NAME = 'schedule_week_axis_snapshot'
+         AND COLUMN_NAME = 'breaks_json'`,
+    );
+    if (cols.length === 0) {
+      await db.query(
+        `ALTER TABLE schedule_week_axis_snapshot ADD COLUMN breaks_json TEXT NULL`,
+      );
+      console.log('[DB] schedule_week_axis_snapshot 已添加 breaks_json');
+    }
   }
 
   if (!(await tableExists('schedule_placements'))) {

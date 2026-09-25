@@ -102,6 +102,7 @@ router.post('/pages/tasks/frog-schedule/axis', async (req, res, next) => {
       startMinutes: Number(body.startMinutes),
       endMinutes: Number(body.endMinutes),
       slotHours: Number(body.slotHours),
+      breaks: Array.isArray(body.breaks) ? (body.breaks as Array<{ startMinutes: number; endMinutes: number; label: string }>) : [],
       updatedAt: typeof body.updatedAt === 'string' ? body.updatedAt : undefined,
     });
     success(res, data);

@@ -13,10 +13,17 @@ export class FrogScheduleError extends Error {
   }
 }
 
+type ScheduleBreak = {
+  startMinutes: number;
+  endMinutes: number;
+  label: string;
+};
+
 type AxisRow = {
   startMinutes: number;
   endMinutes: number;
   slotHours: number;
+  breaks: ScheduleBreak[];
   updatedAt?: string;
 };
 
@@ -27,22 +34,63 @@ function snapHourMinutes(n: number, allow24: boolean): number {
   return Math.floor(clamped / 60) * 60;
 }
 
+function normalizeBreaks(
+  raw: unknown,
+  dayStartMinutes: number,
+  dayEndMinutes: number,
+): ScheduleBreak[] {
+  if (!Array.isArray(raw)) return [];
+  const dayStart = snapHourMinutes(dayStartMinutes, false);
+  const dayEnd = snapHourMinutes(dayEndMinutes, true);
+  const parsed: ScheduleBreak[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) continue;
+    const o = item as Record<string, unknown>;
+    const start = snapHourMinutes(Number(o.startMinutes), false);
+    const end = snapHourMinutes(Number(o.endMinutes), true);
+    if (!(end > start)) continue;
+    const clippedStart = Math.max(start, dayStart);
+    const clippedEnd = Math.min(end, dayEnd);
+    if (!(clippedEnd > clippedStart)) continue;
+    const labelRaw = typeof o.label === 'string' ? o.label.replace(/\s+/g, '').slice(0, 6) : '';
+    parsed.push({
+      startMinutes: clippedStart,
+      endMinutes: clippedEnd,
+      label: labelRaw || '休息',
+    });
+  }
+  parsed.sort((a, b) => a.startMinutes - b.startMinutes || a.endMinutes - b.endMinutes);
+  const merged: ScheduleBreak[] = [];
+  for (const b of parsed) {
+    const last = merged[merged.length - 1];
+    if (last && b.startMinutes <= last.endMinutes) {
+      last.endMinutes = Math.max(last.endMinutes, b.endMinutes);
+    } else {
+      merged.push({ ...b });
+    }
+  }
+  return merged.slice(0, 8);
+}
+
 function parseAxisJson(raw: unknown): AxisRow {
-  const defaults = { startMinutes: 8 * 60, endMinutes: 22 * 60, slotHours: 2 };
+  const defaults = { startMinutes: 8 * 60, endMinutes: 22 * 60, slotHours: 2, breaks: [] as ScheduleBreak[] };
   if (raw == null) return defaults;
   try {
     const o = typeof raw === 'string' ? (JSON.parse(raw) as Record<string, unknown>) : (raw as Record<string, unknown>);
     const startMinutes = Number(o.startMinutes ?? defaults.startMinutes);
     const endMinutes = Number(o.endMinutes ?? defaults.endMinutes);
     const slotHours = Number(o.slotHours ?? defaults.slotHours);
+    const start = Number.isFinite(startMinutes)
+      ? snapHourMinutes(startMinutes, false)
+      : defaults.startMinutes;
+    const end = Number.isFinite(endMinutes)
+      ? snapHourMinutes(endMinutes, true)
+      : defaults.endMinutes;
     return {
-      startMinutes: Number.isFinite(startMinutes)
-        ? snapHourMinutes(startMinutes, false)
-        : defaults.startMinutes,
-      endMinutes: Number.isFinite(endMinutes)
-        ? snapHourMinutes(endMinutes, true)
-        : defaults.endMinutes,
+      startMinutes: start,
+      endMinutes: end,
       slotHours: slotHours === 1 || slotHours === 2 || slotHours === 3 || slotHours === 4 ? slotHours : 2,
+      breaks: normalizeBreaks(o.breaks, start, end),
       updatedAt: typeof o.updatedAt === 'string' ? o.updatedAt : undefined,
     };
   } catch {
@@ -60,16 +108,29 @@ async function getGlobalAxis(): Promise<AxisRow> {
 
 async function getWeekSnapshot(weekStartYmd: string): Promise<AxisRow | null> {
   const [rows] = await db.query<RowDataPacket[]>(
-    `SELECT start_minutes, end_minutes, slot_hours FROM schedule_week_axis_snapshot
+    `SELECT start_minutes, end_minutes, slot_hours, breaks_json FROM schedule_week_axis_snapshot
      WHERE week_start_ymd = ? LIMIT 1`,
     [weekStartYmd],
   );
   const r = rows[0];
   if (!r) return null;
+  const startMinutes = Number(r.start_minutes);
+  const endMinutes = Number(r.end_minutes);
+  let breaks: ScheduleBreak[] = [];
+  try {
+    breaks = normalizeBreaks(
+      r.breaks_json ? JSON.parse(String(r.breaks_json)) : [],
+      startMinutes,
+      endMinutes,
+    );
+  } catch {
+    breaks = [];
+  }
   return {
-    startMinutes: Number(r.start_minutes),
-    endMinutes: Number(r.end_minutes),
+    startMinutes,
+    endMinutes,
     slotHours: Number(r.slot_hours),
+    breaks,
   };
 }
 
@@ -111,9 +172,16 @@ export async function getFrogScheduleWeek(params: {
       const now = new Date().toISOString();
       await db.query<ResultSetHeader>(
         `INSERT IGNORE INTO schedule_week_axis_snapshot
-          (week_start_ymd, start_minutes, end_minutes, slot_hours, created_at, sync_status)
-         VALUES (?, ?, ?, ?, ?, 'synced')`,
-        [weekStartYmd, axis.startMinutes, axis.endMinutes, axis.slotHours, now],
+          (week_start_ymd, start_minutes, end_minutes, slot_hours, breaks_json, created_at, sync_status)
+         VALUES (?, ?, ?, ?, ?, ?, 'synced')`,
+        [
+          weekStartYmd,
+          axis.startMinutes,
+          axis.endMinutes,
+          axis.slotHours,
+          JSON.stringify(axis.breaks ?? []),
+          now,
+        ],
       );
       fromSnapshot = true;
     }
@@ -134,6 +202,7 @@ export async function getFrogScheduleWeek(params: {
       startMinutes: axis.startMinutes,
       endMinutes: axis.endMinutes,
       slotHours: axis.slotHours,
+      breaks: axis.breaks ?? [],
       fromSnapshot,
     },
     placements: rows.map((r) => ({
@@ -153,6 +222,7 @@ export async function saveFrogScheduleAxis(body: {
   startMinutes: number;
   endMinutes: number;
   slotHours: number;
+  breaks?: ScheduleBreak[];
   updatedAt?: string;
 }) {
   const snapHour = (n: number, allow24: boolean) => snapHourMinutes(Number(n), allow24);
@@ -168,10 +238,12 @@ export async function saveFrogScheduleAxis(body: {
   if (endMinutes - startMinutes < slotHours * 60) {
     throw new FrogScheduleError(`日时间范围至少需要容纳 1 个 ${slotHours} 小时格子`);
   }
+  const breaks = normalizeBreaks(body.breaks, startMinutes, endMinutes);
   const payload = JSON.stringify({
     startMinutes,
     endMinutes,
     slotHours,
+    breaks,
     updatedAt: body.updatedAt || new Date().toISOString(),
   });
   const now = new Date().toISOString();
@@ -181,7 +253,7 @@ export async function saveFrogScheduleAxis(body: {
      ON DUPLICATE KEY UPDATE value_json = VALUES(value_json), updated_at = VALUES(updated_at), sync_status = 'synced'`,
     [AXIS_SETTING_KEY, payload, now],
   );
-  return { startMinutes, endMinutes, slotHours, updatedAt: now };
+  return { startMinutes, endMinutes, slotHours, breaks, updatedAt: now };
 }
 
 export async function upsertFrogSchedulePlacement(body: {

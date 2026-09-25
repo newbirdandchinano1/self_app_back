@@ -13,6 +13,7 @@ export const ALLOWED_TABLES = [
   'finance_account_types',
   'finance_accounts',
   'finance_flow_categories',
+  'finance_scheduled_expenses',
   'finance_transactions',
   'frog_completion_events',
   'habit_check_ins',
@@ -98,6 +99,10 @@ export const TABLE_FOREIGN_KEYS: Partial<
   recipe_items: {
     category_id: 'recipe_categories',
   },
+  finance_scheduled_expenses: {
+    account_id: 'finance_accounts',
+    flow_category_id: 'finance_flow_categories',
+  },
 };
 
 /** 同步上传时的前置依赖表（需先完成 POST，再上传当前表） */
@@ -108,6 +113,7 @@ export const TABLE_SYNC_DEPENDS_ON: Partial<Record<AllowedTable, AllowedTable[]>
   project_tag_links: ['projects', 'project_tags'],
   memos: ['memo_dimensions'],
   recipe_items: ['recipe_categories'],
+  finance_scheduled_expenses: ['finance_accounts', 'finance_flow_categories'],
 };
 
 /** 响应中隐藏的字段 */
