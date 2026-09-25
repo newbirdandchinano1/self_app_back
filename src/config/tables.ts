@@ -32,6 +32,8 @@ export const ALLOWED_TABLES = [
   'project_tag_links',
   'project_tags',
   'projects',
+  'tag_links',
+  'tags',
   'recipe_categories',
   'recipe_items',
   'review_columns',
@@ -66,6 +68,8 @@ export const CLIENT_ID_TABLES: readonly AllowedTable[] = [
   'project_tags',
   'projects',
   'schedule_placements',
+  'tag_links',
+  'tags',
   'task_categories',
 ];
 
@@ -91,6 +95,9 @@ export const TABLE_FOREIGN_KEYS: Partial<
     project_id: 'projects',
     tag_id: 'project_tags',
   },
+  tag_links: {
+    tag_id: 'tags',
+  },
   task_items: {
     task_id: 'tasks',
   },
@@ -112,6 +119,7 @@ export const TABLE_SYNC_DEPENDS_ON: Partial<Record<AllowedTable, AllowedTable[]>
   task_items: ['tasks'],
   projects: ['project_categories'],
   project_tag_links: ['projects', 'project_tags'],
+  tag_links: ['tags'],
   memos: ['memo_dimensions'],
   recipe_items: ['recipe_categories'],
   finance_scheduled_expenses: ['finance_accounts', 'finance_flow_categories'],
@@ -170,6 +178,13 @@ export const PROJECT_STATUS_VALUES = PROJECT_STATUS_OPTIONS.map((o) => o.value);
 export const TABLE_ENUM_COLUMNS: Partial<
   Record<AllowedTable, Partial<Record<string, readonly EnumOption[]>>>
 > = {
+  tag_links: {
+    entity_type: [
+      { value: 'project', label: '项目' },
+      { value: 'habit', label: '习惯' },
+      { value: 'task', label: '任务/待办' },
+    ],
+  },
   tasks: {
     status: TASK_STATUS_OPTIONS,
   },

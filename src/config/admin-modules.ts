@@ -43,6 +43,8 @@ export const ADMIN_MODULES: readonly AdminModuleDef[] = [
       'project_categories',
       'projects',
       'project_completion_logs',
+      'tags',
+      'tag_links',
       'project_tags',
       'project_tag_links',
       'frog_completion_events',

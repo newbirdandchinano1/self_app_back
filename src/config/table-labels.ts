@@ -31,9 +31,11 @@ export const TABLE_LABELS: Record<AllowedTable, string> = {
   wish_board_items: '心愿板',
   project_categories: '项目分类',
   project_completion_logs: '项目完成履历',
-  project_tag_links: '项目标签关联',
-  project_tags: '项目标签',
+  project_tag_links: '项目标签关联（旧）',
+  project_tags: '项目标签（旧）',
   projects: '项目',
+  tag_links: '标签关联',
+  tags: '标签',
   recipe_categories: '食谱分类',
   recipe_items: '食谱',
   review_columns: '复盘栏目',
@@ -264,6 +266,15 @@ export const TABLE_COLUMN_LABELS: Partial<
   project_tag_links: {
     tag_id: '标签ID',
     project_id: '项目ID',
+  },
+  tags: {
+    weight: '权重',
+    color: '颜色',
+  },
+  tag_links: {
+    tag_id: '标签ID',
+    entity_type: '实体类型（project|habit|task）',
+    entity_id: '实体ID',
   },
   memo_dimensions: {
     title: '名称（同 App name）',

@@ -180,10 +180,13 @@ export async function getFrogCandidates(
   if (projectIds.length > 0) {
     try {
       const [tagRows] = await db.query<RowDataPacket[]>(
-        `SELECT pt.project_id, tg.name, tg.color, tg.weight
-         FROM project_tag_links pt
-         INNER JOIN project_tags tg ON tg.id = pt.tag_id
-         WHERE pt.project_id IN (${projectIds.map(() => '?').join(',')})
+        `SELECT tl.entity_id AS project_id, tg.name, tg.color, tg.weight
+         FROM tag_links tl
+         INNER JOIN tags tg ON tg.id = tl.tag_id
+         WHERE tl.entity_type = 'project'
+           AND tl.entity_id IN (${projectIds.map(() => '?').join(',')})
+           AND (tl.sync_status IS NULL OR tl.sync_status != 'pending_delete')
+           AND (tg.sync_status IS NULL OR tg.sync_status != 'pending_delete')
          ORDER BY tg.weight DESC, tg.name ASC`,
         projectIds,
       );
