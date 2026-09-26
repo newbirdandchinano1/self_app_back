@@ -1,7 +1,11 @@
-/** 允许通过 API 操作的表白名单 */
+/**
+ * 允许通过 API 操作的表白名单。
+ *
+ * 财务权威账本：`finance_*`（账户 / 流水 / 分类 / 定时支出）。
+ * 卫星能力（非第二套账本）：`cash_flow_*`、`savings_*`。
+ * 已下线遗留表：`accounts`、`account_transactions`（勿再加回白名单）。
+ */
 export const ALLOWED_TABLES = [
-  'account_transactions',
-  'accounts',
   'admin_users',
   'app_meta',
   'app_settings',
@@ -29,8 +33,6 @@ export const ALLOWED_TABLES = [
   'wish_board_items',
   'project_categories',
   'project_completion_logs',
-  'project_tag_links',
-  'project_tags',
   'projects',
   'tag_links',
   'tags',
@@ -64,8 +66,6 @@ export const CLIENT_ID_TABLES: readonly AllowedTable[] = [
   'points_ledger',
   'wish_board_items',
   'project_categories',
-  'project_tag_links',
-  'project_tags',
   'projects',
   'schedule_placements',
   'tag_links',
@@ -91,18 +91,11 @@ export const TABLE_FOREIGN_KEYS: Partial<
   projects: {
     category_id: 'project_categories',
   },
-  project_tag_links: {
-    project_id: 'projects',
-    tag_id: 'project_tags',
-  },
   tag_links: {
     tag_id: 'tags',
   },
   task_items: {
     task_id: 'tasks',
-  },
-  memos: {
-    dimension_id: 'memo_dimensions',
   },
   recipe_items: {
     category_id: 'recipe_categories',
@@ -118,9 +111,7 @@ export const TABLE_SYNC_DEPENDS_ON: Partial<Record<AllowedTable, AllowedTable[]>
   tasks: ['task_categories', 'project_categories', 'projects'],
   task_items: ['tasks'],
   projects: ['project_categories'],
-  project_tag_links: ['projects', 'project_tags'],
   tag_links: ['tags'],
-  memos: ['memo_dimensions'],
   recipe_items: ['recipe_categories'],
   finance_scheduled_expenses: ['finance_accounts', 'finance_flow_categories'],
 };
@@ -215,4 +206,50 @@ export function getPrimaryKey(table: AllowedTable): string {
 
 export function requiresClientId(table: AllowedTable): boolean {
   return (CLIENT_ID_TABLES as readonly string[]).includes(table);
+}
+
+/**
+ * 高危表：禁止经 `/api/data/:table` 通用 POST/PUT/PATCH/DELETE。
+ * 只允许 GET；写入必须走专用业务接口（事务 / 校验 / 级联）。
+ * 管理后台 `x-admin-panel` 同样禁止，避免万能钥匙绕过钱包等逻辑。
+ */
+export const GENERIC_WRITE_FORBIDDEN_TABLES = {
+  points_ledger:
+    'POST /api/app/points/adjust、DELETE /api/app/points/ledger/:id（勿直接写流水）',
+  points_wallet:
+    'POST /api/app/points/adjust、GET /api/app/points/balance（禁止直接改余额）',
+  wish_board_items:
+    'POST/PATCH/DELETE /api/app/wish-board/items、POST /api/app/wish-board/redeem',
+  memos: 'POST/PUT/DELETE /api/app/memos',
+  /** 维度已下线，仅保留读；写入应走 tags */
+  memo_dimensions: '（已下线）分类请用 tags / tag_links',
+  health_records: 'POST/PUT/PATCH/DELETE /api/app/health/intakes',
+  recipe_categories: 'POST/PATCH/DELETE /api/app/recipes/categories',
+  recipe_items: 'POST/PUT/DELETE /api/app/recipes',
+  /** 课表仅视图/排课层：写入走 frog-schedule 专用接口 */
+  schedule_placements: 'POST /api/app/pages/tasks/frog-schedule/placement',
+  schedule_week_axis_snapshot:
+    'POST /api/app/pages/tasks/frog-schedule/axis（周轴由服务端随轴设置写入快照）',
+  finance_transactions:
+    'POST/PUT/PATCH/DELETE /api/app/pages/finance/transactions',
+} as const satisfies Partial<Record<AllowedTable, string>>;
+
+export type GenericWriteForbiddenTable = keyof typeof GENERIC_WRITE_FORBIDDEN_TABLES;
+
+export function isGenericWriteForbidden(table: string): table is GenericWriteForbiddenTable {
+  return Object.prototype.hasOwnProperty.call(GENERIC_WRITE_FORBIDDEN_TABLES, table);
+}
+
+export function getGenericWriteForbiddenHint(table: string): string | null {
+  if (!isGenericWriteForbidden(table)) return null;
+  return GENERIC_WRITE_FORBIDDEN_TABLES[table];
+}
+
+/** 构造 403 文案：表名 + 正确端点提示 */
+export function formatGenericWriteForbiddenMessage(table: string): string {
+  const hint = getGenericWriteForbiddenHint(table);
+  if (!hint) {
+    return `表 ${table} 禁止通过通用 CRUD 写入，请使用专用业务接口`;
+  }
+  return `表 ${table} 禁止通过 /api/data 通用写入，请改用：${hint}`;
 }

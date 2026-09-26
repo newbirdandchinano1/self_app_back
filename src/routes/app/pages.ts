@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { requireAuth } from '../../middlewares/auth.js';
-import { getProjectList } from '../../services/pages/project-list.js';
+import { getProjectList } from '../../services/pages/tasks-list.js';
 import { success } from '../../utils/response.js';
 import { parseListFilterParams } from './pages/query.js';
 import tasksRouter from './pages/tasks.js';

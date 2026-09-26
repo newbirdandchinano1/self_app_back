@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { requireAuth } from '../../middlewares/auth.js';
 import { success, fail } from '../../utils/response.js';
+import { createDomainErrorHandler } from '../../utils/domain-error-handler.js';
 import { AiScenarioError } from '../../services/zhipu/scenarios.js';
 import {
   analyzeAiFinanceDashboardFromText,
@@ -26,12 +27,7 @@ function requireNonEmptyString(value: unknown, fieldName: string): string | null
   return null;
 }
 
-function handleAiError(err: unknown, res: Parameters<typeof fail>[0], next: (err: unknown) => void) {
-  if (err instanceof AiScenarioError) {
-    return fail(res, err.message, -1, err.httpStatus);
-  }
-  next(err);
-}
+const handleAiError = createDomainErrorHandler(AiScenarioError, { statusKey: 'httpStatus' });
 
 router.use(requireAuth);
 

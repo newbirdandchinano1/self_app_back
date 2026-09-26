@@ -438,7 +438,7 @@
 
     async function checkAuth() {
       if (!token) { location.href = '/login'; return false; }
-      const data = await api('/api/auth/me');
+      const data = await api('/api/app/auth/me');
       if (data.code !== 0) { location.href = '/login'; return false; }
       document.getElementById('userInfo').textContent = data.data.admin.username;
       return true;
@@ -458,7 +458,7 @@
     }
 
     async function loadTables() {
-      const data = await api('/api/tables');
+      const data = await api('/api/app/tables');
       const payload = data.data;
       if (Array.isArray(payload)) {
         tables = payload;
@@ -602,7 +602,7 @@
 
     async function loadData() {
       if (!currentTable) return;
-      const data = await api(`/api/data/${currentTable}?page=${currentPage}&limit=30`);
+      const data = await api(`/api/app/data/${currentTable}?page=${currentPage}&limit=30`);
       if (data.code !== 0) { toast(data.message, true); return; }
 
       currentData = data.data.list || [];
@@ -1094,10 +1094,10 @@
       const payload = collectFormData();
       let data;
       if (modalMode === 'create') {
-        data = await api(`/api/data/${currentTable}`, { method: 'POST', body: JSON.stringify(payload) });
+        data = await api(`/api/app/data/${currentTable}`, { method: 'POST', body: JSON.stringify(payload) });
       } else {
         const pk = currentMeta.primaryKey;
-        data = await api(`/api/data/${currentTable}/${editingRecord[pk]}`, { method: 'PUT', body: JSON.stringify(payload) });
+        data = await api(`/api/app/data/${currentTable}/${editingRecord[pk]}`, { method: 'PUT', body: JSON.stringify(payload) });
       }
       if (data.code !== 0) { toast(data.message, true); return; }
       toast(data.message || '保存成功');
@@ -1106,14 +1106,14 @@
     }
 
     async function openEdit(pkVal) {
-      const data = await api(`/api/data/${currentTable}/${encodeURIComponent(pkVal)}`);
+      const data = await api(`/api/app/data/${currentTable}/${encodeURIComponent(pkVal)}`);
       if (data.code !== 0) { toast(data.message, true); return; }
       openModal('edit', data.data);
     }
 
     async function deleteRecord(pkVal) {
       if (!confirm('确定删除这条记录？删除后无法恢复。')) return;
-      const data = await api(`/api/data/${currentTable}/${encodeURIComponent(pkVal)}`, { method: 'DELETE' });
+      const data = await api(`/api/app/data/${currentTable}/${encodeURIComponent(pkVal)}`, { method: 'DELETE' });
       if (data.code !== 0) { toast(data.message, true); return; }
       toast('删除成功');
       await loadData();

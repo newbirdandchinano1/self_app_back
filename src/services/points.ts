@@ -1,10 +1,17 @@
-import { randomUUID } from 'crypto';
 import type { ResultSetHeader, RowDataPacket } from 'mysql2';
-import type { PoolConnection } from 'mysql2/promise';
 import { db } from '../db/index.js';
-import { formatDbDateTimeForApi, formatUtcMySQLDateTime } from './calendar/logical-day.js';
+import { formatDbDateTimeForApi, formatRecordDateTimesForApi } from './calendar/logical-day.js';
+import {
+  POINTS_WALLET_ID,
+  applyWalletDeltaOnConnection,
+  asPoints,
+  lockOrCreateWallet,
+  nowUtcMysql,
+} from './points-wallet.js';
 
-const WALLET_ID = 'default';
+export { asPoints, lockOrCreateWallet, POINTS_WALLET_ID } from './points-wallet.js';
+
+const WALLET_ID = POINTS_WALLET_ID;
 
 const POINTS_LEDGER_REASON_LABELS: Record<string, string> = {
   habit_check_in: '习惯打卡',
@@ -46,36 +53,6 @@ export class PointsError extends Error {
     super(message);
     this.name = 'PointsError';
   }
-}
-
-function newLedgerId(): string {
-  return `plg_${randomUUID().replace(/-/g, '')}`;
-}
-
-function nowUtcMysql(): string {
-  return formatUtcMySQLDateTime(new Date());
-}
-
-function asPoints(raw: unknown): number {
-  const n = typeof raw === 'number' ? raw : Number(raw);
-  if (!Number.isFinite(n)) return 0;
-  return Math.round(n * 100) / 100;
-}
-
-async function lockOrCreateWallet(conn: PoolConnection): Promise<number> {
-  const now = nowUtcMysql();
-  await conn.query(
-    `INSERT INTO points_wallet (id, balance, created_at, updated_at, sync_status)
-     VALUES (?, 0, ?, ?, 'synced')
-     ON DUPLICATE KEY UPDATE id = id`,
-    [WALLET_ID, now, now],
-  );
-
-  const [rows] = await conn.query<RowDataPacket[]>(
-    `SELECT balance FROM points_wallet WHERE id = ? FOR UPDATE`,
-    [WALLET_ID],
-  );
-  return asPoints(rows[0]?.balance ?? 0);
 }
 
 export function pointsLedgerReasonLabel(reason: string): string {
@@ -275,6 +252,7 @@ export async function deletePointsLedgerEntry(ledgerId: string): Promise<DeleteP
     await conn.query(`DELETE FROM points_ledger WHERE id = ?`, [id]);
 
     // 回退：去掉该笔 delta 的影响；余额允许为负（负奖励扣除场景）
+    // 删流水不写新流水，故直接改钱包（不用 applyWalletDeltaOnConnection）
     const newBalance = asPoints(balance - delta);
     const rollbackDelta = newBalance - balance;
     const now = nowUtcMysql();
@@ -398,46 +376,22 @@ export async function adjustPoints(input: AdjustPointsInput): Promise<AdjustPoin
       }
     }
 
-    const newBalance = asPoints(balance + delta);
-
-    const now = nowUtcMysql();
-    const ledgerId = newLedgerId();
-    const extraData =
-      input.note != null && String(input.note).trim() !== ''
-        ? JSON.stringify({ note: String(input.note).trim() })
-        : null;
-
-    await conn.query<ResultSetHeader>(
-      `UPDATE points_wallet
-       SET balance = ?, updated_at = ?, sync_status = 'synced'
-       WHERE id = ?`,
-      [newBalance, now, WALLET_ID],
-    );
-
-    await conn.query(
-      `INSERT INTO points_ledger
-        (id, delta, balance_after, reason, ref_type, ref_id, created_at, updated_at, sync_status, extra_data)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'synced', ?)`,
-      [
-        ledgerId,
-        delta,
-        newBalance,
-        reason,
-        refType,
-        refId,
-        now,
-        now,
-        extraData,
-      ],
-    );
+    const applied = await applyWalletDeltaOnConnection(conn, {
+      balance,
+      delta,
+      reason,
+      ref_type: refType,
+      ref_id: refId,
+      note: input.note,
+    });
 
     await conn.commit();
 
     return {
       ok: true,
-      balance: newBalance,
-      ledger_id: ledgerId,
-      delta,
+      balance: applied.balance,
+      ledger_id: applied.ledger_id,
+      delta: applied.delta,
     };
   } catch (err) {
     await conn.rollback();
@@ -446,6 +400,17 @@ export async function adjustPoints(input: AdjustPointsInput): Promise<AdjustPoin
     conn.release();
   }
 }
+
+/** 发分入口：与 adjust 同一套钱包写路径（语义别名） */
+export async function grantPoints(input: AdjustPointsInput): Promise<AdjustPointsResult> {
+  return adjustPoints(input);
+}
+
+/**
+ * 兑换入口：在已开事务内扣积分（须先 lockOrCreateWallet）。
+ * wish-board 心愿状态更新由调用方完成；钱包写路径与 adjust/grant 共用。
+ */
+export { applyWalletDeltaOnConnection as redeemPointsOnConnection } from './points-wallet.js';
 
 export interface ResetPointsResult {
   balance: 0;
@@ -468,27 +433,17 @@ export async function resetPoints(): Promise<ResetPointsResult> {
       return { balance: 0, delta: 0, ledger_id: null };
     }
 
-    const delta = asPoints(-balance);
-    const now = nowUtcMysql();
-    const ledgerId = newLedgerId();
-
-    await conn.query<ResultSetHeader>(
-      `UPDATE points_wallet
-       SET balance = 0, updated_at = ?, sync_status = 'synced'
-       WHERE id = ?`,
-      [now, WALLET_ID],
-    );
-
-    await conn.query(
-      `INSERT INTO points_ledger
-        (id, delta, balance_after, reason, ref_type, ref_id, created_at, updated_at, sync_status)
-       VALUES (?, ?, 0, 'points_reset', 'points_wallet', ?, ?, ?, 'synced')`,
-      [ledgerId, delta, WALLET_ID, now, now],
-    );
+    const applied = await applyWalletDeltaOnConnection(conn, {
+      balance,
+      delta: asPoints(-balance),
+      reason: 'points_reset',
+      ref_type: 'points_wallet',
+      ref_id: WALLET_ID,
+    });
 
     await conn.commit();
 
-    return { balance: 0, delta, ledger_id: ledgerId };
+    return { balance: 0, delta: applied.delta, ledger_id: applied.ledger_id };
   } catch (err) {
     await conn.rollback();
     throw err;
@@ -509,6 +464,33 @@ export interface PointsWalletRecord {
   updated_at: string;
   sync_status?: string;
   extra_data: unknown;
+}
+
+/**
+ * 积分流水全表（表行形态，供 profile 灌库 / 同步）。
+ * 与 listPointsLedgerHistory 不同：不分页、不拼 reason_label / ref_title。
+ */
+export async function listPointsLedgerRows(): Promise<Record<string, unknown>[]> {
+  const [rows] = await db.query<RowDataPacket[]>(
+    `SELECT id, delta, balance_after, reason, ref_type, ref_id,
+            created_at, updated_at, sync_status, extra_data
+     FROM points_ledger
+     WHERE sync_status IS NULL OR sync_status != 'pending_delete'
+     ORDER BY created_at DESC, id DESC`,
+  );
+  return (rows as Record<string, unknown>[]).map((row) => {
+    const formatted = formatRecordDateTimesForApi({ ...row }, 'points_ledger');
+    formatted.delta = asPoints(row.delta);
+    formatted.balance_after = asPoints(row.balance_after);
+    if (formatted.extra_data != null && typeof formatted.extra_data === 'object') {
+      try {
+        formatted.extra_data = JSON.stringify(formatted.extra_data);
+      } catch {
+        formatted.extra_data = String(formatted.extra_data);
+      }
+    }
+    return formatted;
+  });
 }
 
 /** 确保 default 钱包存在并返回完整行（供 GET / CRUD / bootstrap） */

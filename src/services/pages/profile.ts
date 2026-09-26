@@ -1,8 +1,11 @@
-import type { RowDataPacket } from 'mysql2';
-import { db } from '../../db/index.js';
-import { getTableMeta, type TableMeta } from '../crud.js';
-import { formatRecordDateTimesForApi } from '../calendar/logical-day.js';
-import type { AllowedTable } from '../../config/tables.js';
+/**
+ * 「我的」子页聚合：只编排源 domain service，禁止在此复制排序/筛选/格式化规则。
+ * 口径变更请改 memos / points / wish-board / recipes，并由 profile-page-selftest 断言一致。
+ */
+import { listMemos, listTagLinks, listTags } from '../memos.js';
+import { getOrCreateDefaultWallet, listPointsLedgerRows } from '../points.js';
+import { listAllRecipeItems, listRecipeCategories } from '../recipes.js';
+import { listActiveWishBoardItems } from '../wish-board.js';
 
 export class ProfilePageError extends Error {
   constructor(
@@ -14,148 +17,55 @@ export class ProfilePageError extends Error {
   }
 }
 
-const MEMO_DIM_TABLE = 'memo_dimensions' as const;
-const MEMO_TABLE = 'memos' as const;
-const WALLET_TABLE = 'points_wallet' as const;
-const LEDGER_TABLE = 'points_ledger' as const;
-const WISH_BOARD_TABLE = 'wish_board_items' as const;
-const RECIPE_CAT_TABLE = 'recipe_categories' as const;
-const RECIPE_ITEM_TABLE = 'recipe_items' as const;
-
-const RAW_STRING_FIELDS = [
-  'extra_data',
-  'body',
-  'ingredients_json',
-  'steps_json',
-  'notes',
-  'reason',
-  'ai_evaluation',
-  'ai_suggestions',
-  'description',
-] as const;
-
-function quoteIdent(name: string): string {
-  return `\`${name.replace(/`/g, '``')}\``;
-}
-
 function serverNowIso(): string {
   return new Date().toISOString();
 }
 
-function activeWhereSql(columns: Set<string>, alias = ''): string {
-  const prefix = alias ? `${alias}.` : '';
-  const parts: string[] = [];
-  if (columns.has('deleted_at')) {
-    parts.push(`${prefix}deleted_at IS NULL`);
-  }
-  if (columns.has('sync_status')) {
-    parts.push(`(${prefix}sync_status IS NULL OR ${prefix}sync_status != 'pending_delete')`);
-  }
-  return parts.length > 0 ? parts.join(' AND ') : '1=1';
-}
-
-async function loadMeta(table: AllowedTable): Promise<{ meta: TableMeta; columns: Set<string> }> {
-  const meta = await getTableMeta(table);
-  return { meta, columns: new Set(meta.columns) };
-}
-
-function selectSql(meta: TableMeta, alias = ''): string {
-  const prefix = alias ? `${alias}.` : '';
-  return meta.columns.map((c) => `${prefix}${quoteIdent(c)}`).join(', ');
-}
-
-function keepRawStringField(
-  formatted: Record<string, unknown>,
-  row: Record<string, unknown>,
-  key: string,
-): void {
-  if (!(key in row)) return;
-  const raw = row[key];
-  if (raw == null) {
-    formatted[key] = raw;
-  } else if (typeof raw === 'string') {
-    formatted[key] = raw;
-  } else if (typeof raw === 'object') {
-    try {
-      formatted[key] = JSON.stringify(raw);
-    } catch {
-      formatted[key] = String(raw);
-    }
-  } else {
-    formatted[key] = String(raw);
-  }
-}
-
-function formatProfileRow(row: Record<string, unknown>, table: string): Record<string, unknown> {
-  const formatted = formatRecordDateTimesForApi({ ...row }, table);
-  for (const key of RAW_STRING_FIELDS) {
-    keepRawStringField(formatted, row, key);
-  }
-  return formatted;
-}
-
-async function loadSortedRows(
-  table: AllowedTable,
-  orderSql: string,
-  extraWhere = '',
-  extraValues: unknown[] = [],
-  limit?: number,
-): Promise<Record<string, unknown>[]> {
-  const { meta, columns } = await loadMeta(table);
-  const where = extraWhere ? `${activeWhereSql(columns)} AND ${extraWhere}` : activeWhereSql(columns);
-  const limitSql = limit != null ? ' LIMIT ?' : '';
-  const values = limit != null ? [...extraValues, limit] : extraValues;
-  const [rows] = await db.query<RowDataPacket[]>(
-    `SELECT ${selectSql(meta)} FROM ${quoteIdent(table)}
-     WHERE ${where}
-     ORDER BY ${orderSql}${limitSql}`,
-    values,
-  );
-  return (rows as Record<string, unknown>[]).map((row) => formatProfileRow(row, table));
-}
-
+/** 备忘列表拼盘：memos + tags + tag_links 均走源 service */
 export async function getProfileMemoList() {
-  const [dimensions, memos] = await Promise.all([
-    loadSortedRows(MEMO_DIM_TABLE, 'sort_order ASC, created_at ASC, id ASC'),
-    loadSortedRows(MEMO_TABLE, 'updated_at DESC, id DESC'),
-  ]);
+  const [memos, tags, tagLinks] = await Promise.all([listMemos(), listTags(), listTagLinks()]);
   return {
-    dimensions,
     memos,
+    tags,
+    tagLinks,
     meta: { serverTime: serverNowIso() },
   };
 }
 
+/** 积分钱包/流水：钱包 ensure + 流水表行同源 points service */
 export async function getProfilePoints() {
-  const [pointsWallet, pointsLedger] = await Promise.all([
-    loadSortedRows(WALLET_TABLE, 'id ASC'),
-    loadSortedRows(LEDGER_TABLE, 'created_at DESC, id DESC'),
+  const [wallet, pointsLedger] = await Promise.all([
+    getOrCreateDefaultWallet(),
+    listPointsLedgerRows(),
   ]);
   return {
-    pointsWallet,
+    pointsWallet: [wallet],
     pointsLedger,
     meta: { serverTime: serverNowIso() },
   };
 }
 
+/** 心愿板：active 列表 + 钱包 + 流水，均走源 service */
 export async function getProfileWishBoard() {
-  const [pointsWallet, items, pointsLedger] = await Promise.all([
-    loadSortedRows(WALLET_TABLE, 'id ASC'),
-    loadSortedRows(WISH_BOARD_TABLE, 'sort_order ASC, updated_at DESC, id ASC', `status = 'active'`),
-    loadSortedRows(LEDGER_TABLE, 'created_at DESC, id DESC'),
+  const [wallet, items, pointsLedger] = await Promise.all([
+    getOrCreateDefaultWallet(),
+    listActiveWishBoardItems(),
+    listPointsLedgerRows(),
   ]);
   return {
-    pointsWallet,
+    pointsWallet: [wallet],
     items,
     pointsLedger,
     meta: { serverTime: serverNowIso() },
   };
 }
 
+/** 菜谱：分类 + 扁平 items，与 /recipes 领域列表同源 */
 export async function getProfileRecipes() {
   const [categories, items] = await Promise.all([
-    loadSortedRows(RECIPE_CAT_TABLE, 'created_at ASC, id ASC'),
-    loadSortedRows(RECIPE_ITEM_TABLE, 'created_at ASC, id ASC'),
+    listRecipeCategories(),
+    // 灌库保持 JSON 文本，与 SQLite TEXT 列及旧聚合行为一致
+    listAllRecipeItems({ parseJson: false }),
   ]);
   return {
     categories,

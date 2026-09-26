@@ -14,12 +14,12 @@ import type { CalendarTaskRow } from '../src/services/calendar/types.js';
 import {
   INBOX_PROJECT_CATEGORY_ID,
   normalizeCatalogCategoryId,
-} from '../src/services/pages/catalog-inbox-seed.js';
+} from '../src/services/pages/tasks-catalog.js';
 import {
   excludeTodosAlreadyCountedAsFrogs,
   filterNetCompletedEvents,
-} from '../src/services/pages/task-net-completion.js';
-import { aggregateFrogEvents } from '../src/services/pages/completion-heatmap.js';
+} from '../src/services/calendar/net-completion.js';
+import { aggregateFrogEvents } from '../src/services/pages/tasks-overview.js';
 import { resolveTaskViewPagination, matchesMatrixWeekScheduleWindow } from '../src/services/pages/tasks-bootstrap.js';
 
 function assert(cond: boolean, msg: string): void {

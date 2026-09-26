@@ -321,16 +321,120 @@ export async function createIntake(input: CreateIntakeInput) {
     throw err;
   }
 
-  const [rows] = await db.query<RowDataPacket[]>(
-    `SELECT id, hydration, protein, sodium, carbohydrate, calories,
+  return getIntake(id);
+}
+
+const INTAKE_SELECT = `SELECT id, hydration, protein, sodium, carbohydrate, calories,
             record_date, quick_add_key, source_image_uri, intake_display_title, intake_ai_comment,
             created_at, updated_at, sync_status
-     FROM health_records WHERE id = ? LIMIT 1`,
-    [id],
-  );
+     FROM health_records`;
+
+export async function getIntake(id: string) {
+  const trimmed = asTrimmedString(id);
+  if (!trimmed) throw new HealthError('缺少记录 id');
+  const [rows] = await db.query<RowDataPacket[]>(`${INTAKE_SELECT} WHERE id = ? LIMIT 1`, [
+    trimmed,
+  ]);
   const row = rows[0] as HealthIntakeRow | undefined;
-  if (!row) throw new HealthError('创建失败', 500);
+  if (!row) return null;
   return formatIntake(row);
+}
+
+export type UpdateIntakeInput = CreateIntakeInput;
+
+/** 更新一条摄入记录（仅更新传入字段） */
+export async function updateIntake(id: string, input: UpdateIntakeInput) {
+  const trimmed = asTrimmedString(id);
+  if (!trimmed) throw new HealthError('缺少记录 id');
+
+  const existing = await getIntake(trimmed);
+  if (!existing) throw new HealthError('记录不存在', 404);
+
+  const has = (key: keyof UpdateIntakeInput) => Object.prototype.hasOwnProperty.call(input, key);
+
+  const hydration = has('hydration')
+    ? parseNonNegNumber(input.hydration, 'hydration')
+    : Number(existing.hydration ?? 0);
+  const protein = has('protein')
+    ? parseNonNegNumber(input.protein, 'protein')
+    : Number(existing.protein ?? 0);
+  const sodium = has('sodium')
+    ? parseNonNegNumber(input.sodium, 'sodium')
+    : Number(existing.sodium ?? 0);
+  const carbohydrate = has('carbohydrate')
+    ? parseNonNegNumber(input.carbohydrate, 'carbohydrate')
+    : Number(existing.carbohydrate ?? 0);
+  const calories = has('calories')
+    ? parseNonNegNumber(input.calories, 'calories')
+    : Number(existing.calories ?? 0);
+
+  let recordDate = String(existing.record_date ?? '');
+  if (has('record_date')) {
+    const raw = asTrimmedString(input.record_date);
+    if (!raw) throw new HealthError('record_date 不能为空');
+    if (parseYmd(raw)) {
+      recordDate = `${raw} 12:00:00`;
+    } else {
+      const normalized = normalizeDbDateTimeForTableStorage('health_records', raw);
+      if (!normalized) throw new HealthError('record_date 格式无效');
+      recordDate = normalized;
+    }
+  }
+
+  const quickAddKey = has('quick_add_key')
+    ? asTrimmedString(input.quick_add_key) || null
+    : (existing.quick_add_key as string | null);
+  const sourceImageUri = has('source_image_uri')
+    ? asTrimmedString(input.source_image_uri) || null
+    : (existing.source_image_uri as string | null);
+  const title = has('intake_display_title')
+    ? asTrimmedString(input.intake_display_title) || null
+    : (existing.intake_display_title as string | null);
+  const aiComment = has('intake_ai_comment')
+    ? asTrimmedString(input.intake_ai_comment) || null
+    : (existing.intake_ai_comment as string | null);
+
+  const now = nowShanghaiMysql();
+  await db.query<ResultSetHeader>(
+    `UPDATE health_records SET
+       hydration = ?, protein = ?, sodium = ?, carbohydrate = ?, calories = ?,
+       record_date = ?, quick_add_key = ?, source_image_uri = ?,
+       intake_display_title = ?, intake_ai_comment = ?,
+       updated_at = ?, sync_status = 'synced'
+     WHERE id = ?`,
+    [
+      hydration,
+      protein,
+      sodium,
+      carbohydrate,
+      calories,
+      recordDate,
+      quickAddKey,
+      sourceImageUri,
+      title,
+      aiComment,
+      now,
+      trimmed,
+    ],
+  );
+
+  const updated = await getIntake(trimmed);
+  if (!updated) throw new HealthError('更新失败', 500);
+  return updated;
+}
+
+/** 删除一条摄入记录 */
+export async function deleteIntake(id: string) {
+  const trimmed = asTrimmedString(id);
+  if (!trimmed) throw new HealthError('缺少记录 id');
+
+  const [result] = await db.query<ResultSetHeader>(`DELETE FROM health_records WHERE id = ?`, [
+    trimmed,
+  ]);
+  if (result.affectedRows <= 0) {
+    throw new HealthError('记录不存在', 404);
+  }
+  return { deleted: true as const, id: trimmed };
 }
 
 /** 可选：读取某日目标（供文档/扩展，当前路由未单独暴露也可内部复用） */

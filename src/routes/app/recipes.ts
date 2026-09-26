@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { requireAuth } from '../../middlewares/auth.js';
-import { success, fail } from '../../utils/response.js';
+import { success } from '../../utils/response.js';
+import { createDomainErrorHandler } from '../../utils/domain-error-handler.js';
 import {
   RecipeError,
   countRecipeCategories,
@@ -21,16 +22,7 @@ const router = Router();
 
 router.use(requireAuth);
 
-function handleRecipeError(
-  err: unknown,
-  res: Parameters<typeof fail>[0],
-  next: (err: unknown) => void,
-) {
-  if (err instanceof RecipeError) {
-    return fail(res, err.message, -1, err.status);
-  }
-  next(err);
-}
+const handleRecipeError = createDomainErrorHandler(RecipeError);
 
 /** GET /recipes/categories — 获取分类列表 */
 router.get('/recipes/categories', async (_req, res, next) => {

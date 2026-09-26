@@ -1,6 +1,8 @@
 import type { Request } from 'express';
-import type { ProjectListParams } from '../../../services/pages/project-list.js';
-import type { TaskListParams } from '../../../services/pages/task-list.js';
+import type {
+  ProjectListParams,
+  TaskListParams,
+} from '../../../services/pages/tasks-list.js';
 import type { TasksBootstrapParams } from '../../../services/pages/tasks-bootstrap.js';
 
 export function parseBoolQuery(value: unknown): boolean | undefined {

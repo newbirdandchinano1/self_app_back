@@ -2,18 +2,9 @@ import './bootstrap/timezone.js';
 import app from './app.js';
 import { config } from './config/index.js';
 import { testConnection } from './db/index.js';
-import { ensureDropEarnedRewards } from './db/ensure-drop-earned-rewards.js';
-import { ensureDropProfileFeatures } from './db/ensure-drop-profile-features.js';
-import { ensureHealthDropUserId } from './db/ensure-health-drop-user-id.js';
-import { ensureProjectsPriorityColumn } from './db/ensure-projects-priority.js';
-import { ensureMemosPinnedColumn } from './db/ensure-memos-pinned.js';
-import { ensureProjectTagsTables } from './db/ensure-project-tags.js';
-import { ensureUsersPersonaPortraitColumn } from './db/ensure-users-persona-portrait.js';
-import { ensurePointsTables } from './db/ensure-points.js';
-import { ensureWishBoardTables } from './db/ensure-wish-board.js';
-import { ensureFrogScheduleTables } from './db/ensure-frog-schedule.js';
+import { runPendingMigrations } from './db/migrations/index.js';
 import { initAdminTable } from './db/init-admin.js';
-import { ensureInboxCatalogSeed } from './services/pages/catalog-inbox-seed.js';
+import { ensureInboxCatalogSeed } from './services/pages/tasks-catalog.js';
 import { ensureHealthIntakeUploadDir } from './services/health-intake-upload.js';
 
 async function waitForDb(maxAttempts = 30, intervalMs = 2000): Promise<void> {
@@ -34,17 +25,8 @@ async function waitForDb(maxAttempts = 30, intervalMs = 2000): Promise<void> {
 
 async function bootstrap() {
   await waitForDb();
+  await runPendingMigrations();
   await initAdminTable();
-  await ensureProjectsPriorityColumn();
-  await ensureMemosPinnedColumn();
-  await ensureUsersPersonaPortraitColumn();
-  await ensureDropProfileFeatures();
-  await ensureDropEarnedRewards();
-  await ensureHealthDropUserId();
-  await ensurePointsTables();
-  await ensureWishBoardTables();
-  await ensureProjectTagsTables();
-  await ensureFrogScheduleTables();
   await ensureInboxCatalogSeed();
   await ensureHealthIntakeUploadDir();
 }

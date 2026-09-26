@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { requireAuth } from '../../middlewares/auth.js';
 import { success, fail } from '../../utils/response.js';
+import { createDomainErrorHandler } from '../../utils/domain-error-handler.js';
 import {
   createWishBoardItem,
   deleteRedeemedWishBoardItems,
@@ -8,6 +9,7 @@ import {
   listActiveWishBoardItems,
   listRedeemedWishBoardItems,
   redeemWishBoardItem,
+  updateWishBoardItem,
   WishBoardError,
 } from '../../services/wish-board.js';
 
@@ -15,10 +17,9 @@ const router = Router();
 
 router.use(requireAuth);
 
-function sendWishBoardError(res: import('express').Response, err: WishBoardError) {
-  const { ok: _ok, error: _error, ...rest } = err.body;
-  return fail(res, err.message, -1, err.status, Object.keys(rest).length ? rest : null);
-}
+const handleWishBoardError = createDomainErrorHandler(WishBoardError, {
+  includeBodyExtras: true,
+});
 
 /** GET /wish-board/items — 可兑换心愿（status=active） */
 router.get('/wish-board/items', async (_req, res, next) => {
@@ -26,10 +27,7 @@ router.get('/wish-board/items', async (_req, res, next) => {
     const items = await listActiveWishBoardItems();
     return success(res, { items, total: items.length });
   } catch (err) {
-    if (err instanceof WishBoardError) {
-      return sendWishBoardError(res, err);
-    }
-    next(err);
+    handleWishBoardError(err, res, next);
   }
 });
 
@@ -50,10 +48,27 @@ router.post('/wish-board/items', async (req, res, next) => {
     });
     return success(res, item, '创建成功');
   } catch (err) {
-    if (err instanceof WishBoardError) {
-      return sendWishBoardError(res, err);
-    }
-    next(err);
+    handleWishBoardError(err, res, next);
+  }
+});
+
+/** PATCH /wish-board/items/:id — 更新心愿（不可改兑换状态） */
+router.patch('/wish-board/items/:id', async (req, res, next) => {
+  try {
+    const body = req.body ?? {};
+    const item = await updateWishBoardItem(String(req.params.id ?? ''), {
+      title: body.title,
+      description: body.description,
+      cost_points: body.cost_points,
+      note: body.note,
+      icon_key: body.icon_key,
+      wish_type: body.wish_type,
+      sort_order: body.sort_order,
+      extra_data: body.extra_data,
+    });
+    return success(res, item, '更新成功');
+  } catch (err) {
+    handleWishBoardError(err, res, next);
   }
 });
 
@@ -63,10 +78,7 @@ router.delete('/wish-board/items/:id', async (req, res, next) => {
     const data = await deleteWishBoardItem(String(req.params.id ?? ''));
     return success(res, data, '删除成功');
   } catch (err) {
-    if (err instanceof WishBoardError) {
-      return sendWishBoardError(res, err);
-    }
-    next(err);
+    handleWishBoardError(err, res, next);
   }
 });
 
@@ -76,10 +88,7 @@ router.get('/wish-board/redeemed', async (_req, res, next) => {
     const items = await listRedeemedWishBoardItems();
     return success(res, { items, total: items.length });
   } catch (err) {
-    if (err instanceof WishBoardError) {
-      return sendWishBoardError(res, err);
-    }
-    next(err);
+    handleWishBoardError(err, res, next);
   }
 });
 
@@ -100,10 +109,7 @@ router.delete('/wish-board/redeemed', async (req, res, next) => {
     const data = await deleteRedeemedWishBoardItems(idRaw);
     return success(res, data, '删除成功');
   } catch (err) {
-    if (err instanceof WishBoardError) {
-      return sendWishBoardError(res, err);
-    }
-    next(err);
+    handleWishBoardError(err, res, next);
   }
 });
 
@@ -125,10 +131,7 @@ router.post('/wish-board/redeem', async (req, res, next) => {
     const { ok: _ok, ...data } = result;
     return success(res, data);
   } catch (err) {
-    if (err instanceof WishBoardError) {
-      return sendWishBoardError(res, err);
-    }
-    next(err);
+    handleWishBoardError(err, res, next);
   }
 });
 

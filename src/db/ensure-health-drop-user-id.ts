@@ -1,41 +1,5 @@
-import type { RowDataPacket } from 'mysql2';
 import { db } from './index.js';
-
-async function tableExists(table: string): Promise<boolean> {
-  const [rows] = await db.query<RowDataPacket[]>(
-    `SELECT TABLE_NAME AS tableName
-     FROM information_schema.TABLES
-     WHERE TABLE_SCHEMA = DATABASE()
-       AND TABLE_NAME = ?`,
-    [table],
-  );
-  return rows.length > 0;
-}
-
-async function columnExists(table: string, column: string): Promise<boolean> {
-  const [rows] = await db.query<RowDataPacket[]>(
-    `SELECT COLUMN_NAME AS col
-     FROM information_schema.COLUMNS
-     WHERE TABLE_SCHEMA = DATABASE()
-       AND TABLE_NAME = ?
-       AND COLUMN_NAME = ?`,
-    [table, column],
-  );
-  return rows.length > 0;
-}
-
-async function indexExists(table: string, indexName: string): Promise<boolean> {
-  const [rows] = await db.query<RowDataPacket[]>(
-    `SELECT INDEX_NAME AS indexName
-     FROM information_schema.STATISTICS
-     WHERE TABLE_SCHEMA = DATABASE()
-       AND TABLE_NAME = ?
-       AND INDEX_NAME = ?
-     LIMIT 1`,
-    [table, indexName],
-  );
-  return rows.length > 0;
-}
+import { columnExists, indexExists, tableExists } from './schema-helpers.js';
 
 /**
  * 幂等：健康表去掉多余的 user_id（单用户 App 无意义）。
@@ -45,7 +9,6 @@ async function indexExists(table: string, indexName: string): Promise<boolean> {
 export async function ensureHealthDropUserId(): Promise<void> {
   if (await tableExists('health_daily_targets')) {
     if (await columnExists('health_daily_targets', 'user_id')) {
-      // 同一逻辑日可能多用户残留多行：保留 updated_at 最新的一条
       await db.query(`
         DELETE t1 FROM health_daily_targets t1
         INNER JOIN health_daily_targets t2

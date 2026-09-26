@@ -4,16 +4,14 @@
  */
 import {
   attachProjectTaskTrees,
-  filterProjectsForList,
-  paginateProjects,
-} from '../src/services/pages/project-list.js';
-import {
   buildNestedTaskTree,
   countTaskTreeNodes,
+  filterProjectsForList,
+  paginateProjects,
   resolveProjectListStatusFilters,
   taskMatchesStatusFilter,
   type TaskRow,
-} from '../src/services/pages/task-tree.js';
+} from '../src/services/pages/tasks-list.js';
 
 function assert(cond: boolean, msg: string): void {
   if (!cond) throw new Error(msg);

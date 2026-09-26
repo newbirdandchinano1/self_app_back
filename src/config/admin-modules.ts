@@ -25,6 +25,9 @@ export type AdminModuleDef = {
 /**
  * 管理后台侧边栏：一级模块 → 细分数据表。
  * 未出现在任何模块中的表白名单表会落入「未分类」。
+ *
+ * 单一来源：API 文档脚本（scripts/generate-api-doc.ts）须 import 本清单，
+ * 禁止再维护第三份「表→业务」硬编码。
  */
 export const ADMIN_MODULES: readonly AdminModuleDef[] = [
   {
@@ -45,8 +48,6 @@ export const ADMIN_MODULES: readonly AdminModuleDef[] = [
       'project_completion_logs',
       'tags',
       'tag_links',
-      'project_tags',
-      'project_tag_links',
       'frog_completion_events',
       'habits',
       'habit_contexts',
@@ -56,14 +57,13 @@ export const ADMIN_MODULES: readonly AdminModuleDef[] = [
   {
     id: 'finance',
     title: '财务模块',
+    /** 前缀 finance_* = 权威账本；cash_flow_* / savings_* = 卫星能力（规划台账 / 心愿储蓄） */
     tables: [
       'finance_account_types',
       'finance_accounts',
       'finance_flow_categories',
       'finance_scheduled_expenses',
       'finance_transactions',
-      'accounts',
-      'account_transactions',
       'cash_flow_profile',
       'cash_flow_incomes',
       'cash_flow_expense_lines',
@@ -96,7 +96,7 @@ export const ADMIN_MODULES: readonly AdminModuleDef[] = [
   {
     id: 'memos',
     title: '备忘录模块',
-    tables: ['memo_dimensions', 'memos'],
+    tables: ['memos', 'tags', 'tag_links'],
   },
   {
     id: 'points',

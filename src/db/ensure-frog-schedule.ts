@@ -1,16 +1,5 @@
-import type { RowDataPacket } from 'mysql2';
 import { db } from './index.js';
-
-async function tableExists(tableName: string): Promise<boolean> {
-  const [rows] = await db.query<RowDataPacket[]>(
-    `SELECT TABLE_NAME AS tableName
-     FROM information_schema.TABLES
-     WHERE TABLE_SCHEMA = DATABASE()
-       AND TABLE_NAME = ?`,
-    [tableName],
-  );
-  return rows.length > 0;
-}
+import { ensureColumn, tableExists } from './schema-helpers.js';
 
 /**
  * 幂等：周课程表轴快照 + 占用实例。
@@ -32,18 +21,7 @@ export async function ensureFrogScheduleTables(): Promise<void> {
     `);
     console.log('[DB] 已创建表 schedule_week_axis_snapshot');
   } else {
-    const [cols] = await db.query<RowDataPacket[]>(
-      `SELECT COLUMN_NAME AS name FROM information_schema.COLUMNS
-       WHERE TABLE_SCHEMA = DATABASE()
-         AND TABLE_NAME = 'schedule_week_axis_snapshot'
-         AND COLUMN_NAME = 'breaks_json'`,
-    );
-    if (cols.length === 0) {
-      await db.query(
-        `ALTER TABLE schedule_week_axis_snapshot ADD COLUMN breaks_json TEXT NULL`,
-      );
-      console.log('[DB] schedule_week_axis_snapshot 已添加 breaks_json');
-    }
+    await ensureColumn('schedule_week_axis_snapshot', 'breaks_json', 'TEXT NULL');
   }
 
   if (!(await tableExists('schedule_placements'))) {

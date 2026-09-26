@@ -1,27 +1,40 @@
 import fs from 'fs';
 import dotenv from 'dotenv';
 import mysql from 'mysql2/promise';
+import {
+  ADMIN_MODULES,
+  getAdminModuleIdForTable,
+} from '../src/config/admin-modules.js';
 
 dotenv.config();
 
-const TABLE_LABELS = {
-  account_transactions: '账户流水', accounts: '账户', admin_users: '管理员',
+/** 模块→表清单唯一来源：admin-modules（按 TABLE_TO_MODULE 归属去重，避免 tags 等双挂） */
+const MODULES = ADMIN_MODULES.filter((m) => m.tables.length > 0).map((m) => ({
+  title: m.title,
+  tables: m.tables.filter((t) => getAdminModuleIdForTable(t) === m.id),
+}));
+
+const TABLE_LABELS: Record<string, string> = {
+  admin_users: '管理员',
   app_meta: '应用元数据', app_settings: '应用设置', cash_flow_expense_lines: '现金流支出项',
   cash_flow_holdings: '现金流持仓', cash_flow_incomes: '现金流收入', cash_flow_profile: '现金流配置',
   daily_review_journal: '每日复盘', finance_account_types: '财务账户类型',
   finance_accounts: '财务账户', finance_flow_categories: '财务流水分类', finance_transactions: '财务交易',
+  finance_scheduled_expenses: '财务定时支出',
   frog_completion_events: '青蛙完成事件', habit_check_ins: '习惯打卡',
   habit_contexts: '习惯场景', habits: '习惯', health_daily_targets: '健康日目标', health_records: '健康摄入记录', memo_dimensions: '备忘录维度', memos: '备忘录',
   monthly_review_journal: '每月复盘',
-  points_ledger: '积分流水', points_wallet: '积分钱包',
-  project_categories: '项目分类', projects: '项目',
+  points_ledger: '积分流水', points_wallet: '积分钱包', wish_board_items: '心愿板条目',
+  project_categories: '项目分类', projects: '项目', project_completion_logs: '项目完成日志',
   recipe_categories: '食谱分类', recipe_items: '食谱', review_columns: '复盘栏目', review_dimensions: '复盘维度',
   savings_plan_deposits: '储蓄存入记录', savings_plans: '储蓄计划', task_categories: '任务分类',
   task_execution_events: '任务执行事件', task_items: '任务子项', tasks: '任务',
+  tags: '标签', tag_links: '标签关联',
+  schedule_week_axis_snapshot: '课程表周轴快照', schedule_placements: '课程表占用',
   users: '用户', weekly_review_journal: '每周复盘',
 };
 
-const COLUMN_LABELS = {
+const COLUMN_LABELS: Record<string, string> = {
   id:'ID', key:'键名', slug:'标识', name:'名称', title:'标题', username:'账号', password:'密码',
   password_hash:'密码哈希', phone:'手机号', value:'值', value_json:'配置JSON', body:'内容', note:'备注', notes:'备注',
   description:'描述', detail:'详情', type:'类型', status:'状态', amount:'金额', balance:'余额', currency:'货币',
@@ -57,21 +70,18 @@ const COLUMN_LABELS = {
   start_hour:'起始小时', end_hour:'结束小时', slot_id:'时段ID', day_of_week:'星期几', content:'计划内容',
 };
 
-const PK = { app_meta: 'key', app_settings: 'key' };
-const HIDDEN = { admin_users: ['password_hash'] };
+const PK: Record<string, string> = { app_meta: 'key', app_settings: 'key' };
+const HIDDEN: Record<string, string[]> = { admin_users: ['password_hash'] };
 
-const MODULES = [
-  { title: '用户与管理员', tables: ['admin_users'] },
-  { title: '任务与项目', tables: ['task_categories', 'tasks', 'task_items', 'task_execution_events', 'project_categories', 'projects', 'frog_completion_events'] },
-  { title: '习惯', tables: ['habits', 'habit_check_ins', 'habit_contexts'] },
-  { title: '备忘录与积分', tables: ['memo_dimensions', 'memos', 'points_wallet', 'points_ledger'] },
-  { title: '健康与食谱', tables: ['users', 'health_records', 'health_daily_targets', 'recipe_categories', 'recipe_items'] },
-  { title: '财务与账户', tables: ['accounts', 'account_transactions', 'finance_accounts', 'finance_account_types', 'finance_flow_categories', 'finance_transactions', 'cash_flow_profile', 'cash_flow_incomes', 'cash_flow_expense_lines', 'cash_flow_holdings', 'savings_plans', 'savings_plan_deposits'] },
-  { title: '复盘', tables: ['daily_review_journal', 'weekly_review_journal', 'monthly_review_journal', 'review_dimensions', 'review_columns'] },
-  { title: '系统与缓存', tables: ['app_meta', 'app_settings'] },
-];
+type ColMeta = {
+  col: string;
+  key: string;
+  nullable: string;
+  def: string;
+  type: string;
+};
 
-const tables = {};
+const tables: Record<string, ColMeta[]> = {};
 
 async function loadSchema() {
   const conn = await mysql.createConnection({
@@ -105,8 +115,8 @@ async function loadSchema() {
   await conn.end();
 }
 
-function fieldNote(table, r) {
-  const notes = [];
+function fieldNote(table: string, r: ColMeta): string {
+  const notes: string[] = [];
   if (r.key === 'PRI') notes.push('主键');
   else if (r.key === 'UNI') notes.push('唯一');
   else if (r.key === 'MUL') notes.push('索引');
@@ -133,7 +143,7 @@ function fieldNote(table, r) {
   return notes.length ? notes.join('；') : '-';
 }
 
-function mdTable(table, rows) {
+function mdTable(table: string, rows: ColMeta[]): string {
   const header = '| 字段名 | 中文名 | 类型 | 必填 | 默认值 | 说明 |\n|--------|--------|------|------|--------|------|';
   const body = rows.map((r) =>
     `| \`${r.col}\` | ${COLUMN_LABELS[r.col] || r.col} | ${r.type} | ${r.nullable === 'NO' ? '是' : '否'} | ${r.def === 'NULL' ? '-' : r.def} | ${fieldNote(table, r)} |`,

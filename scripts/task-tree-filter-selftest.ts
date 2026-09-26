@@ -4,7 +4,7 @@ import {
   resolveProjectListStatusFilters,
   taskMatchesStatusFilter,
   type TaskRow,
-} from '../src/services/pages/task-tree.js';
+} from '../src/services/pages/tasks-list.js';
 
 function assert(cond: boolean, msg: string) {
   if (!cond) throw new Error(msg);

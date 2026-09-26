@@ -1,28 +1,22 @@
 import { Router } from 'express';
 import { requireAuth } from '../../middlewares/auth.js';
-import { success, fail } from '../../utils/response.js';
+import { success } from '../../utils/response.js';
+import { createDomainErrorHandler } from '../../utils/domain-error-handler.js';
 import {
   HealthError,
   createIntake,
+  deleteIntake,
   getDayHealthMetrics,
   listIntakesByDay,
   listRecentIntakes,
+  updateIntake,
 } from '../../services/health.js';
 
 const router = Router();
 
 router.use(requireAuth);
 
-function handleHealthError(
-  err: unknown,
-  res: Parameters<typeof fail>[0],
-  next: (err: unknown) => void,
-) {
-  if (err instanceof HealthError) {
-    return fail(res, err.message, -1, err.status);
-  }
-  next(err);
-}
+const handleHealthError = createDomainErrorHandler(HealthError);
 
 /**
  * GET /health/metrics?date=YYYY-MM-DD
@@ -41,39 +35,25 @@ router.get('/health/metrics', async (req, res, next) => {
 });
 
 /**
- * GET /health/intakes/last-7-days
- * 近 7 天摄入记录（须写在 /health/intakes 带 date 之前无冲突，独立路径）
- */
-router.get('/health/intakes/last-7-days', async (req, res, next) => {
-  try {
-    const data = await listRecentIntakes({ days: 7 });
-    success(res, data);
-  } catch (err) {
-    handleHealthError(err, res, next);
-  }
-});
-
-/**
- * GET /health/intakes/last-30-days
- * 近 30 天摄入记录
- */
-router.get('/health/intakes/last-30-days', async (req, res, next) => {
-  try {
-    const data = await listRecentIntakes({ days: 30 });
-    success(res, data);
-  } catch (err) {
-    handleHealthError(err, res, next);
-  }
-});
-
-/**
- * GET /health/intakes?date=YYYY-MM-DD
- * 查询某日摄入记录列表
+ * GET /health/intakes?date=YYYY-MM-DD — 某日摄入列表
+ * GET /health/intakes?days=7|30 — 近 N 天摄入（含今天）
+ * 无 date/days 时默认近 30 天，避免页面同步漏参时报「请传 date」
  */
 router.get('/health/intakes', async (req, res, next) => {
   try {
+    const daysRaw = req.query.days;
+    if (daysRaw != null && daysRaw !== '') {
+      const days = typeof daysRaw === 'string' ? Number(daysRaw) : Number(daysRaw);
+      const data = await listRecentIntakes({ days });
+      return success(res, data);
+    }
+    const dateRaw = req.query.date;
+    if (dateRaw == null || dateRaw === '') {
+      const data = await listRecentIntakes({ days: 30 });
+      return success(res, data);
+    }
     const data = await listIntakesByDay({
-      date: req.query.date,
+      date: dateRaw,
     });
     success(res, data);
   } catch (err) {
@@ -102,6 +82,56 @@ router.post('/health/intakes', async (req, res, next) => {
       intake_ai_comment: body.intake_ai_comment,
     });
     success(res, data, '创建成功');
+  } catch (err) {
+    handleHealthError(err, res, next);
+  }
+});
+
+/**
+ * PUT /health/intakes/:id
+ * 更新摄入记录
+ */
+router.put('/health/intakes/:id', async (req, res, next) => {
+  try {
+    const body = req.body ?? {};
+    const data = await updateIntake(String(req.params.id ?? ''), {
+      hydration: body.hydration,
+      protein: body.protein,
+      sodium: body.sodium,
+      carbohydrate: body.carbohydrate,
+      calories: body.calories,
+      record_date: body.record_date,
+      quick_add_key: body.quick_add_key,
+      source_image_uri: body.source_image_uri,
+      intake_display_title: body.intake_display_title,
+      intake_ai_comment: body.intake_ai_comment,
+    });
+    success(res, data, '更新成功');
+  } catch (err) {
+    handleHealthError(err, res, next);
+  }
+});
+
+/**
+ * PATCH /health/intakes/:id — 同 PUT（字段级更新）
+ */
+router.patch('/health/intakes/:id', async (req, res, next) => {
+  try {
+    const body = req.body ?? {};
+    const data = await updateIntake(String(req.params.id ?? ''), body);
+    success(res, data, '更新成功');
+  } catch (err) {
+    handleHealthError(err, res, next);
+  }
+});
+
+/**
+ * DELETE /health/intakes/:id
+ */
+router.delete('/health/intakes/:id', async (req, res, next) => {
+  try {
+    const data = await deleteIntake(String(req.params.id ?? ''));
+    success(res, data, '删除成功');
   } catch (err) {
     handleHealthError(err, res, next);
   }

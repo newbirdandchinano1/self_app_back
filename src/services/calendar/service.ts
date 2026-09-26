@@ -1,6 +1,10 @@
+/**
+ * 任务日历 HTTP 聚合：薄封装，日界/净完成/格子投影统一走本目录
+ * logical-day / net-completion / aggregation，避免在 pages 再复制一份。
+ */
 import type { RowDataPacket } from 'mysql2';
 import { db } from '../../db/index.js';
-import { filterNetCompletedEvents } from '../pages/task-net-completion.js';
+import { filterNetCompletedEvents } from './net-completion.js';
 import { taskHasRepeatingSchedule } from './aggregation.js';
 import {
   buildTasksCalendarSummaries,

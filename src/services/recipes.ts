@@ -190,9 +190,9 @@ export async function listRecipesByCategory(categoryId: string) {
   };
 }
 
-/** 每个分类及其下全部菜谱 */
-export async function listRecipesGroupedByCategory() {
-  const categories = await listRecipeCategories();
+/** 全部菜谱扁平列表（与分类列表同口径；profile 聚合与领域接口同源） */
+export async function listAllRecipeItems(opts?: { parseJson?: boolean }) {
+  const parseJson = opts?.parseJson !== false;
   const [rows] = await db.query<RowDataPacket[]>(
     `SELECT id, category_id, title, ingredients_json, steps_json, notes,
             finished_image_uri, created_at, updated_at, deleted_at, sync_status, version
@@ -200,12 +200,20 @@ export async function listRecipesGroupedByCategory() {
      WHERE deleted_at IS NULL
      ORDER BY created_at ASC, id ASC`,
   );
+  return (rows as RecipeRow[]).map((row) => formatRecipe(row, { parseJson }));
+}
+
+/** 每个分类及其下全部菜谱 */
+export async function listRecipesGroupedByCategory() {
+  const categories = await listRecipeCategories();
+  const items = await listAllRecipeItems();
 
   const byCategory = new Map<string, ReturnType<typeof formatRecipe>[]>();
-  for (const row of rows as RecipeRow[]) {
-    const list = byCategory.get(row.category_id) ?? [];
-    list.push(formatRecipe(row));
-    byCategory.set(row.category_id, list);
+  for (const item of items) {
+    const categoryId = String((item as { category_id: string }).category_id);
+    const list = byCategory.get(categoryId) ?? [];
+    list.push(item);
+    byCategory.set(categoryId, list);
   }
 
   return categories.map((category) => ({

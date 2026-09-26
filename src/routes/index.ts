@@ -15,10 +15,4 @@ router.use('/api/app', appRouter);
 /** Admin API: /api/admin/* */
 router.use('/api/admin', adminRouter);
 
-/**
- * Legacy alias: existing clients still use /api/*
- * Remove after clients migrate to /api/app.
- */
-router.use('/api', appRouter);
-
 export default router;

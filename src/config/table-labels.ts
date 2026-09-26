@@ -2,8 +2,6 @@ import type { AllowedTable } from './tables.js';
 
 /** 数据表中文名 */
 export const TABLE_LABELS: Record<AllowedTable, string> = {
-  account_transactions: '账户流水',
-  accounts: '账户',
   admin_users: '管理员',
   app_meta: '应用元数据',
   app_settings: '应用设置',
@@ -31,8 +29,6 @@ export const TABLE_LABELS: Record<AllowedTable, string> = {
   wish_board_items: '心愿板',
   project_categories: '项目分类',
   project_completion_logs: '项目完成履历',
-  project_tag_links: '项目标签关联（旧）',
-  project_tags: '项目标签（旧）',
   projects: '项目',
   tag_links: '标签关联',
   tags: '标签',
@@ -258,14 +254,6 @@ export const TABLE_COLUMN_LABELS: Partial<
   projects: {
     category_id: '项目分类ID',
     status: '状态（进行中/已完成/已归档）',
-  },
-  project_tags: {
-    weight: '权重',
-    color: '颜色',
-  },
-  project_tag_links: {
-    tag_id: '标签ID',
-    project_id: '项目ID',
   },
   tags: {
     weight: '权重',

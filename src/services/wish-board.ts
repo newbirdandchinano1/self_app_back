@@ -2,9 +2,13 @@ import { randomUUID } from 'crypto';
 import type { ResultSetHeader, RowDataPacket } from 'mysql2';
 import type { PoolConnection } from 'mysql2/promise';
 import { db } from '../db/index.js';
-import { formatDbDateTimeForApi, formatUtcMySQLDateTime } from './calendar/logical-day.js';
-
-const WALLET_ID = 'default';
+import { formatDbDateTimeForApi } from './calendar/logical-day.js';
+import {
+  applyWalletDeltaOnConnection,
+  asPoints,
+  lockOrCreateWallet,
+  nowUtcMysql,
+} from './points-wallet.js';
 
 export class WishBoardError extends Error {
   constructor(
@@ -15,20 +19,6 @@ export class WishBoardError extends Error {
     super(message);
     this.name = 'WishBoardError';
   }
-}
-
-function newLedgerId(): string {
-  return `plg_${randomUUID().replace(/-/g, '')}`;
-}
-
-function nowUtcMysql(): string {
-  return formatUtcMySQLDateTime(new Date());
-}
-
-function asPoints(raw: unknown): number {
-  const n = typeof raw === 'number' ? raw : Number(raw);
-  if (!Number.isFinite(n)) return 0;
-  return Math.round(n * 100) / 100;
 }
 
 const REDEEM_CONDITIONS_KEY = 'redeem_conditions';
@@ -187,22 +177,6 @@ async function assertWishBoardRedeemConditionsMet(
   });
 }
 
-async function lockOrCreateWallet(conn: PoolConnection): Promise<number> {
-  const now = nowUtcMysql();
-  await conn.query(
-    `INSERT INTO points_wallet (id, balance, created_at, updated_at, sync_status)
-     VALUES (?, 0, ?, ?, 'synced')
-     ON DUPLICATE KEY UPDATE id = id`,
-    [WALLET_ID, now, now],
-  );
-
-  const [rows] = await conn.query<RowDataPacket[]>(
-    `SELECT balance FROM points_wallet WHERE id = ? FOR UPDATE`,
-    [WALLET_ID],
-  );
-  return asPoints(rows[0]?.balance ?? 0);
-}
-
 export interface RedeemResultItem {
   id: string;
   status: 'active' | 'redeemed';
@@ -264,18 +238,18 @@ export async function redeemWishBoardItem(wishBoardItemId: string): Promise<Rede
       );
     }
 
-    const newBalance = balance - costPoints;
     const now = nowUtcMysql();
-    const ledgerId = newLedgerId();
     const nextStatus: 'active' | 'redeemed' = wishType === 'repeat' ? 'active' : 'redeemed';
     const redeemedAtApi = formatDbDateTimeForApi(now, 'utc') ?? now;
 
-    await conn.query<ResultSetHeader>(
-      `UPDATE points_wallet
-       SET balance = ?, updated_at = ?, sync_status = 'synced'
-       WHERE id = ?`,
-      [newBalance, now, WALLET_ID],
-    );
+    // 钱包扣减走 points-wallet 单入口（与 adjust/grant 同一写路径）
+    const wallet = await applyWalletDeltaOnConnection(conn, {
+      balance,
+      delta: asPoints(-costPoints),
+      reason: 'wish_redeem',
+      ref_type: 'wish_board_item',
+      ref_id: id,
+    });
 
     await conn.query<ResultSetHeader>(
       `UPDATE wish_board_items
@@ -284,19 +258,12 @@ export async function redeemWishBoardItem(wishBoardItemId: string): Promise<Rede
       [nextStatus, now, now, id],
     );
 
-    await conn.query(
-      `INSERT INTO points_ledger
-        (id, delta, balance_after, reason, ref_type, ref_id, created_at, updated_at, sync_status)
-       VALUES (?, ?, ?, 'wish_redeem', 'wish_board_item', ?, ?, ?, 'synced')`,
-      [ledgerId, -costPoints, newBalance, id, now, now],
-    );
-
     await conn.commit();
 
     return {
       ok: true,
-      balance: newBalance,
-      ledger_id: ledgerId,
+      balance: wallet.balance,
+      ledger_id: wallet.ledger_id,
       item: {
         id,
         status: nextStatus,
@@ -343,6 +310,17 @@ export interface CreateWishBoardItemInput {
   extra_data?: unknown;
 }
 
+export interface UpdateWishBoardItemInput {
+  title?: string | null;
+  description?: string | null;
+  cost_points?: number | null;
+  note?: string | null;
+  icon_key?: string | null;
+  wish_type?: string | null;
+  sort_order?: number | null;
+  extra_data?: unknown;
+}
+
 export interface RedeemedWishRecord {
   ledger_id: string;
   wish_id: string;
@@ -376,7 +354,7 @@ function normalizeCostPoints(raw: unknown, fallback = 0): number {
   if (!Number.isFinite(n) || n < 0) {
     throw new WishBoardError('所需积分无效', 400, { ok: false, error: '所需积分无效' });
   }
-  return Math.round(n * 100) / 100;
+  return asPoints(n);
 }
 
 function normalizeOptionalText(raw: unknown, field: string, maxChars: number): string | null {
@@ -493,6 +471,119 @@ export async function createWishBoardItem(
   const item = await getWishBoardItem(id);
   if (!item) {
     throw new WishBoardError('创建失败', 500, { ok: false, error: '创建失败' });
+  }
+  return item;
+}
+
+/**
+ * 更新心愿元数据（标题/积分/图标等）。
+ * 禁止经此接口改 status / redeemed_at（兑换须走 redeem）。
+ * 已兑换的 once 心愿不可再改名称、积分、兑换条件。
+ */
+export async function updateWishBoardItem(
+  wishId: string,
+  input: UpdateWishBoardItemInput,
+): Promise<WishBoardItemRecord> {
+  const id = String(wishId ?? '').trim();
+  if (!id) {
+    throw new WishBoardError('参数缺失', 400, { ok: false, error: '参数缺失' });
+  }
+
+  const existing = await getWishBoardItem(id);
+  if (!existing) {
+    throw new WishBoardError('心愿不存在', 404, { ok: false, error: '心愿不存在' });
+  }
+
+  const patchingCore =
+    input.title != null ||
+    input.cost_points != null ||
+    Object.prototype.hasOwnProperty.call(input, 'extra_data');
+  if (existing.status === 'redeemed' && patchingCore) {
+    throw new WishBoardError('已兑换的心愿不可再改名称、积分或兑换条件', 400, {
+      ok: false,
+      error: '已兑换的心愿不可再改名称、积分或兑换条件',
+    });
+  }
+
+  const title =
+    input.title !== undefined && input.title != null ? normalizeTitle(input.title) : existing.title;
+  const costPoints =
+    input.cost_points !== undefined && input.cost_points != null
+      ? normalizeCostPoints(input.cost_points, existing.cost_points)
+      : existing.cost_points;
+
+  let description = existing.description;
+  let note = existing.note;
+  if (Object.prototype.hasOwnProperty.call(input, 'description')) {
+    description = normalizeOptionalText(input.description, 'description', 500);
+  }
+  if (Object.prototype.hasOwnProperty.call(input, 'note')) {
+    note = normalizeOptionalText(input.note, 'note', 500);
+  }
+  if (
+    Object.prototype.hasOwnProperty.call(input, 'description') &&
+    !Object.prototype.hasOwnProperty.call(input, 'note')
+  ) {
+    note = description;
+  } else if (
+    Object.prototype.hasOwnProperty.call(input, 'note') &&
+    !Object.prototype.hasOwnProperty.call(input, 'description')
+  ) {
+    description = note;
+  }
+
+  let iconKey = existing.icon_key ?? 'card-giftcard';
+  if (Object.prototype.hasOwnProperty.call(input, 'icon_key')) {
+    const iconRaw = input.icon_key == null ? '' : String(input.icon_key).trim();
+    iconKey = iconRaw || 'card-giftcard';
+    if (iconKey.length > 64) {
+      throw new WishBoardError('icon_key 最多 64 字', 400, { ok: false, error: 'icon_key 最多 64 字' });
+    }
+  }
+
+  let wishType = existing.wish_type;
+  if (input.wish_type != null && String(input.wish_type).trim() !== '') {
+    const wishTypeRaw = String(input.wish_type).trim();
+    if (wishTypeRaw !== 'once' && wishTypeRaw !== 'repeat') {
+      throw new WishBoardError('心愿类型无效', 400, { ok: false, error: '心愿类型无效' });
+    }
+    wishType = wishTypeRaw;
+  }
+
+  let sortOrder = existing.sort_order;
+  if (input.sort_order != null && input.sort_order !== ('' as unknown)) {
+    const n = typeof input.sort_order === 'number' ? input.sort_order : Number(input.sort_order);
+    if (!Number.isFinite(n) || !Number.isInteger(n)) {
+      throw new WishBoardError('sort_order 必须为整数', 400, {
+        ok: false,
+        error: 'sort_order 必须为整数',
+      });
+    }
+    sortOrder = n;
+  }
+
+  let extraData: string | null =
+    existing.extra_data == null
+      ? null
+      : typeof existing.extra_data === 'string'
+        ? existing.extra_data
+        : JSON.stringify(existing.extra_data);
+  if (Object.prototype.hasOwnProperty.call(input, 'extra_data')) {
+    extraData = serializeWishBoardExtraData(input.extra_data);
+  }
+
+  const now = nowUtcMysql();
+  await db.query(
+    `UPDATE wish_board_items SET
+       title = ?, description = ?, cost_points = ?, note = ?, icon_key = ?, wish_type = ?,
+       sort_order = ?, extra_data = ?, updated_at = ?, sync_status = 'synced'
+     WHERE id = ?`,
+    [title, description, costPoints, note, iconKey, wishType, sortOrder, extraData, now, id],
+  );
+
+  const item = await getWishBoardItem(id);
+  if (!item) {
+    throw new WishBoardError('更新失败', 500, { ok: false, error: '更新失败' });
   }
   return item;
 }

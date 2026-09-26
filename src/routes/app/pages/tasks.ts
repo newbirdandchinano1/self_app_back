@@ -1,26 +1,26 @@
 import { Router } from 'express';
 import { CatalogIntegrityError, getTasksCatalog } from '../../../services/pages/tasks-catalog.js';
-import { getCompletionHeatmap } from '../../../services/pages/completion-heatmap.js';
-import { getHabitsGrid } from '../../../services/pages/habits-grid.js';
-import { getTaskList } from '../../../services/pages/task-list.js';
-import { getTasksOverview } from '../../../services/pages/tasks-overview.js';
 import {
+  getCompletionHeatmap,
+  getTasksOverview,
+} from '../../../services/pages/tasks-overview.js';
+import {
+  getHabitsGrid,
   getTasksPageBootstrap,
   getTasksPageSummary,
 } from '../../../services/pages/tasks-bootstrap.js';
+import { getTaskList } from '../../../services/pages/tasks-list.js';
 import {
   assignOrUnassignFrog,
-  FrogAssignError,
-  type FrogSubjectKind,
-} from '../../../services/pages/frog-assign.js';
-import { getFrogCandidates } from '../../../services/pages/frog-candidates.js';
-import {
   deleteFrogSchedulePlacement,
+  FrogAssignError,
   FrogScheduleError,
+  getFrogCandidates,
   getFrogScheduleWeek,
   saveFrogScheduleAxis,
   upsertFrogSchedulePlacement,
-} from '../../../services/pages/frog-schedule.js';
+  type FrogSubjectKind,
+} from '../../../services/pages/frog.js';
 import { success } from '../../../utils/response.js';
 import {
   parseBoolQuery,

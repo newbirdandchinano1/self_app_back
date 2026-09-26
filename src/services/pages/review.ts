@@ -230,40 +230,42 @@ async function loadColumnsForDimensions(dimensionIds: string[]): Promise<Record<
   return (rows as Record<string, unknown>[]).map((row) => formatReviewRow(row, COL_TABLE));
 }
 
-async function loadDailyJournals(start: string, end: string): Promise<Record<string, unknown>[]> {
-  const { meta, columns } = await loadMeta(DAILY_TABLE);
+const JOURNAL_SCOPE_TABLE = {
+  daily: { table: DAILY_TABLE, periodColumn: 'record_date_ymd' },
+  weekly: { table: WEEKLY_TABLE, periodColumn: 'week_start_ymd' },
+  monthly: { table: MONTHLY_TABLE, periodColumn: 'month_start_ymd' },
+} as const;
+
+type JournalScope = keyof typeof JOURNAL_SCOPE_TABLE;
+
+/** 日 / 周 / 月 journal 同构区间查询，仅表名与主键列不同 */
+async function loadJournalsByScope(
+  scope: JournalScope,
+  start: string,
+  end: string,
+): Promise<Record<string, unknown>[]> {
+  const { table, periodColumn } = JOURNAL_SCOPE_TABLE[scope];
+  const { meta, columns } = await loadMeta(table);
   const [rows] = await db.query<RowDataPacket[]>(
-    `SELECT ${selectSql(meta)} FROM ${quoteIdent(DAILY_TABLE)}
+    `SELECT ${selectSql(meta)} FROM ${quoteIdent(table)}
      WHERE ${activeWhereSql(columns)}
-       AND record_date_ymd BETWEEN ? AND ?
-     ORDER BY record_date_ymd ASC, id ASC`,
+       AND ${quoteIdent(periodColumn)} BETWEEN ? AND ?
+     ORDER BY ${quoteIdent(periodColumn)} ASC, id ASC`,
     [start, end],
   );
-  return (rows as Record<string, unknown>[]).map((row) => formatReviewRow(row, DAILY_TABLE));
+  return (rows as Record<string, unknown>[]).map((row) => formatReviewRow(row, table));
+}
+
+async function loadDailyJournals(start: string, end: string): Promise<Record<string, unknown>[]> {
+  return loadJournalsByScope('daily', start, end);
 }
 
 async function loadWeeklyJournals(start: string, end: string): Promise<Record<string, unknown>[]> {
-  const { meta, columns } = await loadMeta(WEEKLY_TABLE);
-  const [rows] = await db.query<RowDataPacket[]>(
-    `SELECT ${selectSql(meta)} FROM ${quoteIdent(WEEKLY_TABLE)}
-     WHERE ${activeWhereSql(columns)}
-       AND week_start_ymd BETWEEN ? AND ?
-     ORDER BY week_start_ymd ASC, id ASC`,
-    [start, end],
-  );
-  return (rows as Record<string, unknown>[]).map((row) => formatReviewRow(row, WEEKLY_TABLE));
+  return loadJournalsByScope('weekly', start, end);
 }
 
 async function loadMonthlyJournals(start: string, end: string): Promise<Record<string, unknown>[]> {
-  const { meta, columns } = await loadMeta(MONTHLY_TABLE);
-  const [rows] = await db.query<RowDataPacket[]>(
-    `SELECT ${selectSql(meta)} FROM ${quoteIdent(MONTHLY_TABLE)}
-     WHERE ${activeWhereSql(columns)}
-       AND month_start_ymd BETWEEN ? AND ?
-     ORDER BY month_start_ymd ASC, id ASC`,
-    [start, end],
-  );
-  return (rows as Record<string, unknown>[]).map((row) => formatReviewRow(row, MONTHLY_TABLE));
+  return loadJournalsByScope('monthly', start, end);
 }
 
 async function loadOneByYmd(

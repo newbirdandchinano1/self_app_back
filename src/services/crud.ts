@@ -6,9 +6,12 @@ import {
   ADMIN_AUTO_MANAGED_COLUMNS,
   ADMIN_DEFAULT_SYNC_STATUS,
   ADMIN_READONLY_COLUMNS,
+  formatGenericWriteForbiddenMessage,
+  getGenericWriteForbiddenHint,
   getPrimaryKey,
   HIDDEN_COLUMNS,
   isAllowedTable,
+  isGenericWriteForbidden,
   PASSWORD_FIELDS,
   requiresClientId,
   PROJECT_STATUS_VALUES,
@@ -29,7 +32,6 @@ import {
   looksLikeDateTimeValue,
   normalizeDbDateTimeForTableStorage,
   formatRecordDateTimesForApi,
-  parseDbDateTimeToInstant,
 } from './calendar/logical-day.js';
 
 const DB_DATETIME_COLUMNS = new Set(['created_at', 'updated_at', 'completed_at', 'redeemed_at']);
@@ -71,6 +73,12 @@ function assertTable(table: string): AllowedTable {
     throw new CrudError(`表 ${table} 不存在或不允许访问`, 404);
   }
   return table;
+}
+
+/** 高危表禁止经通用 CRUD 写入（路由层已拦；此处兜底，含内部误调） */
+function assertGenericWriteAllowed(table: AllowedTable): void {
+  if (!isGenericWriteForbidden(table)) return;
+  throw new CrudError(formatGenericWriteForbiddenMessage(table), 403);
 }
 
 export class CrudError extends Error {
@@ -513,12 +521,6 @@ async function validateForeignKeys(
           400,
         );
       }
-      if (table === 'memos' && column === 'dimension_id') {
-        throw new CrudError(
-          `备忘录维度不存在（dimension_id=${value}），请先通过 POST /api/data/memo_dimensions 同步备忘录维度`,
-          400,
-        );
-      }
       throw new CrudError(
         `${getColumnLabel(table, column)} 引用的 ${refLabel}（${refTable}）不存在，请先同步 ${refTable}`,
         400,
@@ -735,6 +737,7 @@ export async function createRecord(
   options: CrudWriteOptions = {},
 ) {
   const table = assertTable(tableName);
+  assertGenericWriteAllowed(table);
   const meta = await getTableMeta(table);
   const payload = await normalizeWriteData(table, meta, data, true, options.adminPanel);
 
@@ -764,12 +767,6 @@ export async function createRecord(
 
   const pk = String(payload[meta.primaryKey] ?? data[meta.primaryKey]);
 
-  // 流水权威：同步追加（含负 delta 扣回）后按 SUM(delta) 校正钱包
-  if (table === 'points_ledger' && !options.adminPanel) {
-    const { reconcilePointsWalletFromLedger } = await import('./points.js');
-    await reconcilePointsWalletFromLedger();
-  }
-
   return getRecord(table, pk);
 }
 
@@ -780,12 +777,8 @@ export async function updateRecord(
   options: CrudWriteOptions = {},
 ) {
   const table = assertTable(tableName);
+  assertGenericWriteAllowed(table);
   const meta = await getTableMeta(table);
-
-
-  if (table === 'points_wallet' && !options.adminPanel) {
-    await assertPointsWalletNotStale(pkValue, data);
-  }
 
   const payload = await normalizeWriteData(table, meta, data, false, options.adminPanel);
 
@@ -831,44 +824,9 @@ export async function updateRecord(
   return getRecord(table, pkValue);
 }
 
-/** 禁止用过期/无时间戳的更高余额覆盖服务端（避免取消扣回后积分被写回去） */
-async function assertPointsWalletNotStale(
-  id: string,
-  data: Record<string, unknown>,
-): Promise<void> {
-  if (!('balance' in data)) return;
-
-  const [rows] = await db.query<RowDataPacket[]>(
-    `SELECT balance, updated_at FROM points_wallet WHERE id = ? LIMIT 1`,
-    [id],
-  );
-  const serverRow = rows[0];
-  if (!serverRow) return;
-
-  const serverBalance = Number(serverRow.balance ?? 0);
-  const clientBalanceRaw =
-    typeof data.balance === 'number' ? data.balance : Number(data.balance);
-  const clientBalance = Number.isFinite(clientBalanceRaw) ? clientBalanceRaw : serverBalance;
-
-  const clientRaw = data.updated_at;
-  if (clientRaw == null || clientRaw === '') {
-    if (clientBalance > serverBalance) {
-      throw new CrudError('积分钱包缺少 updated_at，拒绝用更高余额覆盖', 409);
-    }
-    return;
-  }
-
-  const serverInstant = parseDbDateTimeToInstant(serverRow.updated_at);
-  const clientInstant = parseDbDateTimeToInstant(clientRaw);
-  if (!serverInstant || !clientInstant) return;
-
-  if (clientInstant.getTime() < serverInstant.getTime()) {
-    throw new CrudError('积分钱包已有更新版本，拒绝用过期数据覆盖', 409);
-  }
-}
-
 export async function deleteRecord(tableName: string, pkValue: string) {
   const table = assertTable(tableName);
+  assertGenericWriteAllowed(table);
 
   if (table === 'tasks') {
     const { deleteTaskCascade } = await import('./task-delete.js');
@@ -901,6 +859,7 @@ export async function listTableNames() {
       const visibleColumns = meta.columns.filter((c) => !hidden.has(c));
       const fkMap = TABLE_FOREIGN_KEYS[name] ?? {};
       const moduleId = getAdminModuleIdForTable(name);
+      const writeForbidden = isGenericWriteForbidden(name);
       tables.push({
         name,
         label: getTableLabel(name),
@@ -912,6 +871,9 @@ export async function listTableNames() {
         syncDependsOn: TABLE_SYNC_DEPENDS_ON[name] ?? [],
         autoManagedColumns: [...ADMIN_AUTO_MANAGED_COLUMNS],
         readonlyColumns: [...ADMIN_READONLY_COLUMNS],
+        /** 禁止经 /api/data 通用写；管理端应隐藏增删改或引导专用接口 */
+        writeForbidden,
+        dedicatedWriteHint: writeForbidden ? getGenericWriteForbiddenHint(name) : null,
         columns: buildColumnMeta(name, visibleColumns).map((col) => ({
           ...col,
           ...(fkMap[col.name] ? { refTable: fkMap[col.name] } : {}),

@@ -27,6 +27,7 @@ const ACCOUNT_TABLE = 'finance_accounts' as const;
 const ACCOUNT_TYPE_TABLE = 'finance_account_types' as const;
 const CATEGORY_TABLE = 'finance_flow_categories' as const;
 const SCHEDULED_EXPENSE_TABLE = 'finance_scheduled_expenses' as const;
+/** 权威账本仅上列 finance_*；cash_flow_* 由 getFinanceCashFlowPage 等专口服务，勿与遗留 accounts 混淆。 */
 
 const DEFAULT_DAYS_BACK = 90;
 const MAX_DAYS_BACK = 366;

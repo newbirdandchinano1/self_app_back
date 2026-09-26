@@ -18,17 +18,6 @@ export class MemoError extends Error {
   }
 }
 
-type DimensionRow = {
-  id: string;
-  name: string;
-  sort_order: number;
-  created_at: string;
-  updated_at: string;
-  deleted_at: string | null;
-  sync_status: string;
-  version: number;
-};
-
 type MemoRow = {
   id: string;
   title: string;
@@ -60,28 +49,6 @@ function asTrimmedString(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
 }
 
-function parseSortOrder(value: unknown, fallback = 1000): number {
-  if (value == null || value === '') return fallback;
-  const n = typeof value === 'number' ? value : Number(value);
-  if (!Number.isFinite(n)) throw new MemoError('sort_order 必须是数字');
-  return Math.trunc(n);
-}
-
-function formatDimension(row: DimensionRow) {
-  return formatRecordDateTimesForApi(
-    {
-      id: row.id,
-      name: row.name,
-      sort_order: Number(row.sort_order ?? 1000),
-      created_at: row.created_at,
-      updated_at: row.updated_at,
-      sync_status: row.sync_status,
-      version: Number(row.version ?? 1),
-    },
-    'memo_dimensions',
-  );
-}
-
 function formatMemo(row: MemoRow) {
   return formatRecordDateTimesForApi(
     {
@@ -92,8 +59,9 @@ function formatMemo(row: MemoRow) {
       ai_suggestions: row.ai_suggestions,
       ai_review_at: row.ai_review_at,
       linked_task_id: row.linked_task_id,
-      dimension: row.dimension,
-      dimension_id: row.dimension_id,
+      /** 兼容旧客户端；分类以 tags/tag_links 为准 */
+      dimension: null,
+      dimension_id: null,
       is_pinned: coercePinned(row.is_pinned),
       created_at: row.created_at,
       updated_at: row.updated_at,
@@ -104,18 +72,34 @@ function formatMemo(row: MemoRow) {
   );
 }
 
-async function getActiveDimension(id: string): Promise<DimensionRow | null> {
-  const [rows] = await db.query<RowDataPacket[]>(
-    `SELECT id, name, sort_order, created_at, updated_at, deleted_at, sync_status, version
-     FROM memo_dimensions
-     WHERE id = ? AND deleted_at IS NULL
-     LIMIT 1`,
-    [id],
-  );
-  return (rows[0] as DimensionRow | undefined) ?? null;
+let memosPinnedEnsure: Promise<void> | null = null;
+function ensureMemosPinnedOnce(): Promise<void> {
+  if (!memosPinnedEnsure) {
+    memosPinnedEnsure = import('../db/ensure-memos-pinned.js')
+      .then((m) => m.ensureMemosPinnedColumn())
+      .catch((err) => {
+        memosPinnedEnsure = null;
+        throw err;
+      });
+  }
+  return memosPinnedEnsure;
+}
+
+let tagsTablesEnsure: Promise<void> | null = null;
+function ensureTagsTablesOnce(): Promise<void> {
+  if (!tagsTablesEnsure) {
+    tagsTablesEnsure = import('../db/ensure-project-tags.js')
+      .then((m) => m.ensureProjectTagsTables())
+      .catch((err) => {
+        tagsTablesEnsure = null;
+        throw err;
+      });
+  }
+  return tagsTablesEnsure;
 }
 
 async function getActiveMemo(id: string): Promise<MemoRow | null> {
+  await ensureMemosPinnedOnce();
   const [rows] = await db.query<RowDataPacket[]>(
     `SELECT id, title, body, ai_evaluation, ai_suggestions, ai_review_at, linked_task_id,
             created_at, updated_at, deleted_at, sync_status, version, dimension, dimension_id,
@@ -128,148 +112,9 @@ async function getActiveMemo(id: string): Promise<MemoRow | null> {
   return (rows[0] as MemoRow | undefined) ?? null;
 }
 
-/** 获取全部备忘录维度 */
-export async function listMemoDimensions() {
-  const [rows] = await db.query<RowDataPacket[]>(
-    `SELECT id, name, sort_order, created_at, updated_at, deleted_at, sync_status, version
-     FROM memo_dimensions
-     WHERE deleted_at IS NULL
-     ORDER BY sort_order ASC, created_at ASC, id ASC`,
-  );
-  return (rows as DimensionRow[]).map(formatDimension);
-}
-
-/** 新建备忘录维度 */
-export async function createMemoDimension(input: {
-  id?: unknown;
-  name: unknown;
-  sort_order?: unknown;
-}) {
-  const name = asTrimmedString(input.name);
-  if (!name) throw new MemoError('name 不能为空');
-
-  const id = asTrimmedString(input.id) || randomUUID();
-  const sortOrder = parseSortOrder(input.sort_order, 1000);
-  const now = nowUtcMysql();
-
-  try {
-    await db.query(
-      `INSERT INTO memo_dimensions
-         (id, name, sort_order, created_at, updated_at, deleted_at, sync_status, version)
-       VALUES (?, ?, ?, ?, ?, NULL, 'synced', 1)`,
-      [id, name, sortOrder, now, now],
-    );
-  } catch (err) {
-    if ((err as { code?: string }).code === 'ER_DUP_ENTRY') {
-      throw new MemoError('备忘录维度已存在', 409);
-    }
-    throw err;
-  }
-
-  const created = await getActiveDimension(id);
-  if (!created) throw new MemoError('创建备忘录维度失败', 500);
-  return formatDimension(created);
-}
-
-/** 修改备忘录维度 */
-export async function updateMemoDimension(
-  dimensionId: string,
-  input: { name?: unknown; sort_order?: unknown },
-) {
-  const id = dimensionId.trim();
-  if (!id) throw new MemoError('id 不能为空');
-
-  const existing = await getActiveDimension(id);
-  if (!existing) throw new MemoError('备忘录维度不存在', 404);
-
-  const updates: string[] = [];
-  const values: unknown[] = [];
-  let nextName: string | null = null;
-
-  if (input.name !== undefined) {
-    const name = asTrimmedString(input.name);
-    if (!name) throw new MemoError('name 不能为空');
-    updates.push('name = ?');
-    values.push(name);
-    nextName = name;
-  }
-  if (input.sort_order !== undefined) {
-    updates.push('sort_order = ?');
-    values.push(parseSortOrder(input.sort_order, existing.sort_order));
-  }
-
-  if (updates.length === 0) throw new MemoError('没有可更新的字段');
-
-  const now = nowUtcMysql();
-  const conn = await db.getConnection();
-  try {
-    await conn.beginTransaction();
-    await conn.query(
-      `UPDATE memo_dimensions
-       SET ${updates.join(', ')}, updated_at = ?, version = version + 1
-       WHERE id = ? AND deleted_at IS NULL`,
-      [...values, now, id],
-    );
-
-    if (nextName != null) {
-      await conn.query(
-        `UPDATE memos
-         SET dimension = ?, updated_at = ?, version = version + 1
-         WHERE dimension_id = ? AND deleted_at IS NULL`,
-        [nextName, now, id],
-      );
-    }
-
-    await conn.commit();
-  } catch (err) {
-    await conn.rollback();
-    throw err;
-  } finally {
-    conn.release();
-  }
-
-  const updated = await getActiveDimension(id);
-  if (!updated) throw new MemoError('备忘录维度不存在', 404);
-  return formatDimension(updated);
-}
-
-/** 删除备忘录维度（软删，并级联软删其下备忘） */
-export async function deleteMemoDimension(dimensionId: string) {
-  const id = dimensionId.trim();
-  if (!id) throw new MemoError('id 不能为空');
-
-  const existing = await getActiveDimension(id);
-  if (!existing) throw new MemoError('备忘录维度不存在', 404);
-
-  const now = nowUtcMysql();
-  const conn = await db.getConnection();
-  try {
-    await conn.beginTransaction();
-    await conn.query(
-      `UPDATE memos
-       SET deleted_at = ?, updated_at = ?, version = version + 1
-       WHERE dimension_id = ? AND deleted_at IS NULL`,
-      [now, now, id],
-    );
-    const [result] = await conn.query<ResultSetHeader>(
-      `UPDATE memo_dimensions
-       SET deleted_at = ?, updated_at = ?, version = version + 1
-       WHERE id = ? AND deleted_at IS NULL`,
-      [now, now, id],
-    );
-    await conn.commit();
-    if (result.affectedRows === 0) throw new MemoError('备忘录维度不存在', 404);
-    return { id, deleted_at: formatDbDateTimeForApi(now, 'utc') ?? now };
-  } catch (err) {
-    await conn.rollback();
-    throw err;
-  } finally {
-    conn.release();
-  }
-}
-
 /** 获取所有备忘录列表 */
 export async function listMemos() {
+  await ensureMemosPinnedOnce();
   const [rows] = await db.query<RowDataPacket[]>(
     `SELECT id, title, body, ai_evaluation, ai_suggestions, ai_review_at, linked_task_id,
             created_at, updated_at, deleted_at, sync_status, version, dimension, dimension_id,
@@ -281,28 +126,32 @@ export async function listMemos() {
   return (rows as MemoRow[]).map(formatMemo);
 }
 
-/** 获取指定维度的备忘录列表 */
-export async function listMemosByDimension(dimensionId: string) {
-  const id = dimensionId.trim();
-  if (!id) throw new MemoError('dimensionId 不能为空');
-
-  const dimension = await getActiveDimension(id);
-  if (!dimension) throw new MemoError('备忘录维度不存在', 404);
-
+/** 标签列表（备忘 / 项目共用权威表；profile 聚合与通用 List 同源） */
+export async function listTags() {
+  await ensureTagsTablesOnce();
   const [rows] = await db.query<RowDataPacket[]>(
-    `SELECT id, title, body, ai_evaluation, ai_suggestions, ai_review_at, linked_task_id,
-            created_at, updated_at, deleted_at, sync_status, version, dimension, dimension_id,
-            COALESCE(is_pinned, 0) AS is_pinned
-     FROM memos
-     WHERE dimension_id = ? AND deleted_at IS NULL
-     ORDER BY COALESCE(is_pinned, 0) DESC, updated_at DESC, created_at DESC, id ASC`,
-    [id],
+    `SELECT id, name, color, description, weight, created_at, updated_at, sync_status, extra_data
+     FROM tags
+     WHERE sync_status IS NULL OR sync_status != 'pending_delete'
+     ORDER BY name ASC, id ASC`,
   );
+  return (rows as Record<string, unknown>[]).map((row) =>
+    formatRecordDateTimesForApi({ ...row }, 'tags'),
+  );
+}
 
-  return {
-    dimension: formatDimension(dimension),
-    items: (rows as MemoRow[]).map(formatMemo),
-  };
+/** 标签关联列表 */
+export async function listTagLinks() {
+  await ensureTagsTablesOnce();
+  const [rows] = await db.query<RowDataPacket[]>(
+    `SELECT id, entity_type, entity_id, tag_id, created_at, updated_at, sync_status
+     FROM tag_links
+     WHERE sync_status IS NULL OR sync_status != 'pending_delete'
+     ORDER BY updated_at DESC, id DESC`,
+  );
+  return (rows as Record<string, unknown>[]).map((row) =>
+    formatRecordDateTimesForApi({ ...row }, 'tag_links'),
+  );
 }
 
 /** 备忘录详情 */
@@ -313,12 +162,9 @@ export async function getMemoDetail(memoId: string) {
   const memo = await getActiveMemo(id);
   if (!memo) throw new MemoError('备忘录不存在', 404);
 
-  const dimensionId = memo.dimension_id == null ? '' : String(memo.dimension_id).trim();
-  const dimension = dimensionId ? await getActiveDimension(dimensionId) : null;
-
   return {
     ...formatMemo(memo),
-    dimension_detail: dimension ? formatDimension(dimension) : null,
+    dimension_detail: null,
   };
 }
 
@@ -326,6 +172,7 @@ export type CreateMemoInput = {
   id?: unknown;
   title?: unknown;
   body?: unknown;
+  /** @deprecated 已忽略；分类走 tags */
   dimension_id?: unknown;
   linked_task_id?: unknown;
   is_pinned?: unknown;
@@ -336,16 +183,6 @@ export async function createMemo(input: CreateMemoInput) {
   const title = asTrimmedString(input.title);
   const body = typeof input.body === 'string' ? input.body : '';
   if (!title && !body.trim()) throw new MemoError('title 与 body 不能同时为空');
-
-  let dimensionId: string | null = null;
-  let dimensionName: string | null = null;
-  if (input.dimension_id !== undefined && input.dimension_id != null && input.dimension_id !== '') {
-    dimensionId = asTrimmedString(input.dimension_id);
-    if (!dimensionId) throw new MemoError('dimension_id 不能为空');
-    const dimension = await getActiveDimension(dimensionId);
-    if (!dimension) throw new MemoError('备忘录维度不存在', 404);
-    dimensionName = dimension.name;
-  }
 
   const linkedTaskId =
     input.linked_task_id == null || input.linked_task_id === ''
@@ -361,8 +198,8 @@ export async function createMemo(input: CreateMemoInput) {
       `INSERT INTO memos
          (id, title, body, ai_evaluation, ai_suggestions, ai_review_at, linked_task_id,
           created_at, updated_at, deleted_at, sync_status, version, dimension, dimension_id, is_pinned)
-       VALUES (?, ?, ?, NULL, NULL, NULL, ?, ?, ?, NULL, 'synced', 1, ?, ?, ?)`,
-      [id, title, body, linkedTaskId, now, now, dimensionName, dimensionId, isPinned],
+       VALUES (?, ?, ?, NULL, NULL, NULL, ?, ?, ?, NULL, 'synced', 1, NULL, NULL, ?)`,
+      [id, title, body, linkedTaskId, now, now, isPinned],
     );
   } catch (err) {
     if ((err as { code?: string }).code === 'ER_DUP_ENTRY') {
@@ -379,6 +216,7 @@ export async function createMemo(input: CreateMemoInput) {
 export type UpdateMemoInput = {
   title?: unknown;
   body?: unknown;
+  /** @deprecated 已忽略；写入时清空维度列 */
   dimension_id?: unknown;
   linked_task_id?: unknown;
   is_pinned?: unknown;
@@ -404,19 +242,10 @@ export async function updateMemo(memoId: string, input: UpdateMemoInput) {
     updates.push('body = ?');
     values.push(input.body);
   }
-  if (input.dimension_id !== undefined) {
-    if (input.dimension_id == null || input.dimension_id === '') {
-      updates.push('dimension_id = ?', 'dimension = ?');
-      values.push(null, null);
-    } else {
-      const dimensionId = asTrimmedString(input.dimension_id);
-      if (!dimensionId) throw new MemoError('dimension_id 不能为空');
-      const dimension = await getActiveDimension(dimensionId);
-      if (!dimension) throw new MemoError('备忘录维度不存在', 404);
-      updates.push('dimension_id = ?', 'dimension = ?');
-      values.push(dimensionId, dimension.name);
-    }
-  }
+  // 维度已下线：任意更新都清空遗留列，避免与 tags 双写
+  updates.push('dimension_id = ?', 'dimension = ?');
+  values.push(null, null);
+
   if (input.linked_task_id !== undefined) {
     updates.push('linked_task_id = ?');
     values.push(
@@ -429,8 +258,6 @@ export async function updateMemo(memoId: string, input: UpdateMemoInput) {
     updates.push('is_pinned = ?');
     values.push(coercePinned(input.is_pinned));
   }
-
-  if (updates.length === 0) throw new MemoError('没有可更新的字段');
 
   const now = nowUtcMysql();
   updates.push('updated_at = ?', 'version = version + 1');
@@ -472,12 +299,7 @@ export async function deleteMemo(memoId: string) {
 function buildMemoContextText(memo: MemoRow): string {
   const title = memo.title?.trim() || '(无标题)';
   const body = memo.body ?? '';
-  const dim = memo.dimension?.trim();
-  const parts = [
-    dim ? `维度：${dim}` : null,
-    `标题：${title}`,
-    `正文：\n${body}`,
-  ].filter(Boolean);
+  const parts = [`标题：${title}`, `正文：\n${body}`];
   return parts.join('\n');
 }
 

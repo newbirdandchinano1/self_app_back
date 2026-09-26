@@ -10,13 +10,28 @@ import {
   listTableNames,
   updateRecord,
 } from '../../services/crud.js';
-import { isAllowedTable } from '../../config/tables.js';
+import {
+  formatGenericWriteForbiddenMessage,
+  isAllowedTable,
+  isGenericWriteForbidden,
+} from '../../config/tables.js';
 import { parseListQueryFromRequest } from '../../services/list-query.js';
 
 const router = Router();
 
 function isAdminPanelRequest(req: Request): boolean {
   return req.headers['x-admin-panel'] === '1';
+}
+
+/** 高危表禁止通用写：只允许 GET，写入须走专用业务接口 */
+function rejectGenericWriteIfForbidden(res: import('express').Response, table: string): boolean {
+  if (!isGenericWriteForbidden(table)) return false;
+  fail(res, formatGenericWriteForbiddenMessage(table), -1, 403, {
+    table,
+    writeForbidden: true,
+    useDedicatedApi: true,
+  });
+  return true;
 }
 
 router.use(requireAuth);
@@ -68,6 +83,7 @@ router.post('/data/:table', async (req, res, next) => {
     if (!isAllowedTable(table)) {
       return fail(res, `表 ${table} 不存在或不允许访问`, -1, 404);
     }
+    if (rejectGenericWriteIfForbidden(res, table)) return;
 
     const record = await createRecord(table, req.body ?? {}, {
       adminPanel: isAdminPanelRequest(req),
@@ -87,12 +103,18 @@ router.post('/data/:table', async (req, res, next) => {
   }
 });
 
-router.put('/data/:table/:id', async (req, res, next) => {
+/** PUT / PATCH 共用：部分字段更新 */
+async function handleUpdateRecord(
+  req: import('express').Request,
+  res: import('express').Response,
+  next: import('express').NextFunction,
+) {
   try {
     const { table, id } = req.params;
     if (!isAllowedTable(table)) {
       return fail(res, `表 ${table} 不存在或不允许访问`, -1, 404);
     }
+    if (rejectGenericWriteIfForbidden(res, table)) return;
 
     const record = await updateRecord(table, id, req.body ?? {}, {
       adminPanel: isAdminPanelRequest(req),
@@ -113,35 +135,10 @@ router.put('/data/:table/:id', async (req, res, next) => {
     }
     next(err);
   }
-});
+}
 
-router.patch('/data/:table/:id', async (req, res, next) => {
-  try {
-    const { table, id } = req.params;
-    if (!isAllowedTable(table)) {
-      return fail(res, `表 ${table} 不存在或不允许访问`, -1, 404);
-    }
-
-    const record = await updateRecord(table, id, req.body ?? {}, {
-      adminPanel: isAdminPanelRequest(req),
-    });
-    if (!record) {
-      return fail(res, '记录不存在', -1, 404);
-    }
-    success(res, record, '更新成功');
-  } catch (err) {
-    if (err instanceof CrudError) {
-      return fail(res, err.message, err.code, err.status);
-    }
-    if ((err as { code?: string }).code === 'ER_DUP_ENTRY') {
-      return fail(res, '唯一字段冲突', -1, 409);
-    }
-    if ((err as { code?: string }).code === 'ER_NO_REFERENCED_ROW_2') {
-      return fail(res, '外键引用不存在，请检查依赖数据是否已先同步', -1, 400);
-    }
-    next(err);
-  }
-});
+router.put('/data/:table/:id', handleUpdateRecord);
+router.patch('/data/:table/:id', handleUpdateRecord);
 
 router.delete('/data/:table/:id', async (req, res, next) => {
   try {
@@ -149,6 +146,7 @@ router.delete('/data/:table/:id', async (req, res, next) => {
     if (!isAllowedTable(table)) {
       return fail(res, `表 ${table} 不存在或不允许访问`, -1, 404);
     }
+    if (rejectGenericWriteIfForbidden(res, table)) return;
 
     const deleted = await deleteRecord(table, id);
     if (!deleted) {
@@ -156,6 +154,9 @@ router.delete('/data/:table/:id', async (req, res, next) => {
     }
     success(res, null, '删除成功');
   } catch (err) {
+    if (err instanceof CrudError) {
+      return fail(res, err.message, err.code, err.status);
+    }
     next(err);
   }
 });

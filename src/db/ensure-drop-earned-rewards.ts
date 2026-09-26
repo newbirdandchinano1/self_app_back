@@ -1,5 +1,6 @@
-import type { RowDataPacket, ResultSetHeader } from 'mysql2';
+import type { ResultSetHeader } from 'mysql2';
 import { db } from './index.js';
+import { tableExists } from './schema-helpers.js';
 
 const ENTITY_TABLES = ['habits', 'tasks', 'projects'] as const;
 
@@ -9,27 +10,13 @@ const ENTITY_TABLES = ['habits', 'tasks', 'projects'] as const;
  * - 从 habits / tasks / projects 的 extra_data 移除 completion_reward
  */
 export async function ensureDropEarnedRewards(): Promise<void> {
-  const [tables] = await db.query<RowDataPacket[]>(
-    `SELECT TABLE_NAME AS tableName
-     FROM information_schema.TABLES
-     WHERE TABLE_SCHEMA = DATABASE()
-       AND TABLE_NAME = 'earned_rewards'`,
-  );
-
-  if (tables.length > 0) {
+  if (await tableExists('earned_rewards')) {
     await db.query('DROP TABLE IF EXISTS `earned_rewards`');
     console.log('[DB] 已删除表 earned_rewards');
   }
 
   for (const table of ENTITY_TABLES) {
-    const [exists] = await db.query<RowDataPacket[]>(
-      `SELECT TABLE_NAME AS tableName
-       FROM information_schema.TABLES
-       WHERE TABLE_SCHEMA = DATABASE()
-         AND TABLE_NAME = ?`,
-      [table],
-    );
-    if (exists.length === 0) continue;
+    if (!(await tableExists(table))) continue;
 
     const [result] = await db.query<ResultSetHeader>(
       `UPDATE \`${table}\`

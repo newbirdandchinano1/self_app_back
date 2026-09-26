@@ -7,8 +7,8 @@ import {
   formatLocalYmdFromDate,
   formatYmd,
   subtractSecondsFromWallClock,
-} from '../calendar/logical-day.js';
-import type { TasksDayBoundary } from '../calendar/types.js';
+} from './logical-day.js';
+import type { TasksDayBoundary } from './types.js';
 import { isValidYmd } from '../../utils/ymd.js';
 
 /** 逻辑日区间对应的 task_execution_events.created_at 查询边界（墙上时钟 DATETIME，不加 UTC 偏移） */
@@ -33,7 +33,13 @@ export function resolveHeatmapRange(params: {
   heatmapEnd?: string;
   dayBoundary?: TasksDayBoundary;
   now?: Date;
+  /** 默认未传 start 时回溯的周数；completion heatmap=15，overview=14 */
+  weeks?: number;
 }): { startYmd: string; endYmd: string; logicalToday: string } {
+  const weeks =
+    Number.isFinite(params.weeks) && (params.weeks as number) > 0
+      ? Math.floor(params.weeks as number)
+      : COMPLETION_HEATMAP_WEEKS;
   const boundary = normalizeTasksDayBoundary(params.dayBoundary ?? {});
   const now = params.now ?? new Date();
   const logicalToday = getLogicalLocalYmd(now, boundary);
@@ -46,12 +52,12 @@ export function resolveHeatmapRange(params: {
   if (!isValidYmd(startYmd)) {
     const thisMonday = startOfWeekMonday(now);
     const gridStartMonday = new Date(thisMonday);
-    gridStartMonday.setDate(gridStartMonday.getDate() - (COMPLETION_HEATMAP_WEEKS - 1) * 7);
+    gridStartMonday.setDate(gridStartMonday.getDate() - (weeks - 1) * 7);
     startYmd = formatLocalYmdFromDate(gridStartMonday);
   }
 
   if (startYmd > endYmd) {
-    startYmd = addDaysToLogicalYmd(endYmd, -(COMPLETION_HEATMAP_WEEKS - 1) * 7);
+    startYmd = addDaysToLogicalYmd(endYmd, -(weeks - 1) * 7);
   }
 
   return { startYmd, endYmd, logicalToday };
@@ -63,29 +69,7 @@ export function resolveOverviewHeatmapRange(params: {
   dayBoundary?: TasksDayBoundary;
   now?: Date;
 }): { startYmd: string; endYmd: string; logicalToday: string } {
-  const boundary = normalizeTasksDayBoundary(params.dayBoundary ?? {});
-  const now = params.now ?? new Date();
-  const logicalToday = getLogicalLocalYmd(now, boundary);
-
-  let endYmd = params.heatmapEnd?.trim() ?? logicalToday;
-  if (!isValidYmd(endYmd)) endYmd = logicalToday;
-  if (endYmd > logicalToday) endYmd = logicalToday;
-
-  let startYmd = params.heatmapStart?.trim() ?? '';
-  if (!isValidYmd(startYmd)) {
-    const thisMonday = startOfWeekMonday(now);
-    const gridStartMonday = new Date(thisMonday);
-    gridStartMonday.setDate(
-      gridStartMonday.getDate() - (TASKS_OVERVIEW_HEATMAP_WEEKS - 1) * 7,
-    );
-    startYmd = formatLocalYmdFromDate(gridStartMonday);
-  }
-
-  if (startYmd > endYmd) {
-    startYmd = addDaysToLogicalYmd(endYmd, -(TASKS_OVERVIEW_HEATMAP_WEEKS - 1) * 7);
-  }
-
-  return { startYmd, endYmd, logicalToday };
+  return resolveHeatmapRange({ ...params, weeks: TASKS_OVERVIEW_HEATMAP_WEEKS });
 }
 
 export function resolveHabitCheckInStartYmd(logicalToday: string, months = 24): string {

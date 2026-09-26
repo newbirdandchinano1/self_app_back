@@ -1,7 +1,13 @@
 /**
  * 任务日历聚合逻辑（与前端 lib/tasks-calendar-data.ts 及关联模块对齐）
  */
-import { addDaysToYmd, dueDateYmd, formatLocalYmd, ymdToLocalDate } from '../../utils/ymd.js';
+import { addDaysToYmd, dueDateYmd, ymdToLocalDate } from '../../utils/ymd.js';
+import {
+  formatScheduleDateToYMD,
+  isLogicalDayInYmdRange,
+  parseExtraObject,
+  parseScheduleMetaFromExtra,
+} from '../../utils/schedule-meta.js';
 import {
   addDaysToLogicalYmd,
   formatLocalYmdFromDate,
@@ -23,12 +29,6 @@ import {
   type TasksDayBoundary,
   type TodoCalendarDayReason,
 } from './types.js';
-
-type ProjectScheduleMeta = {
-  mode?: 'date' | 'time';
-  date?: string;
-  range?: { start: string; end: string };
-};
 
 type TaskMetaExtra = {
   frogAssignedOn?: string;
@@ -59,25 +59,6 @@ const CN_WEEKDAY_TO_MON1: Record<string, number> = {
   周六: 6,
   周日: 7,
 };
-
-function parseExtraObject(extraData: string | null): Record<string, unknown> {
-  if (!extraData) return {};
-  try {
-    const parsed = JSON.parse(extraData) as unknown;
-    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-      return parsed as Record<string, unknown>;
-    }
-  } catch {
-    /* ignore */
-  }
-  return {};
-}
-
-function parseProjectSchedule(extraData: string | null): ProjectScheduleMeta | null {
-  const schedule = parseExtraObject(extraData).schedule;
-  if (!schedule || typeof schedule !== 'object' || Array.isArray(schedule)) return null;
-  return schedule as ProjectScheduleMeta;
-}
 
 function parseTaskMeta(extraData: string | null): TaskMetaExtra {
   return parseExtraObject(extraData) as TaskMetaExtra;
@@ -156,21 +137,8 @@ function resolveFrogCalendarDayStatus(params: {
   return 'pending';
 }
 
-export function formatScheduleDateToYMD(value: string): string {
-  const t = value.trim();
-  if (/^\d{4}-\d{2}-\d{2}$/.test(t)) return t;
-  const d = new Date(t);
-  if (Number.isNaN(d.getTime())) return t.slice(0, 10);
-  return formatLocalYmd(d);
-}
-
-export function isLogicalDayInYmdRange(todayYmd: string, startYmd: string, endYmd: string): boolean {
-  if (!startYmd || !endYmd) return true;
-  if (todayYmd < startYmd) return false;
-  if (startYmd === endYmd) return todayYmd === startYmd;
-  if (endYmd === addDaysToYmd(startYmd, 1)) return todayYmd < endYmd;
-  return todayYmd <= endYmd;
-}
+/** @deprecated 使用 utils/schedule-meta；保留 re-export 供 bootstrap 等旧导入 */
+export { formatScheduleDateToYMD, isLogicalDayInYmdRange };
 
 function isTaskTerminalStatus(status: string): boolean {
   return status === 'done' || status === 'cancelled';
@@ -635,7 +603,7 @@ function isStandaloneTodoOpen(task: CalendarTaskRow): boolean {
 
 function isStandaloneTodoScheduleExpired(task: CalendarTaskRow, logicalTodayYmd: string): boolean {
   if (!isStandaloneTodoOpen(task)) return false;
-  const schedule = parseProjectSchedule(task.extra_data);
+  const schedule = parseScheduleMetaFromExtra(task.extra_data);
   if (!schedule) return false;
   if (schedule.mode === 'time' && schedule.range?.start && schedule.range?.end) {
     const start = formatScheduleDateToYMD(schedule.range.start);
@@ -703,7 +671,7 @@ function standaloneTodoPassesRepeatDayFilter(task: CalendarTaskRow, logicalToday
 function standaloneTodoPassesScheduleWindowFilter(task: CalendarTaskRow, logicalTodayYmd: string): boolean {
   if (isTaskShelvedStatus(task.status)) return true;
   if (parseTaskRepeatSchedule(task.extra_data)) return true;
-  const schedule = parseProjectSchedule(task.extra_data);
+  const schedule = parseScheduleMetaFromExtra(task.extra_data);
   if (schedule?.mode === 'time' && schedule.range?.start && schedule.range?.end) {
     const start = formatScheduleDateToYMD(schedule.range.start);
     const end = formatScheduleDateToYMD(schedule.range.end);
@@ -731,12 +699,131 @@ export function isStandaloneTodoVisibleOnDay(
   );
 }
 
-/** 与客户端 sortStandaloneTodosLocally 一致：活跃 → 搁置 → 终态，组内 created_at ASC */
-export function sortStandaloneTodos<T extends { status?: string; created_at?: string; id?: string }>(
+/**
+ * 独立待办列表排序（与客户端 sortStandaloneTodosLocally 对齐）：
+ * 1. 已完成 / 取消 → 最底
+ * 2. 搁置 → 终态之上
+ * 3. 未到执行日的重复待办（waiting）→ 搁置之上（需 logicalTodayYmd）
+ * 4. 活跃组内：过期 → 置顶（需 logicalTodayYmd）
+ * 5. 标签权重分降序（缺省 0；无 map 时一律 0）
+ * 6. priority 降序
+ * 7. 有有效截止在前且越早越前；无截止靠后
+ * 8. reward_points 降序
+ * 9. updated_at 降序 → id 升序
+ */
+export function sortStandaloneTodos<
+  T extends {
+    id?: string;
+    status?: string;
+    priority?: number;
+    due_date?: string | null;
+    extra_data?: string | null;
+    updated_at?: string;
+    created_at?: string;
+  },
+>(
   rows: T[],
+  logicalTodayYmd?: string,
+  tagWeightByTaskId?: Map<string, number>,
 ): T[] {
   const isDoneRow = (t: T) => t.status === 'done' || t.status === 'cancelled';
-  const createdMs = (t: T) => Date.parse(t.created_at ?? '') || 0;
+
+  const safeTime = (value: string | null | undefined) => {
+    if (!value) return 0;
+    const ms = Date.parse(value);
+    return Number.isNaN(ms) ? 0 : ms;
+  };
+
+  const getTagWeight = (taskId: string): number => {
+    const w = tagWeightByTaskId?.get(taskId);
+    return typeof w === 'number' && Number.isFinite(w) ? w : 0;
+  };
+
+  const getDueMs = (t: T): number | null => {
+    const dueRaw = typeof t.due_date === 'string' ? t.due_date.trim() : '';
+    if (dueRaw) {
+      const ymd = dueDateYmd(dueRaw);
+      if (ymd) {
+        const d = ymdToLocalDate(ymd);
+        if (d) return d.getTime();
+      }
+      const ms = Date.parse(dueRaw);
+      if (!Number.isNaN(ms)) return ms;
+    }
+    const schedule = parseScheduleMetaFromExtra(t.extra_data ?? null);
+    if (schedule?.mode === 'time' && schedule.range?.end) {
+      const endRaw = schedule.range.end.trim();
+      const endYmd = formatScheduleDateToYMD(endRaw);
+      const d = ymdToLocalDate(endYmd);
+      if (d) return d.getTime();
+      const ms = Date.parse(endRaw);
+      if (!Number.isNaN(ms)) return ms;
+    }
+    if (schedule?.date) {
+      const dateRaw = schedule.date.trim();
+      const d = ymdToLocalDate(formatScheduleDateToYMD(dateRaw));
+      if (d) return d.getTime();
+      const ms = Date.parse(dateRaw);
+      if (!Number.isNaN(ms)) return ms;
+    }
+    return null;
+  };
+
+  const rewardPoints = (t: T): number => {
+    const raw = parseExtraObject(t.extra_data ?? null).reward_points;
+    if (typeof raw === 'number' && Number.isFinite(raw)) {
+      return Math.min(99999, Math.max(-99999, Math.round(raw * 100) / 100));
+    }
+    if (typeof raw === 'string' && raw.trim() !== '') {
+      const n = Number(raw);
+      if (Number.isFinite(n)) return Math.min(99999, Math.max(-99999, Math.round(n * 100) / 100));
+    }
+    return 0;
+  };
+
+  const toCalendarLike = (t: T): CalendarTaskRow => ({
+    id: String(t.id ?? ''),
+    project_id: null,
+    parent_task_id: null,
+    title: '',
+    status: String(t.status ?? ''),
+    priority: Number(t.priority ?? 0),
+    due_date: t.due_date ?? null,
+    completed_at: null,
+    created_at: String(t.created_at ?? ''),
+    updated_at: String(t.updated_at ?? ''),
+    extra_data: t.extra_data ?? null,
+    frog_assigned_on: null,
+  });
+
+  const isOverdueForList = (task: CalendarTaskRow, today: string): boolean => {
+    if (isTaskShelvedStatus(task.status) || isTaskTerminalStatus(task.status)) return false;
+    if (isTaskRowOverdue(task, today)) return true;
+    if (isStandaloneTodoScheduleExpired(task, today)) return true;
+    const repeat = parseTaskRepeatSchedule(task.extra_data);
+    if (repeat && !isTaskRepeatDueOnLogicalDay(today, repeat)) {
+      return hasMissedRepeatOccurrenceBeforeToday(task, today, repeat);
+    }
+    return false;
+  };
+
+  const isWaiting = (t: T): boolean => {
+    if (!logicalTodayYmd) return false;
+    const row = toCalendarLike(t);
+    if (!isStandaloneTodoOpen(row) || isTaskShelvedStatus(row.status)) return false;
+    const schedule = parseTaskRepeatSchedule(row.extra_data);
+    if (!schedule) return false;
+    if (isTaskRepeatDueOnLogicalDay(logicalTodayYmd, schedule)) return false;
+    if (isOverdueForList(row, logicalTodayYmd)) return false;
+    return true;
+  };
+
+  const isOverdue = (t: T): boolean => {
+    if (!logicalTodayYmd) return false;
+    const row = toCalendarLike(t);
+    if (isTaskShelvedStatus(row.status) || !isStandaloneTodoOpen(row)) return false;
+    return isOverdueForList(row, logicalTodayYmd);
+  };
 
   return rows.slice().sort((a, b) => {
     const da = isDoneRow(a);
@@ -747,9 +834,35 @@ export function sortStandaloneTodos<T extends { status?: string; created_at?: st
     const sb = b.status === 'shelved';
     if (sa !== sb) return sa ? 1 : -1;
 
-    const ca = createdMs(a);
-    const cb = createdMs(b);
-    if (ca !== cb) return ca - cb;
+    const wa = isWaiting(a);
+    const wb = isWaiting(b);
+    if (wa !== wb) return wa ? 1 : -1;
+
+    const oa = isOverdue(a);
+    const ob = isOverdue(b);
+    if (oa !== ob) return oa ? -1 : 1;
+
+    const tagA = getTagWeight(String(a.id ?? ''));
+    const tagB = getTagWeight(String(b.id ?? ''));
+    if (tagA !== tagB) return tagB - tagA;
+
+    const priorityA = Number(a.priority ?? 0);
+    const priorityB = Number(b.priority ?? 0);
+    if (priorityA !== priorityB) return priorityB - priorityA;
+
+    const dueA = getDueMs(a);
+    const dueB = getDueMs(b);
+    const hasDueA = dueA != null;
+    const hasDueB = dueB != null;
+    if (hasDueA !== hasDueB) return hasDueA ? -1 : 1;
+    if (hasDueA && hasDueB && dueA !== dueB) return dueA - dueB;
+
+    const rewardA = rewardPoints(a);
+    const rewardB = rewardPoints(b);
+    if (rewardA !== rewardB) return rewardB - rewardA;
+
+    const byUpdated = safeTime(b.updated_at) - safeTime(a.updated_at);
+    if (byUpdated !== 0) return byUpdated;
 
     return String(a.id ?? '').localeCompare(String(b.id ?? ''));
   });
@@ -828,7 +941,7 @@ function isSubHabitCheckedOnDay(checkIns: unknown, subId: string, ymd: string): 
 }
 
 /** 子习惯未全完成时父习惯不得显示完成；未启用子习惯时返回 null。
- * 戒除：任一项已勾选（破戒）→ false；全无破戒 → null（由打卡记录决定是否守住）。 */
+ * 戒除：任一项已勾选（破戒）→ true（已确认当日状态）；全无破戒 → null（由打卡记录决定是否守住）。 */
 export function areSubHabitsCompleteForDay(extraData: string | null, logicalYmd: string): boolean | null {
   const extra = parseExtraObject(extraData);
   if (extra.subHabitsEnabled !== true && extra.subHabitsEnabled !== 1 && extra.subHabitsEnabled !== 'true') {
@@ -839,7 +952,7 @@ export function areSubHabitsCompleteForDay(extraData: string | null, logicalYmd:
   const kind = parseHabitKind(extraData);
   if (kind === 'break') {
     const anyBroken = ids.some((id) => isSubHabitCheckedOnDay(extra.subHabitCheckIns, id, logicalYmd));
-    return anyBroken ? false : null;
+    return anyBroken ? true : null;
   }
   return ids.every((id) => isSubHabitCheckedOnDay(extra.subHabitCheckIns, id, logicalYmd));
 }
@@ -1049,7 +1162,7 @@ export function buildTasksCalendarSummaries(params: {
       if (isMatrixTask(task) && task.status !== 'done' && task.status !== 'cancelled') {
         const due = dueDateYmd(task.due_date);
         if (due === ymd) continue;
-        const schedule = parseProjectSchedule(task.extra_data);
+        const schedule = parseScheduleMetaFromExtra(task.extra_data);
         let onDay = false;
         if (schedule?.mode === 'time' && schedule.range?.start && schedule.range?.end) {
           const start = formatScheduleDateToYMD(schedule.range.start);
@@ -1121,14 +1234,19 @@ export function buildHabitsGridItemsForDay(params: {
 
     const count = todayCheckIns.get(habit.id) ?? 0;
     const dailyGoal = parseHabitDailyGoal(extraData, kind);
-    // 任务型：打勾只看周期目标，不用「今日有 1 次打卡」当完成
+    const hasDayRecord =
+      todayCheckIns.has(habit.id) || Object.prototype.hasOwnProperty.call(checkIns, logicalYmd);
+    // 任务型：打勾只看周期目标；戒除：保持/破戒均为已确认状态；养成：看当日目标
     let displayCompleted =
       kind === 'task'
         ? Boolean(taskViewState?.showPeriodCheckOnViewDay)
-        : isHabitDayGoalMet({ kind, todayCount: count, dailyGoal });
+        : kind === 'break'
+          ? hasDayRecord
+          : isHabitDayGoalMet({ kind, todayCount: count, dailyGoal });
     if (createdLater) displayCompleted = false;
     const subHabitsComplete = areSubHabitsCompleteForDay(extraData, logicalYmd);
     if (subHabitsComplete === false) displayCompleted = false;
+    if (subHabitsComplete === true) displayCompleted = true;
 
     items.push({
       id: habit.id,

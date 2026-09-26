@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { requireAuth } from '../../middlewares/auth.js';
-import { fail, success } from '../../utils/response.js';
+import { success } from '../../utils/response.js';
+import { createDomainErrorHandler } from '../../utils/domain-error-handler.js';
 import { parseStringQuery } from './pages/query.js';
 import {
   ReviewPageError,
@@ -14,23 +15,14 @@ import {
 
 /**
  * 复盘 Tab / 复盘子页专用接口。
- * 挂载前缀：/api 与 /api/app
- * APP 只打 /api/pages/review/* ，不要再为读路径降级到 /api/data/* List。
+ * 挂载前缀：/api/app
+ * APP 只打 /api/app/pages/review/* ，不要再为读路径降级到 /api/app/data/* List。
  */
 const router = Router();
 
 router.use(requireAuth);
 
-function handleReviewError(
-  err: unknown,
-  res: Parameters<typeof fail>[0],
-  next: (err: unknown) => void,
-) {
-  if (err instanceof ReviewPageError) {
-    return fail(res, err.message, -1, err.status);
-  }
-  next(err);
-}
+const handleReviewError = createDomainErrorHandler(ReviewPageError);
 
 /** GET /pages/review/home — 复盘 Tab 冷启动 / 下拉刷新 */
 router.get('/pages/review/home', async (req, res, next) => {

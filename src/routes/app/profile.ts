@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { requireAuth } from '../../middlewares/auth.js';
-import { fail, success } from '../../utils/response.js';
+import { success } from '../../utils/response.js';
+import { createDomainErrorHandler } from '../../utils/domain-error-handler.js';
 import {
   ProfilePageError,
   getProfileMemoList,
@@ -11,23 +12,14 @@ import {
 
 /**
  * 「我的」Tab / 画像子页专用接口。
- * 挂载前缀：/api 与 /api/app
- * APP 只打 /api/pages/profile/* ，不要再为读路径降级到 /api/data/* List。
+ * 挂载前缀：/api/app
+ * APP 只打 /api/app/pages/profile/* ，不要再为读路径降级到 /api/app/data/* List。
  */
 const router = Router();
 
 router.use(requireAuth);
 
-function handleProfileError(
-  err: unknown,
-  res: Parameters<typeof fail>[0],
-  next: (err: unknown) => void,
-) {
-  if (err instanceof ProfilePageError) {
-    return fail(res, err.message, -1, err.status);
-  }
-  next(err);
-}
+const handleProfileError = createDomainErrorHandler(ProfilePageError);
 
 /** GET /pages/profile/memo-list — 备忘录列表子页 */
 router.get('/pages/profile/memo-list', async (_req, res, next) => {

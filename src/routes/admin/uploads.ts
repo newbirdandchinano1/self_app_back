@@ -1,5 +1,6 @@
 import { Router } from 'express';
-import { fail, success } from '../../utils/response.js';
+import { success } from '../../utils/response.js';
+import { createDomainErrorHandler } from '../../utils/domain-error-handler.js';
 import {
   deleteHealthIntakeImage,
   saveHealthIntakeImage,
@@ -7,6 +8,8 @@ import {
 } from '../../services/health-intake-upload.js';
 
 const router = Router();
+
+const handleUploadError = createDomainErrorHandler(UploadError);
 
 /**
  * POST /uploads/health-intake
@@ -21,10 +24,7 @@ router.post('/health-intake', async (req, res, next) => {
     });
     success(res, saved, '上传成功');
   } catch (err) {
-    if (err instanceof UploadError) {
-      return fail(res, err.message, -1, err.status);
-    }
-    next(err);
+    handleUploadError(err, res, next);
   }
 });
 
@@ -38,10 +38,7 @@ router.delete('/health-intake', async (req, res, next) => {
     const result = await deleteHealthIntakeImage(uri);
     success(res, result, result.deleted ? '已删除文件' : '文件不存在或已删除');
   } catch (err) {
-    if (err instanceof UploadError) {
-      return fail(res, err.message, -1, err.status);
-    }
-    next(err);
+    handleUploadError(err, res, next);
   }
 });
 

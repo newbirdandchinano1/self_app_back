@@ -7,8 +7,8 @@ import {
   formatDbDateTimeForApi,
   formatRecordDateTimesForApi,
 } from '../src/services/calendar/logical-day.js';
-import { resolveHeatmapEventCreatedAtBounds } from '../src/services/pages/heatmap-range.js';
-import { filterNetCompletedEvents } from '../src/services/pages/task-net-completion.js';
+import { resolveHeatmapEventCreatedAtBounds } from '../src/services/calendar/heatmap-range.js';
+import { filterNetCompletedEvents } from '../src/services/calendar/net-completion.js';
 
 type Case = {
   name: string;

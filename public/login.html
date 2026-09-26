@@ -116,7 +116,7 @@
     const TOKEN_KEY = 'self_app_admin_token';
 
     if (localStorage.getItem(TOKEN_KEY)) {
-      fetch('/api/auth/me', { headers: { Authorization: 'Bearer ' + localStorage.getItem(TOKEN_KEY) } })
+      fetch('/api/app/auth/me', { headers: { Authorization: 'Bearer ' + localStorage.getItem(TOKEN_KEY) } })
         .then(r => r.json())
         .then(d => { if (d.code === 0) location.href = '/admin'; });
     }
@@ -137,7 +137,7 @@
       submitBtn.textContent = '登录中...';
 
       try {
-        const res = await fetch('/api/auth/login', {
+        const res = await fetch('/api/app/auth/login', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({

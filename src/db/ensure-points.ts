@@ -1,57 +1,11 @@
-import type { RowDataPacket, ResultSetHeader } from 'mysql2';
+import type { ResultSetHeader } from 'mysql2';
 import { db } from './index.js';
-
-async function tableExists(tableName: string): Promise<boolean> {
-  const [rows] = await db.query<RowDataPacket[]>(
-    `SELECT TABLE_NAME AS tableName
-     FROM information_schema.TABLES
-     WHERE TABLE_SCHEMA = DATABASE()
-       AND TABLE_NAME = ?`,
-    [tableName],
-  );
-  return rows.length > 0;
-}
-
-async function indexExists(tableName: string, indexName: string): Promise<boolean> {
-  const [rows] = await db.query<RowDataPacket[]>(
-    `SELECT INDEX_NAME AS indexName
-     FROM information_schema.STATISTICS
-     WHERE TABLE_SCHEMA = DATABASE()
-       AND TABLE_NAME = ?
-       AND INDEX_NAME = ?
-     LIMIT 1`,
-    [tableName, indexName],
-  );
-  return rows.length > 0;
-}
-
-async function checkConstraintExists(tableName: string, constraintName: string): Promise<boolean> {
-  const [rows] = await db.query<RowDataPacket[]>(
-    `SELECT CONSTRAINT_NAME AS constraintName
-     FROM information_schema.TABLE_CONSTRAINTS
-     WHERE TABLE_SCHEMA = DATABASE()
-       AND TABLE_NAME = ?
-       AND CONSTRAINT_NAME = ?
-       AND CONSTRAINT_TYPE = 'CHECK'
-     LIMIT 1`,
-    [tableName, constraintName],
-  );
-  return rows.length > 0;
-}
-
-async function columnDataType(tableName: string, columnName: string): Promise<string | null> {
-  const [rows] = await db.query<RowDataPacket[]>(
-    `SELECT DATA_TYPE AS dataType
-     FROM information_schema.COLUMNS
-     WHERE TABLE_SCHEMA = DATABASE()
-       AND TABLE_NAME = ?
-       AND COLUMN_NAME = ?
-     LIMIT 1`,
-    [tableName, columnName],
-  );
-  const t = rows[0]?.dataType;
-  return t == null ? null : String(t).toLowerCase();
-}
+import {
+  checkConstraintExists,
+  columnDataType,
+  indexExists,
+  tableExists,
+} from './schema-helpers.js';
 
 /**
  * 幂等：积分钱包/流水表 + default 钱包。
