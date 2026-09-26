@@ -105,7 +105,7 @@ router.post('/data/:table', async (req, res, next) => {
 
 /** PUT / PATCH 共用：部分字段更新 */
 async function handleUpdateRecord(
-  req: import('express').Request,
+  req: Request<{ table: string; id: string }>,
   res: import('express').Response,
   next: import('express').NextFunction,
 ) {
