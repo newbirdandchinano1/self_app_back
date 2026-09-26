@@ -123,15 +123,12 @@ async function loadProjectRow(id: string): Promise<RowDataPacket | null> {
   return rows[0] ?? null;
 }
 
-async function assertTaskAssignable(row: RowDataPacket, assignYmd: string): Promise<void> {
+async function assertTaskAssignable(row: RowDataPacket, _assignYmd: string): Promise<void> {
   const status = String(row.status ?? '');
   if (status === 'done' || status === 'cancelled') {
     throw new FrogAssignError('任务已完成或已取消，无法指派青蛙');
   }
-  const dates = collectFrogAssignedDates(row.extra_data, row.frog_assigned_on);
-  if (dates.includes(assignYmd)) {
-    throw new FrogAssignError('该日已指派为青蛙');
-  }
+  // 允许同一任务指派到当日多个格子；同格重复由日程占用层拦截。已指派日 merge 幂等。
   const [childRows] = await db.query<RowDataPacket[]>(
     `SELECT id FROM tasks
      WHERE parent_task_id = ?
@@ -144,7 +141,7 @@ async function assertTaskAssignable(row: RowDataPacket, assignYmd: string): Prom
   }
 }
 
-async function assertProjectAssignable(row: RowDataPacket, assignYmd: string): Promise<void> {
+async function assertProjectAssignable(row: RowDataPacket, _assignYmd: string): Promise<void> {
   const status = String(row.status ?? '');
   if (status !== 'active') {
     throw new FrogAssignError('仅活跃且无子任务的项目可指派为青蛙');
@@ -153,10 +150,7 @@ async function assertProjectAssignable(row: RowDataPacket, assignYmd: string): P
   if (!categoryId || categoryId === INBOX_PROJECT_CATEGORY_ID) {
     throw new FrogAssignError('收集箱项目不可指派为青蛙');
   }
-  const dates = collectFrogAssignedDates(row.extra_data, row.frog_assigned_on);
-  if (dates.includes(assignYmd)) {
-    throw new FrogAssignError('该日已指派为青蛙');
-  }
+  // 允许同一项目指派到当日多个格子；同格重复由日程占用层拦截。已指派日 merge 幂等。
   const [taskRows] = await db.query<RowDataPacket[]>(
     `SELECT id FROM tasks WHERE project_id = ? LIMIT 1`,
     [row.id],
@@ -309,11 +303,11 @@ function isYmdBefore(a: string | null, b: string): boolean {
   return !!a && YMD_RE.test(a) && YMD_RE.test(b) && a < b;
 }
 
-/**
- * 轻量候选列表：供周课程表「放置青蛙」挑选。
- * 含任务（含无项目待办）与无子任务活跃项目；已指派项标记 alreadyAssigned。
- * 锁定（前置/日程）由客户端用本地 lockMap 再过滤。
- */
+  /**
+   * 轻量候选列表：供周课程表「放置青蛙」挑选。
+   * 含任务（含无项目待办）与无子任务活跃项目；已指派项标记 alreadyAssigned（仍可选入其他格子）。
+   * 锁定（前置/日程）由客户端用本地 lockMap 再过滤。
+   */
 export async function getFrogCandidates(
   params: TasksBootstrapParams & { assignYmd?: string },
 ): Promise<FrogCandidatesResult> {

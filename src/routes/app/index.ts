@@ -32,18 +32,20 @@ const aiConcurrency = createConcurrencyMiddleware(
   concurrencyConfig.enabled,
 );
 
-router.use('/auth', apiConcurrency, authRouter);
+// AI 走独立限流；其余路由只挂一次 apiConcurrency，避免同一响应重复注册 finish/close
 router.use('/ai', aiConcurrency, aiRouter);
-router.use(apiConcurrency, pagesRouter);
-router.use(apiConcurrency, calendarRouter);
-router.use(apiConcurrency, pointsRouter);
-router.use(apiConcurrency, wishBoardRouter);
-router.use(apiConcurrency, recipesRouter);
-router.use(apiConcurrency, memosRouter);
-router.use(apiConcurrency, healthRouter);
-router.use(apiConcurrency, financeRouter);
-router.use(apiConcurrency, reviewRouter);
-router.use(apiConcurrency, profileRouter);
-router.use(apiConcurrency, crudRouter);
+router.use(apiConcurrency);
+router.use('/auth', authRouter);
+router.use(pagesRouter);
+router.use(calendarRouter);
+router.use(pointsRouter);
+router.use(wishBoardRouter);
+router.use(recipesRouter);
+router.use(memosRouter);
+router.use(healthRouter);
+router.use(financeRouter);
+router.use(reviewRouter);
+router.use(profileRouter);
+router.use(crudRouter);
 
 export default router;
