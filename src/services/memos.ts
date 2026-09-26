@@ -18,6 +18,9 @@ export class MemoError extends Error {
   }
 }
 
+/** 软删口径：migration 001 已去掉 deleted_at/version，改用 sync_status */
+const ACTIVE_MEMO_SQL = `(sync_status IS NULL OR sync_status != 'pending_delete')`;
+
 type MemoRow = {
   id: string;
   title: string;
@@ -28,9 +31,7 @@ type MemoRow = {
   linked_task_id: string | null;
   created_at: string;
   updated_at: string;
-  deleted_at: string | null;
   sync_status: string;
-  version: number;
   dimension: string | null;
   dimension_id: string | null;
   is_pinned?: number | null;
@@ -66,7 +67,7 @@ function formatMemo(row: MemoRow) {
       created_at: row.created_at,
       updated_at: row.updated_at,
       sync_status: row.sync_status,
-      version: Number(row.version ?? 1),
+      version: 1,
     },
     'memos',
   );
@@ -102,10 +103,10 @@ async function getActiveMemo(id: string): Promise<MemoRow | null> {
   await ensureMemosPinnedOnce();
   const [rows] = await db.query<RowDataPacket[]>(
     `SELECT id, title, body, ai_evaluation, ai_suggestions, ai_review_at, linked_task_id,
-            created_at, updated_at, deleted_at, sync_status, version, dimension, dimension_id,
+            created_at, updated_at, sync_status, dimension, dimension_id,
             COALESCE(is_pinned, 0) AS is_pinned
      FROM memos
-     WHERE id = ? AND deleted_at IS NULL
+     WHERE id = ? AND ${ACTIVE_MEMO_SQL}
      LIMIT 1`,
     [id],
   );
@@ -117,10 +118,10 @@ export async function listMemos() {
   await ensureMemosPinnedOnce();
   const [rows] = await db.query<RowDataPacket[]>(
     `SELECT id, title, body, ai_evaluation, ai_suggestions, ai_review_at, linked_task_id,
-            created_at, updated_at, deleted_at, sync_status, version, dimension, dimension_id,
+            created_at, updated_at, sync_status, dimension, dimension_id,
             COALESCE(is_pinned, 0) AS is_pinned
      FROM memos
-     WHERE deleted_at IS NULL
+     WHERE ${ACTIVE_MEMO_SQL}
      ORDER BY COALESCE(is_pinned, 0) DESC, updated_at DESC, created_at DESC, id ASC`,
   );
   return (rows as MemoRow[]).map(formatMemo);
@@ -197,8 +198,8 @@ export async function createMemo(input: CreateMemoInput) {
     await db.query(
       `INSERT INTO memos
          (id, title, body, ai_evaluation, ai_suggestions, ai_review_at, linked_task_id,
-          created_at, updated_at, deleted_at, sync_status, version, dimension, dimension_id, is_pinned)
-       VALUES (?, ?, ?, NULL, NULL, NULL, ?, ?, ?, NULL, 'synced', 1, NULL, NULL, ?)`,
+          created_at, updated_at, sync_status, dimension, dimension_id, is_pinned)
+       VALUES (?, ?, ?, NULL, NULL, NULL, ?, ?, ?, 'synced', NULL, NULL, ?)`,
       [id, title, body, linkedTaskId, now, now, isPinned],
     );
   } catch (err) {
@@ -260,13 +261,13 @@ export async function updateMemo(memoId: string, input: UpdateMemoInput) {
   }
 
   const now = nowUtcMysql();
-  updates.push('updated_at = ?', 'version = version + 1');
+  updates.push('updated_at = ?', `sync_status = 'synced'`);
   values.push(now, id);
 
   const [result] = await db.query<ResultSetHeader>(
     `UPDATE memos
      SET ${updates.join(', ')}
-     WHERE id = ? AND deleted_at IS NULL`,
+     WHERE id = ? AND ${ACTIVE_MEMO_SQL}`,
     values,
   );
   if (result.affectedRows === 0) throw new MemoError('备忘录不存在', 404);
@@ -276,7 +277,7 @@ export async function updateMemo(memoId: string, input: UpdateMemoInput) {
   return formatMemo(updated);
 }
 
-/** 删除备忘（软删） */
+/** 删除备忘（软删：sync_status=pending_delete） */
 export async function deleteMemo(memoId: string) {
   const id = memoId.trim();
   if (!id) throw new MemoError('id 不能为空');
@@ -287,9 +288,9 @@ export async function deleteMemo(memoId: string) {
   const now = nowUtcMysql();
   const [result] = await db.query<ResultSetHeader>(
     `UPDATE memos
-     SET deleted_at = ?, updated_at = ?, version = version + 1
-     WHERE id = ? AND deleted_at IS NULL`,
-    [now, now, id],
+     SET sync_status = 'pending_delete', updated_at = ?
+     WHERE id = ? AND ${ACTIVE_MEMO_SQL}`,
+    [now, id],
   );
   if (result.affectedRows === 0) throw new MemoError('备忘录不存在', 404);
 
@@ -334,8 +335,8 @@ export async function analyzeAndPersistMemoReview(memoId: string) {
   const [result] = await db.query<ResultSetHeader>(
     `UPDATE memos
      SET ai_evaluation = ?, ai_suggestions = ?, ai_review_at = ?,
-         updated_at = ?, version = version + 1
-     WHERE id = ? AND deleted_at IS NULL`,
+         updated_at = ?, sync_status = 'synced'
+     WHERE id = ? AND ${ACTIVE_MEMO_SQL}`,
     [evaluation, suggestions, now, now, id],
   );
   if (result.affectedRows === 0) throw new MemoError('备忘录不存在', 404);

@@ -17,14 +17,15 @@ export class RecipeError extends Error {
   }
 }
 
+/** 软删口径：migration 001 已去掉 deleted_at/version，改用 sync_status */
+const ACTIVE_RECIPE_SQL = `(sync_status IS NULL OR sync_status != 'pending_delete')`;
+
 type CategoryRow = {
   id: string;
   name: string;
   created_at: string;
   updated_at: string;
-  deleted_at: string | null;
   sync_status: string;
-  version: number;
 };
 
 type RecipeRow = {
@@ -37,9 +38,7 @@ type RecipeRow = {
   finished_image_uri: string | null;
   created_at: string;
   updated_at: string;
-  deleted_at: string | null;
   sync_status: string;
-  version: number;
 };
 
 function nowUtcMysql(): string {
@@ -91,7 +90,7 @@ function formatCategory(row: CategoryRow) {
       created_at: row.created_at,
       updated_at: row.updated_at,
       sync_status: row.sync_status,
-      version: Number(row.version ?? 1),
+      version: 1,
     },
     'recipe_categories',
   );
@@ -110,7 +109,7 @@ function formatRecipe(row: RecipeRow, { parseJson = true }: { parseJson?: boolea
       created_at: row.created_at,
       updated_at: row.updated_at,
       sync_status: row.sync_status,
-      version: Number(row.version ?? 1),
+      version: 1,
     },
     'recipe_items',
   );
@@ -119,9 +118,9 @@ function formatRecipe(row: RecipeRow, { parseJson = true }: { parseJson?: boolea
 
 async function getActiveCategory(id: string): Promise<CategoryRow | null> {
   const [rows] = await db.query<RowDataPacket[]>(
-    `SELECT id, name, created_at, updated_at, deleted_at, sync_status, version
+    `SELECT id, name, created_at, updated_at, sync_status
      FROM recipe_categories
-     WHERE id = ? AND deleted_at IS NULL
+     WHERE id = ? AND ${ACTIVE_RECIPE_SQL}
      LIMIT 1`,
     [id],
   );
@@ -131,9 +130,9 @@ async function getActiveCategory(id: string): Promise<CategoryRow | null> {
 async function getActiveRecipe(id: string): Promise<RecipeRow | null> {
   const [rows] = await db.query<RowDataPacket[]>(
     `SELECT id, category_id, title, ingredients_json, steps_json, notes,
-            finished_image_uri, created_at, updated_at, deleted_at, sync_status, version
+            finished_image_uri, created_at, updated_at, sync_status
      FROM recipe_items
-     WHERE id = ? AND deleted_at IS NULL
+     WHERE id = ? AND ${ACTIVE_RECIPE_SQL}
      LIMIT 1`,
     [id],
   );
@@ -143,9 +142,9 @@ async function getActiveRecipe(id: string): Promise<RecipeRow | null> {
 /** 获取全部分类 */
 export async function listRecipeCategories() {
   const [rows] = await db.query<RowDataPacket[]>(
-    `SELECT id, name, created_at, updated_at, deleted_at, sync_status, version
+    `SELECT id, name, created_at, updated_at, sync_status
      FROM recipe_categories
-     WHERE deleted_at IS NULL
+     WHERE ${ACTIVE_RECIPE_SQL}
      ORDER BY created_at ASC, id ASC`,
   );
   return (rows as CategoryRow[]).map(formatCategory);
@@ -154,7 +153,7 @@ export async function listRecipeCategories() {
 /** 分类数量 */
 export async function countRecipeCategories(): Promise<{ count: number }> {
   const [rows] = await db.query<RowDataPacket[]>(
-    `SELECT COUNT(*) AS count FROM recipe_categories WHERE deleted_at IS NULL`,
+    `SELECT COUNT(*) AS count FROM recipe_categories WHERE ${ACTIVE_RECIPE_SQL}`,
   );
   return { count: Number(rows[0]?.count ?? 0) };
 }
@@ -162,7 +161,7 @@ export async function countRecipeCategories(): Promise<{ count: number }> {
 /** 菜谱数量 */
 export async function countRecipes(): Promise<{ count: number }> {
   const [rows] = await db.query<RowDataPacket[]>(
-    `SELECT COUNT(*) AS count FROM recipe_items WHERE deleted_at IS NULL`,
+    `SELECT COUNT(*) AS count FROM recipe_items WHERE ${ACTIVE_RECIPE_SQL}`,
   );
   return { count: Number(rows[0]?.count ?? 0) };
 }
@@ -177,9 +176,9 @@ export async function listRecipesByCategory(categoryId: string) {
 
   const [rows] = await db.query<RowDataPacket[]>(
     `SELECT id, category_id, title, ingredients_json, steps_json, notes,
-            finished_image_uri, created_at, updated_at, deleted_at, sync_status, version
+            finished_image_uri, created_at, updated_at, sync_status
      FROM recipe_items
-     WHERE category_id = ? AND deleted_at IS NULL
+     WHERE category_id = ? AND ${ACTIVE_RECIPE_SQL}
      ORDER BY created_at ASC, id ASC`,
     [id],
   );
@@ -195,9 +194,9 @@ export async function listAllRecipeItems(opts?: { parseJson?: boolean }) {
   const parseJson = opts?.parseJson !== false;
   const [rows] = await db.query<RowDataPacket[]>(
     `SELECT id, category_id, title, ingredients_json, steps_json, notes,
-            finished_image_uri, created_at, updated_at, deleted_at, sync_status, version
+            finished_image_uri, created_at, updated_at, sync_status
      FROM recipe_items
-     WHERE deleted_at IS NULL
+     WHERE ${ACTIVE_RECIPE_SQL}
      ORDER BY created_at ASC, id ASC`,
   );
   return (rows as RecipeRow[]).map((row) => formatRecipe(row, { parseJson }));
@@ -248,8 +247,8 @@ export async function createRecipeCategory(input: { id?: unknown; name: unknown 
   try {
     await db.query(
       `INSERT INTO recipe_categories
-         (id, name, created_at, updated_at, deleted_at, sync_status, version)
-       VALUES (?, ?, ?, ?, NULL, 'synced', 1)`,
+         (id, name, created_at, updated_at, sync_status)
+       VALUES (?, ?, ?, ?, 'synced')`,
       [id, name, now, now],
     );
   } catch (err) {
@@ -278,8 +277,8 @@ export async function renameRecipeCategory(categoryId: string, nameRaw: unknown)
   const now = nowUtcMysql();
   await db.query(
     `UPDATE recipe_categories
-     SET name = ?, updated_at = ?, version = version + 1
-     WHERE id = ? AND deleted_at IS NULL`,
+     SET name = ?, updated_at = ?, sync_status = 'synced'
+     WHERE id = ? AND ${ACTIVE_RECIPE_SQL}`,
     [name, now, id],
   );
 
@@ -302,15 +301,15 @@ export async function deleteRecipeCategory(categoryId: string) {
     await conn.beginTransaction();
     await conn.query(
       `UPDATE recipe_items
-       SET deleted_at = ?, updated_at = ?, version = version + 1
-       WHERE category_id = ? AND deleted_at IS NULL`,
-      [now, now, id],
+       SET sync_status = 'pending_delete', updated_at = ?
+       WHERE category_id = ? AND ${ACTIVE_RECIPE_SQL}`,
+      [now, id],
     );
     const [result] = await conn.query<ResultSetHeader>(
       `UPDATE recipe_categories
-       SET deleted_at = ?, updated_at = ?, version = version + 1
-       WHERE id = ? AND deleted_at IS NULL`,
-      [now, now, id],
+       SET sync_status = 'pending_delete', updated_at = ?
+       WHERE id = ? AND ${ACTIVE_RECIPE_SQL}`,
+      [now, id],
     );
     await conn.commit();
     if (result.affectedRows === 0) throw new RecipeError('分类不存在', 404);
@@ -355,8 +354,8 @@ export async function createRecipe(input: CreateRecipeInput) {
     await db.query(
       `INSERT INTO recipe_items
          (id, category_id, title, ingredients_json, steps_json, notes,
-          finished_image_uri, created_at, updated_at, deleted_at, sync_status, version)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 'synced', 1)`,
+          finished_image_uri, created_at, updated_at, sync_status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced')`,
       [id, categoryId, title, ingredientsJson, stepsJson, notes, finishedImageUri, now, now],
     );
   } catch (err) {
@@ -427,13 +426,13 @@ export async function updateRecipe(recipeId: string, input: UpdateRecipeInput) {
   if (updates.length === 0) throw new RecipeError('没有可更新的字段');
 
   const now = nowUtcMysql();
-  updates.push('updated_at = ?', 'version = version + 1');
+  updates.push('updated_at = ?', `sync_status = 'synced'`);
   values.push(now, id);
 
   const [result] = await db.query<ResultSetHeader>(
     `UPDATE recipe_items
      SET ${updates.join(', ')}
-     WHERE id = ? AND deleted_at IS NULL`,
+     WHERE id = ? AND ${ACTIVE_RECIPE_SQL}`,
     values,
   );
   if (result.affectedRows === 0) throw new RecipeError('菜谱不存在', 404);
@@ -443,7 +442,7 @@ export async function updateRecipe(recipeId: string, input: UpdateRecipeInput) {
   return formatRecipe(updated);
 }
 
-/** 删除菜谱（软删） */
+/** 删除菜谱（软删：sync_status=pending_delete） */
 export async function deleteRecipe(recipeId: string) {
   const id = recipeId.trim();
   if (!id) throw new RecipeError('id 不能为空');
@@ -454,9 +453,9 @@ export async function deleteRecipe(recipeId: string) {
   const now = nowUtcMysql();
   const [result] = await db.query<ResultSetHeader>(
     `UPDATE recipe_items
-     SET deleted_at = ?, updated_at = ?, version = version + 1
-     WHERE id = ? AND deleted_at IS NULL`,
-    [now, now, id],
+     SET sync_status = 'pending_delete', updated_at = ?
+     WHERE id = ? AND ${ACTIVE_RECIPE_SQL}`,
+    [now, id],
   );
   if (result.affectedRows === 0) throw new RecipeError('菜谱不存在', 404);
 
