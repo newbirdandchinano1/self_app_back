@@ -14,6 +14,7 @@ import financeRouter from './finance.js';
 import reviewRouter from './review.js';
 import profileRouter from './profile.js';
 import crudRouter from './crud.js';
+import syncRouter from './sync.js';
 
 /**
  * App-facing API (mobile / client).
@@ -36,6 +37,7 @@ const aiConcurrency = createConcurrencyMiddleware(
 router.use('/ai', aiConcurrency, aiRouter);
 router.use(apiConcurrency);
 router.use('/auth', authRouter);
+router.use('/sync', syncRouter);
 router.use(pagesRouter);
 router.use(calendarRouter);
 router.use(pointsRouter);

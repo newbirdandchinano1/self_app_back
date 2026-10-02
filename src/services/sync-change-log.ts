@@ -17,6 +17,16 @@ export type ChangeLogEvent = {
   hint?: Record<string, unknown> | null;
 };
 
+/** 事务内待广播信号（commit 后投递 SSE） */
+type PendingSyncPublish = {
+  userId: string;
+  deviceId: string | null;
+  cursor: number;
+  dirtyTables: Set<string>;
+};
+
+const pendingPublishByConn = new WeakMap<PoolConnection, PendingSyncPublish>();
+
 /**
  * Phase 1 任务域高频表：经 CRUD / frog / task-delete 写入时追加 Change Log。
  * 其余业务域在 Phase 4 再覆盖。
@@ -87,13 +97,41 @@ export async function appendChangeLog(
     );
   }
 
-  await conn.query<ResultSetHeader>(
+  const [result] = await conn.query<ResultSetHeader>(
     `INSERT INTO sync_change_log (${cols}) VALUES ${placeholders}`,
     values,
   );
+
+  // 多行 INSERT：insertId 为首条，affectedRows 为条数
+  const firstId = Number(result.insertId);
+  const count = Number(result.affectedRows) || events.length;
+  if (Number.isFinite(firstId) && firstId > 0 && count > 0) {
+    const cursor = firstId + count - 1;
+    const userId =
+      (events[0]?.userId && String(events[0].userId).trim()) || DEFAULT_SYNC_USER_ID;
+    const deviceId =
+      events.find((e) => e.deviceId != null && String(e.deviceId).trim())?.deviceId ?? null;
+    const dirty = events.map((e) => String(e.tableName).trim()).filter(Boolean);
+
+    const existing = pendingPublishByConn.get(conn);
+    if (existing) {
+      existing.cursor = Math.max(existing.cursor, cursor);
+      for (const t of dirty) existing.dirtyTables.add(t);
+      if (!existing.deviceId && deviceId) {
+        existing.deviceId = String(deviceId).slice(0, 64);
+      }
+    } else {
+      pendingPublishByConn.set(conn, {
+        userId,
+        deviceId: deviceId == null || deviceId === '' ? null : String(deviceId).slice(0, 64),
+        cursor,
+        dirtyTables: new Set(dirty),
+      });
+    }
+  }
 }
 
-/** 业务写 + Change Log 共用事务 */
+/** 业务写 + Change Log 共用事务；commit 后广播 SSE */
 export async function withSyncTransaction<T>(
   fn: (conn: PoolConnection) => Promise<T>,
 ): Promise<T> {
@@ -102,8 +140,27 @@ export async function withSyncTransaction<T>(
     await conn.beginTransaction();
     const result = await fn(conn);
     await conn.commit();
+
+    const pending = pendingPublishByConn.get(conn);
+    pendingPublishByConn.delete(conn);
+    if (pending && pending.dirtyTables.size > 0) {
+      try {
+        // 动态 import，避免与 sync-sse-hub 循环依赖
+        const { publishSyncSignal } = await import('./sync-sse-hub.js');
+        publishSyncSignal({
+          userId: pending.userId,
+          skipDeviceId: pending.deviceId,
+          cursor: pending.cursor,
+          dirtyTables: [...pending.dirtyTables],
+        });
+      } catch (err) {
+        console.warn('[sync] SSE publish 失败（不影响写成功）', err);
+      }
+    }
+
     return result;
   } catch (err) {
+    pendingPublishByConn.delete(conn);
     try {
       await conn.rollback();
     } catch {
