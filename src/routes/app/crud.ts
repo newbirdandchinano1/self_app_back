@@ -16,11 +16,16 @@ import {
   isGenericWriteForbidden,
 } from '../../config/tables.js';
 import { parseListQueryFromRequest } from '../../services/list-query.js';
+import { resolveDeviceIdFromHeader } from '../../services/sync-change-log.js';
 
 const router = Router();
 
 function isAdminPanelRequest(req: Request): boolean {
   return req.headers['x-admin-panel'] === '1';
+}
+
+function deviceIdFromReq(req: Request): string | null {
+  return resolveDeviceIdFromHeader(req.headers['x-device-id']);
 }
 
 /** 高危表禁止通用写：只允许 GET，写入须走专用业务接口 */
@@ -87,6 +92,7 @@ router.post('/data/:table', async (req, res, next) => {
 
     const record = await createRecord(table, req.body ?? {}, {
       adminPanel: isAdminPanelRequest(req),
+      deviceId: deviceIdFromReq(req),
     });
     success(res, record, '创建成功');
   } catch (err) {
@@ -118,6 +124,7 @@ async function handleUpdateRecord(
 
     const record = await updateRecord(table, id, req.body ?? {}, {
       adminPanel: isAdminPanelRequest(req),
+      deviceId: deviceIdFromReq(req),
     });
     if (!record) {
       return fail(res, '记录不存在', -1, 404);
@@ -148,7 +155,9 @@ router.delete('/data/:table/:id', async (req, res, next) => {
     }
     if (rejectGenericWriteIfForbidden(res, table)) return;
 
-    const deleted = await deleteRecord(table, id);
+    const deleted = await deleteRecord(table, id, {
+      deviceId: deviceIdFromReq(req),
+    });
     if (!deleted) {
       return fail(res, '记录不存在', -1, 404);
     }

@@ -131,7 +131,7 @@ export async function listMemos() {
 export async function listTags() {
   await ensureTagsTablesOnce();
   const [rows] = await db.query<RowDataPacket[]>(
-    `SELECT id, name, color, description, weight, created_at, updated_at, sync_status, extra_data
+    `SELECT id, name, color, description, weight, domain, created_at, updated_at, sync_status, extra_data
      FROM tags
      WHERE sync_status IS NULL OR sync_status != 'pending_delete'
      ORDER BY name ASC, id ASC`,

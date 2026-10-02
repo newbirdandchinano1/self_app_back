@@ -4,6 +4,10 @@ import { isValidYmd } from '../../utils/ymd.js';
 import { collectFrogAssignedDates } from '../calendar/aggregation.js';
 import { getTableMeta } from '../crud.js';
 import {
+  appendChangeLog,
+  withSyncTransaction,
+} from '../sync-change-log.js';
+import {
   resolveTasksBootstrapContext,
   TASKS_PAGE_FILTERS_VERSION,
   type TasksBootstrapParams,
@@ -72,12 +76,13 @@ async function syncFrogAssignedOnColumn(
   table: 'tasks' | 'projects',
   id: string,
   extraData: string | null,
+  executor: { query: typeof db.query } = db,
 ): Promise<void> {
   const meta = await getTableMeta(table);
   if (!meta.columns.includes('frog_assigned_on')) return;
   const dates = collectFrogAssignedDates(extraData);
   const latest = dates.length > 0 ? dates[dates.length - 1]! : null;
-  await db.query<ResultSetHeader>(
+  await executor.query(
     `UPDATE ${quoteIdent(table)} SET frog_assigned_on = ? WHERE id = ?`,
     [latest, id],
   );
@@ -90,6 +95,7 @@ export type FrogAssignInput = {
   id: string;
   assignYmd: string;
   action?: 'assign' | 'unassign';
+  deviceId?: string | null;
 };
 
 export type FrogAssignResult = {
@@ -173,16 +179,60 @@ export async function assignOrUnassignFrog(input: FrogAssignInput): Promise<Frog
   if (!id) throw new FrogAssignError('id 必填');
   const action = input.action === 'unassign' ? 'unassign' : 'assign';
 
-  if (kind === 'task') {
-    const row = await loadTaskRow(id);
-    if (!row) throw new FrogAssignError('任务不存在', 404);
-    if (action === 'assign') await assertTaskAssignable(row, assignYmd);
+  return withSyncTransaction(async (conn) => {
+    if (kind === 'task') {
+      const row = await loadTaskRow(id);
+      if (!row) throw new FrogAssignError('任务不存在', 404);
+      if (action === 'assign') await assertTaskAssignable(row, assignYmd);
+      const nextExtra =
+        action === 'assign'
+          ? mergeFrogAssignedOn(row.extra_data, assignYmd)
+          : removeFrogAssignedOn(row.extra_data, assignYmd);
+      await conn.query<ResultSetHeader>(`UPDATE tasks SET extra_data = ? WHERE id = ?`, [
+        nextExtra,
+        id,
+      ]);
+      await syncFrogAssignedOnColumn('tasks', id, nextExtra, conn);
+      await appendChangeLog(conn, [
+        {
+          tableName: 'tasks',
+          recordPk: id,
+          op: 'upsert',
+          deviceId: input.deviceId,
+          hint: { reason: 'frog_assign', action, assignYmd },
+        },
+      ]);
+      return {
+        kind,
+        id,
+        assignYmd,
+        action,
+        extra_data: nextExtra,
+        assignedDates: collectFrogAssignedDates(nextExtra),
+      };
+    }
+
+    const row = await loadProjectRow(id);
+    if (!row) throw new FrogAssignError('项目不存在', 404);
+    if (action === 'assign') await assertProjectAssignable(row, assignYmd);
     const nextExtra =
       action === 'assign'
         ? mergeFrogAssignedOn(row.extra_data, assignYmd)
         : removeFrogAssignedOn(row.extra_data, assignYmd);
-    await db.query<ResultSetHeader>(`UPDATE tasks SET extra_data = ? WHERE id = ?`, [nextExtra, id]);
-    await syncFrogAssignedOnColumn('tasks', id, nextExtra);
+    await conn.query<ResultSetHeader>(`UPDATE projects SET extra_data = ? WHERE id = ?`, [
+      nextExtra,
+      id,
+    ]);
+    await syncFrogAssignedOnColumn('projects', id, nextExtra, conn);
+    await appendChangeLog(conn, [
+      {
+        tableName: 'projects',
+        recordPk: id,
+        op: 'upsert',
+        deviceId: input.deviceId,
+        hint: { reason: 'frog_assign', action, assignYmd },
+      },
+    ]);
     return {
       kind,
       id,
@@ -191,25 +241,7 @@ export async function assignOrUnassignFrog(input: FrogAssignInput): Promise<Frog
       extra_data: nextExtra,
       assignedDates: collectFrogAssignedDates(nextExtra),
     };
-  }
-
-  const row = await loadProjectRow(id);
-  if (!row) throw new FrogAssignError('项目不存在', 404);
-  if (action === 'assign') await assertProjectAssignable(row, assignYmd);
-  const nextExtra =
-    action === 'assign'
-      ? mergeFrogAssignedOn(row.extra_data, assignYmd)
-      : removeFrogAssignedOn(row.extra_data, assignYmd);
-  await db.query<ResultSetHeader>(`UPDATE projects SET extra_data = ? WHERE id = ?`, [nextExtra, id]);
-  await syncFrogAssignedOnColumn('projects', id, nextExtra);
-  return {
-    kind,
-    id,
-    assignYmd,
-    action,
-    extra_data: nextExtra,
-    assignedDates: collectFrogAssignedDates(nextExtra),
-  };
+  });
 }
 
 export type FrogCandidateItem = {
@@ -653,19 +685,32 @@ export async function getFrogScheduleWeek(params: {
       fromSnapshot = true;
     } else {
       const now = new Date().toISOString();
-      await db.query<ResultSetHeader>(
-        `INSERT IGNORE INTO schedule_week_axis_snapshot
-          (week_start_ymd, start_minutes, end_minutes, slot_hours, breaks_json, created_at, sync_status)
-         VALUES (?, ?, ?, ?, ?, ?, 'synced')`,
-        [
-          weekStartYmd,
-          axis.startMinutes,
-          axis.endMinutes,
-          axis.slotHours,
-          JSON.stringify(axis.breaks ?? []),
-          now,
-        ],
-      );
+      await withSyncTransaction(async (conn) => {
+        const [result] = await conn.query<ResultSetHeader>(
+          `INSERT IGNORE INTO schedule_week_axis_snapshot
+            (week_start_ymd, start_minutes, end_minutes, slot_hours, breaks_json, created_at, sync_status)
+           VALUES (?, ?, ?, ?, ?, ?, 'synced')`,
+          [
+            weekStartYmd,
+            axis.startMinutes,
+            axis.endMinutes,
+            axis.slotHours,
+            JSON.stringify(axis.breaks ?? []),
+            now,
+          ],
+        );
+        if (result.affectedRows > 0) {
+          await appendChangeLog(conn, [
+            {
+              tableName: 'schedule_week_axis_snapshot',
+              recordPk: weekStartYmd,
+              op: 'upsert',
+              updatedAt: now,
+              hint: { reason: 'historical_axis_snapshot' },
+            },
+          ]);
+        }
+      });
       fromSnapshot = true;
     }
   }
@@ -750,44 +795,75 @@ export async function upsertFrogSchedulePlacement(body: {
   orphaned?: number;
   createdAt?: string;
   updatedAt?: string;
+  deviceId?: string | null;
 }) {
   if (!body.id || !YMD_RE.test(body.weekStartYmd)) {
     throw new FrogScheduleError('placement 参数无效');
   }
   const now = new Date().toISOString();
-  await db.query<ResultSetHeader>(
-    `INSERT INTO schedule_placements (
-      id, week_start_ymd, weekday, start_slot_index, span_slots,
-      subject_kind, subject_id, orphaned, created_at, updated_at, sync_status
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced')
-    ON DUPLICATE KEY UPDATE
-      week_start_ymd = VALUES(week_start_ymd),
-      weekday = VALUES(weekday),
-      start_slot_index = VALUES(start_slot_index),
-      span_slots = VALUES(span_slots),
-      subject_kind = VALUES(subject_kind),
-      subject_id = VALUES(subject_id),
-      orphaned = VALUES(orphaned),
-      updated_at = VALUES(updated_at),
-      sync_status = 'synced'`,
-    [
-      body.id,
-      body.weekStartYmd,
-      body.weekday,
-      body.startSlotIndex,
-      Math.max(1, body.spanSlots || 1),
-      body.subjectKind,
-      body.subjectId,
-      body.orphaned ? 1 : 0,
-      body.createdAt || now,
-      body.updatedAt || now,
-    ],
-  );
+  const updatedAt = body.updatedAt || now;
+  await withSyncTransaction(async (conn) => {
+    await conn.query<ResultSetHeader>(
+      `INSERT INTO schedule_placements (
+        id, week_start_ymd, weekday, start_slot_index, span_slots,
+        subject_kind, subject_id, orphaned, created_at, updated_at, sync_status
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced')
+      ON DUPLICATE KEY UPDATE
+        week_start_ymd = VALUES(week_start_ymd),
+        weekday = VALUES(weekday),
+        start_slot_index = VALUES(start_slot_index),
+        span_slots = VALUES(span_slots),
+        subject_kind = VALUES(subject_kind),
+        subject_id = VALUES(subject_id),
+        orphaned = VALUES(orphaned),
+        updated_at = VALUES(updated_at),
+        sync_status = 'synced'`,
+      [
+        body.id,
+        body.weekStartYmd,
+        body.weekday,
+        body.startSlotIndex,
+        Math.max(1, body.spanSlots || 1),
+        body.subjectKind,
+        body.subjectId,
+        body.orphaned ? 1 : 0,
+        body.createdAt || now,
+        updatedAt,
+      ],
+    );
+    await appendChangeLog(conn, [
+      {
+        tableName: 'schedule_placements',
+        recordPk: body.id,
+        op: 'upsert',
+        updatedAt,
+        deviceId: body.deviceId,
+      },
+    ]);
+  });
   return { id: body.id };
 }
 
-export async function deleteFrogSchedulePlacement(id: string) {
+export async function deleteFrogSchedulePlacement(
+  id: string,
+  options: { deviceId?: string | null } = {},
+) {
   if (!id) throw new FrogScheduleError('id 无效');
-  await db.query<ResultSetHeader>(`DELETE FROM schedule_placements WHERE id = ?`, [id]);
+  await withSyncTransaction(async (conn) => {
+    const [result] = await conn.query<ResultSetHeader>(
+      `DELETE FROM schedule_placements WHERE id = ?`,
+      [id],
+    );
+    if (result.affectedRows > 0) {
+      await appendChangeLog(conn, [
+        {
+          tableName: 'schedule_placements',
+          recordPk: id,
+          op: 'delete',
+          deviceId: options.deviceId,
+        },
+      ]);
+    }
+  });
   return { id };
 }

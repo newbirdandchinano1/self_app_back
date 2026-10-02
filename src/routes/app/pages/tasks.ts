@@ -21,6 +21,7 @@ import {
   upsertFrogSchedulePlacement,
   type FrogSubjectKind,
 } from '../../../services/pages/frog.js';
+import { resolveDeviceIdFromHeader } from '../../../services/sync-change-log.js';
 import { success } from '../../../utils/response.js';
 import {
   parseBoolQuery,
@@ -66,7 +67,13 @@ router.post('/pages/tasks/frog-assign', async (req, res, next) => {
     const id = String(body.id ?? '');
     const assignYmd = String(body.assignYmd ?? '');
     const action = body.action === 'unassign' ? 'unassign' : 'assign';
-    const data = await assignOrUnassignFrog({ kind, id, assignYmd, action });
+    const data = await assignOrUnassignFrog({
+      kind,
+      id,
+      assignYmd,
+      action,
+      deviceId: resolveDeviceIdFromHeader(req.headers['x-device-id']),
+    });
     success(res, data);
   } catch (err) {
     if (err instanceof FrogAssignError) {
@@ -122,7 +129,9 @@ router.post('/pages/tasks/frog-schedule/placement', async (req, res, next) => {
     const action = body.action === 'delete' ? 'delete' : 'upsert';
     if (action === 'delete') {
       const id = String(body.id ?? '');
-      const data = await deleteFrogSchedulePlacement(id);
+      const data = await deleteFrogSchedulePlacement(id, {
+        deviceId: resolveDeviceIdFromHeader(req.headers['x-device-id']),
+      });
       success(res, data);
       return;
     }
@@ -141,6 +150,7 @@ router.post('/pages/tasks/frog-schedule/placement', async (req, res, next) => {
       orphaned: Number(p.orphaned ?? 0),
       createdAt: typeof p.createdAt === 'string' ? p.createdAt : typeof p.created_at === 'string' ? p.created_at : undefined,
       updatedAt: typeof p.updatedAt === 'string' ? p.updatedAt : typeof p.updated_at === 'string' ? p.updated_at : undefined,
+      deviceId: resolveDeviceIdFromHeader(req.headers['x-device-id']),
     });
     success(res, data);
   } catch (err) {

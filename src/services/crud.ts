@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'crypto';
 import type { ResultSetHeader, RowDataPacket } from 'mysql2';
+import type { PoolConnection } from 'mysql2/promise';
 import { db } from '../db/index.js';
 import {
   type AllowedTable,
@@ -33,6 +34,12 @@ import {
   normalizeDbDateTimeForTableStorage,
   formatRecordDateTimesForApi,
 } from './calendar/logical-day.js';
+import {
+  appendChangeLog,
+  isPhase1ChangeLogTable,
+  withSyncTransaction,
+  type ChangeLogEvent,
+} from './sync-change-log.js';
 
 const DB_DATETIME_COLUMNS = new Set(['created_at', 'updated_at', 'completed_at', 'redeemed_at']);
 
@@ -699,11 +706,18 @@ export async function getRecord(tableName: string, pkValue: string) {
 
 export interface CrudWriteOptions {
   adminPanel?: boolean;
+  /** 写入端设备 ID（X-Device-Id），写入 Change Log 便于跳过回声 */
+  deviceId?: string | null;
 }
+
+type SqlExecutor = {
+  query: PoolConnection['query'];
+};
 
 async function inheritTaskPriorityFromProject(
   payload: Record<string, unknown>,
   existingProjectId?: string | null,
+  executor: SqlExecutor = db,
 ): Promise<void> {
   let projectId: string | null = null;
   if ('project_id' in payload) {
@@ -715,7 +729,7 @@ async function inheritTaskPriorityFromProject(
     projectId = existingProjectId;
   }
   if (!projectId) return;
-  const [rows] = await db.query<RowDataPacket[]>(
+  const [rows] = await executor.query<RowDataPacket[]>(
     `SELECT priority FROM projects WHERE id = ? LIMIT 1`,
     [projectId],
   );
@@ -724,11 +738,27 @@ async function inheritTaskPriorityFromProject(
   }
 }
 
-async function cascadeProjectPriorityToTasks(projectId: string, priority: number): Promise<void> {
-  await db.query<ResultSetHeader>(`UPDATE tasks SET priority = ? WHERE project_id = ?`, [
-    clampEisenhowerPriority(priority),
+async function cascadeProjectPriorityToTasks(
+  projectId: string,
+  priority: number,
+  executor: SqlExecutor = db,
+): Promise<string[]> {
+  const clamped = clampEisenhowerPriority(priority);
+  const [taskRows] = await executor.query<RowDataPacket[]>(
+    `SELECT id FROM tasks WHERE project_id = ?`,
+    [projectId],
+  );
+  await executor.query<ResultSetHeader>(`UPDATE tasks SET priority = ? WHERE project_id = ?`, [
+    clamped,
     projectId,
   ]);
+  return taskRows.map((r) => String(r.id));
+}
+
+function changeLogUpdatedAt(payload: Record<string, unknown>): string | null {
+  const raw = payload.updated_at;
+  if (raw == null || raw === '') return null;
+  return String(raw);
 }
 
 export async function createRecord(
@@ -759,13 +789,25 @@ export async function createRecord(
   const cols = keys.map(quoteIdent).join(', ');
   const placeholders = keys.map(() => '?').join(', ');
   const values = keys.map((k) => payload[k]);
-
-  await db.query(
-    `INSERT INTO ${quoteIdent(table)} (${cols}) VALUES (${placeholders})`,
-    values,
-  );
-
   const pk = String(payload[meta.primaryKey] ?? data[meta.primaryKey]);
+  const insertSql = `INSERT INTO ${quoteIdent(table)} (${cols}) VALUES (${placeholders})`;
+
+  if (isPhase1ChangeLogTable(table)) {
+    await withSyncTransaction(async (conn) => {
+      await conn.query(insertSql, values);
+      await appendChangeLog(conn, [
+        {
+          tableName: table,
+          recordPk: pk,
+          op: 'upsert',
+          updatedAt: changeLogUpdatedAt(payload),
+          deviceId: options.deviceId,
+        },
+      ]);
+    });
+  } else {
+    await db.query(insertSql, values);
+  }
 
   return getRecord(table, pk);
 }
@@ -806,40 +848,93 @@ export async function updateRecord(
 
   const sets = keys.map((k) => `${quoteIdent(k)} = ?`).join(', ');
   const values = [...keys.map((k) => payload[k]), pkValue];
+  const updateSql = `UPDATE ${quoteIdent(table)} SET ${sets}
+     WHERE ${quoteIdent(meta.primaryKey)} = ?`;
 
-  const [result] = await db.query<ResultSetHeader>(
-    `UPDATE ${quoteIdent(table)} SET ${sets}
-     WHERE ${quoteIdent(meta.primaryKey)} = ?`,
-    values,
-  );
+  if (isPhase1ChangeLogTable(table)) {
+    const updated = await withSyncTransaction(async (conn) => {
+      const [result] = await conn.query<ResultSetHeader>(updateSql, values);
+      if (result.affectedRows === 0) return false;
 
-  if (result.affectedRows === 0) {
-    return null;
-  }
+      const events: ChangeLogEvent[] = [
+        {
+          tableName: table,
+          recordPk: pkValue,
+          op: 'upsert',
+          updatedAt: changeLogUpdatedAt(payload),
+          deviceId: options.deviceId,
+        },
+      ];
 
-  if (table === 'projects' && 'priority' in payload) {
-    await cascadeProjectPriorityToTasks(pkValue, Number(payload.priority ?? 0));
+      if (table === 'projects' && 'priority' in payload) {
+        const taskIds = await cascadeProjectPriorityToTasks(
+          pkValue,
+          Number(payload.priority ?? 0),
+          conn,
+        );
+        const now = changeLogUpdatedAt(payload);
+        for (const taskId of taskIds) {
+          events.push({
+            tableName: 'tasks',
+            recordPk: taskId,
+            op: 'upsert',
+            updatedAt: now,
+            deviceId: options.deviceId,
+            hint: { reason: 'cascade_project_priority' },
+          });
+        }
+      }
+
+      await appendChangeLog(conn, events);
+      return true;
+    });
+    if (!updated) return null;
+  } else {
+    const [result] = await db.query<ResultSetHeader>(updateSql, values);
+    if (result.affectedRows === 0) {
+      return null;
+    }
+    if (table === 'projects' && 'priority' in payload) {
+      await cascadeProjectPriorityToTasks(pkValue, Number(payload.priority ?? 0));
+    }
   }
 
   return getRecord(table, pkValue);
 }
 
-export async function deleteRecord(tableName: string, pkValue: string) {
+export async function deleteRecord(
+  tableName: string,
+  pkValue: string,
+  options: CrudWriteOptions = {},
+) {
   const table = assertTable(tableName);
   assertGenericWriteAllowed(table);
 
   if (table === 'tasks') {
     const { deleteTaskCascade } = await import('./task-delete.js');
-    return deleteTaskCascade(pkValue);
+    return deleteTaskCascade(pkValue, { deviceId: options.deviceId });
   }
 
   const pk = getPrimaryKey(table);
+  const deleteSql = `DELETE FROM ${quoteIdent(table)} WHERE ${quoteIdent(pk)} = ?`;
 
-  const [result] = await db.query<ResultSetHeader>(
-    `DELETE FROM ${quoteIdent(table)} WHERE ${quoteIdent(pk)} = ?`,
-    [pkValue],
-  );
+  if (isPhase1ChangeLogTable(table)) {
+    return withSyncTransaction(async (conn) => {
+      const [result] = await conn.query<ResultSetHeader>(deleteSql, [pkValue]);
+      if (result.affectedRows <= 0) return false;
+      await appendChangeLog(conn, [
+        {
+          tableName: table,
+          recordPk: pkValue,
+          op: 'delete',
+          deviceId: options.deviceId,
+        },
+      ]);
+      return true;
+    });
+  }
 
+  const [result] = await db.query<ResultSetHeader>(deleteSql, [pkValue]);
   return result.affectedRows > 0;
 }
 

@@ -114,6 +114,7 @@ export const TABLE_SYNC_DEPENDS_ON: Partial<Record<AllowedTable, AllowedTable[]>
   tag_links: ['tags'],
   recipe_items: ['recipe_categories'],
   finance_scheduled_expenses: ['finance_accounts', 'finance_flow_categories'],
+  finance_transactions: ['finance_accounts', 'finance_flow_categories'],
 };
 
 /** 响应中隐藏的字段 */

@@ -15,7 +15,8 @@
     "test:projects": "tsx scripts/project-list-selftest.ts",
     "test:finance-page": "tsx scripts/finance-page-selftest.ts",
     "test:dedicated-write": "tsx scripts/dedicated-write-selftest.ts",
-    "test:profile-page": "tsx scripts/profile-page-selftest.ts"
+    "test:profile-page": "tsx scripts/profile-page-selftest.ts",
+    "test:sync-change-log": "tsx scripts/sync-change-log-selftest.ts"
   },
   "dependencies": {
     "bcrypt": "^6.0.0",

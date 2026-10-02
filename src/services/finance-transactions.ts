@@ -31,6 +31,8 @@ export type CreateFinanceTxnInput = {
   name?: unknown;
   happened_at?: unknown;
   account_id?: unknown;
+  /** camelCase 别名，与 account_id 等价 */
+  accountId?: unknown;
   ai_comment?: unknown;
   transaction_type?: unknown;
   flow_category_id?: unknown;
@@ -45,6 +47,10 @@ export type UpdateFinanceTxnInput = CreateFinanceTxnInput;
 
 function asTrimmed(value: unknown): string {
   return typeof value === 'string' ? value.trim() : value == null ? '' : String(value).trim();
+}
+
+function resolveAccountId(input: { account_id?: unknown; accountId?: unknown }): string {
+  return asTrimmed(input.account_id) || asTrimmed(input.accountId);
 }
 
 function normalizeSignRule(signRule: unknown, accountType?: string | null): -1 | 1 {
@@ -225,7 +231,7 @@ async function assertBalanceAfterChange(params: {
 export async function createFinanceTransaction(
   input: CreateFinanceTxnInput,
 ): Promise<FinanceTxnRecord> {
-  const accountId = asTrimmed(input.account_id);
+  const accountId = resolveAccountId(input);
   if (!accountId) throw new FinanceTxnError('account_id 必填');
 
   const name = asTrimmed(input.name);
@@ -307,8 +313,8 @@ export async function updateFinanceTransaction(
 
   const has = (key: string) => Object.prototype.hasOwnProperty.call(input, key);
 
-  const accountId = has('account_id')
-    ? asTrimmed(input.account_id)
+  const accountId = has('account_id') || has('accountId')
+    ? resolveAccountId(input)
     : String(existing.account_id ?? '');
   if (!accountId) throw new FinanceTxnError('account_id 必填');
 

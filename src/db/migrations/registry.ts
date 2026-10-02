@@ -7,6 +7,7 @@ import { ensureMemosPinnedColumn } from '../ensure-memos-pinned.js';
 import { ensurePointsTables } from '../ensure-points.js';
 import { ensureProjectTagsTables } from '../ensure-project-tags.js';
 import { ensureProjectsPriorityColumn } from '../ensure-projects-priority.js';
+import { ensureSyncChangeLogTable } from '../ensure-sync-change-log.js';
 import { ensureUsersPersonaPortraitColumn } from '../ensure-users-persona-portrait.js';
 import { ensureWishBoardTables } from '../ensure-wish-board.js';
 import type { Migration } from './types.js';
@@ -27,4 +28,5 @@ export const MIGRATIONS: readonly Migration[] = [
   { id: '009_wish_board_tables', up: ensureWishBoardTables },
   { id: '010_project_tags', up: ensureProjectTagsTables },
   { id: '011_frog_schedule', up: ensureFrogScheduleTables },
+  { id: '012_sync_change_log', up: ensureSyncChangeLogTable },
 ];
