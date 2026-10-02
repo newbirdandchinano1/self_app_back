@@ -1,5 +1,6 @@
 import type { Response } from 'express';
 import { DEFAULT_SYNC_USER_ID } from './sync-change-log.js';
+import { syncMetricInc } from './sync-metrics.js';
 
 export type SyncSseSignal = {
   type: 'changes';
@@ -72,6 +73,10 @@ export function registerSyncSseConnection(input: {
     connectionsByUser.set(userId, set);
   }
   set.add(conn);
+  syncMetricInc('sseConnects');
+  console.log(
+    `[sync-sse] connect id=${conn.id} user=${userId} device=${deviceId ?? '-'} online=${set.size}`,
+  );
 
   // 立即确认连接，便于客户端测活
   writeSse(input.res, 'ready', {
@@ -86,7 +91,13 @@ export function registerSyncSseConnection(input: {
 export function unregisterSyncSseConnection(conn: SyncSseConnection): void {
   const set = connectionsByUser.get(conn.userId);
   if (!set) return;
-  set.delete(conn);
+  const had = set.delete(conn);
+  if (had) {
+    syncMetricInc('sseDisconnects');
+    console.log(
+      `[sync-sse] disconnect id=${conn.id} user=${conn.userId} device=${conn.deviceId ?? '-'} online=${set.size}`,
+    );
+  }
   if (set.size === 0) connectionsByUser.delete(conn.userId);
 }
 
@@ -138,6 +149,14 @@ export function publishSyncSignal(input: {
     }
   }
 
+  syncMetricInc('ssePublishCalls');
+  syncMetricInc('ssePublishDelivered', sent);
+  if (sent > 0 || dirtyTables.length > 0) {
+    console.log(
+      `[sync-sse] publish user=${userId} cursor=${payload.cursor} tables=${dirtyTables.join(',')} sent=${sent} skip=${skip ?? '-'}`,
+    );
+  }
+
   return sent;
 }
 
@@ -166,6 +185,35 @@ export function countSyncSseConnections(userId?: string | null): number {
   let n = 0;
   for (const set of connectionsByUser.values()) n += set.size;
   return n;
+}
+
+export type SyncSseStats = {
+  totalConnections: number;
+  usersOnline: number;
+  byUser: Array<{
+    userId: string;
+    connections: number;
+    devices: string[];
+  }>;
+};
+
+/** 运维：在线会话摘要（不含业务数据） */
+export function getSyncSseStats(): SyncSseStats {
+  const byUser: SyncSseStats['byUser'] = [];
+  let total = 0;
+  for (const [userId, set] of connectionsByUser.entries()) {
+    total += set.size;
+    const devices = [...set]
+      .map((c) => c.deviceId ?? '(none)')
+      .sort();
+    byUser.push({ userId, connections: set.size, devices });
+  }
+  byUser.sort((a, b) => a.userId.localeCompare(b.userId));
+  return {
+    totalConnections: total,
+    usersOnline: byUser.length,
+    byUser,
+  };
 }
 
 /** 仅自测用：清空注册表 */

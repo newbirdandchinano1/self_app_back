@@ -24,6 +24,21 @@ export const concurrencyConfig = {
   aiMax: parseInt(process.env.AI_CONCURRENCY_MAX || '8', 10),
 };
 
+/** Phase 5：多端同步硬化配置 */
+export const syncConfig = {
+  /** GET /sync/changes 滑动窗口内最大次数 */
+  pullRateMax: parseInt(process.env.SYNC_PULL_RATE_MAX || '60', 10),
+  pullRateWindowMs: parseInt(process.env.SYNC_PULL_RATE_WINDOW_MS || '60000', 10),
+  /** 同 deviceId 允许的最大并发 SSE 连接 */
+  sseMaxPerDevice: parseInt(process.env.SYNC_SSE_MAX_PER_DEVICE || '3', 10),
+  /** Change Log 保留天数 */
+  retainDays: parseInt(process.env.SYNC_CHANGE_LOG_RETAIN_DAYS || '14', 10),
+  /** 每用户最多保留条数；0 表示不按条数裁 */
+  retainMaxRows: parseInt(process.env.SYNC_CHANGE_LOG_RETAIN_MAX_ROWS || '100000', 10),
+  /** 是否启用定时清理（默认开） */
+  cleanupEnabled: process.env.SYNC_CHANGE_LOG_CLEANUP_ENABLED !== 'false',
+};
+
 export const zhipuConfig = {
   apiKey:
     process.env.ZHIPU_API_KEY ||

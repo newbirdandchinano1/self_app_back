@@ -1,11 +1,12 @@
 import './bootstrap/timezone.js';
 import app from './app.js';
-import { config } from './config/index.js';
+import { config, syncConfig } from './config/index.js';
 import { testConnection } from './db/index.js';
 import { runPendingMigrations } from './db/migrations/index.js';
 import { initAdminTable } from './db/init-admin.js';
 import { ensureInboxCatalogSeed } from './services/pages/tasks-catalog.js';
 import { ensureHealthIntakeUploadDir } from './services/health-intake-upload.js';
+import { startSyncChangeLogCleanupScheduler } from './services/sync-change-log-cleanup.js';
 
 async function waitForDb(maxAttempts = 30, intervalMs = 2000): Promise<void> {
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -29,6 +30,15 @@ async function bootstrap() {
   await initAdminTable();
   await ensureInboxCatalogSeed();
   await ensureHealthIntakeUploadDir();
+
+  if (syncConfig.cleanupEnabled) {
+    startSyncChangeLogCleanupScheduler({
+      retainDays: syncConfig.retainDays,
+      retainMaxRows: syncConfig.retainMaxRows,
+    });
+  } else {
+    console.log('[sync-cleanup] 已禁用（SYNC_CHANGE_LOG_CLEANUP_ENABLED=false）');
+  }
 }
 
 bootstrap()
