@@ -2,6 +2,7 @@ import { Router, type Request } from 'express';
 import { requireAuth } from '../../middlewares/auth.js';
 import { success } from '../../utils/response.js';
 import { createDomainErrorHandler } from '../../utils/domain-error-handler.js';
+import { deviceIdFromReq } from '../../utils/device-id-from-req.js';
 import { parseBoolQuery, parseIntQuery, parseStringQuery } from './pages/query.js';
 import {
   FinancePageError,
@@ -105,7 +106,7 @@ router.get('/pages/finance/transactions', async (req, res, next) => {
 router.post('/pages/finance/transactions', async (req, res, next) => {
   try {
     const body = req.body ?? {};
-    const data = await createFinanceTransaction(body);
+    const data = await createFinanceTransaction(body, { deviceId: deviceIdFromReq(req) });
     success(res, data, '创建成功');
   } catch (err) {
     handleFinanceError(err, res, next);
@@ -115,7 +116,9 @@ router.post('/pages/finance/transactions', async (req, res, next) => {
 /** PUT /pages/finance/transactions/:id — 更新流水 */
 router.put('/pages/finance/transactions/:id', async (req, res, next) => {
   try {
-    const data = await updateFinanceTransaction(String(req.params.id ?? ''), req.body ?? {});
+    const data = await updateFinanceTransaction(String(req.params.id ?? ''), req.body ?? {}, {
+      deviceId: deviceIdFromReq(req),
+    });
     success(res, data, '更新成功');
   } catch (err) {
     handleFinanceError(err, res, next);
@@ -125,7 +128,9 @@ router.put('/pages/finance/transactions/:id', async (req, res, next) => {
 /** PATCH /pages/finance/transactions/:id */
 router.patch('/pages/finance/transactions/:id', async (req, res, next) => {
   try {
-    const data = await updateFinanceTransaction(String(req.params.id ?? ''), req.body ?? {});
+    const data = await updateFinanceTransaction(String(req.params.id ?? ''), req.body ?? {}, {
+      deviceId: deviceIdFromReq(req),
+    });
     success(res, data, '更新成功');
   } catch (err) {
     handleFinanceError(err, res, next);
@@ -135,7 +140,9 @@ router.patch('/pages/finance/transactions/:id', async (req, res, next) => {
 /** DELETE /pages/finance/transactions/:id */
 router.delete('/pages/finance/transactions/:id', async (req, res, next) => {
   try {
-    const data = await deleteFinanceTransaction(String(req.params.id ?? ''));
+    const data = await deleteFinanceTransaction(String(req.params.id ?? ''), {
+      deviceId: deviceIdFromReq(req),
+    });
     success(res, data, '删除成功');
   } catch (err) {
     handleFinanceError(err, res, next);

@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { requireAuth } from '../../middlewares/auth.js';
 import { success, fail } from '../../utils/response.js';
 import { createDomainErrorHandler } from '../../utils/domain-error-handler.js';
+import { deviceIdFromReq } from '../../utils/device-id-from-req.js';
 import {
   createWishBoardItem,
   deleteRedeemedWishBoardItems,
@@ -35,17 +36,20 @@ router.get('/wish-board/items', async (_req, res, next) => {
 router.post('/wish-board/items', async (req, res, next) => {
   try {
     const body = req.body ?? {};
-    const item = await createWishBoardItem({
-      id: typeof body.id === 'string' ? body.id : null,
-      title: body.title,
-      description: body.description,
-      cost_points: body.cost_points,
-      note: body.note,
-      icon_key: body.icon_key,
-      wish_type: body.wish_type,
-      sort_order: body.sort_order,
-      extra_data: body.extra_data,
-    });
+    const item = await createWishBoardItem(
+      {
+        id: typeof body.id === 'string' ? body.id : null,
+        title: body.title,
+        description: body.description,
+        cost_points: body.cost_points,
+        note: body.note,
+        icon_key: body.icon_key,
+        wish_type: body.wish_type,
+        sort_order: body.sort_order,
+        extra_data: body.extra_data,
+      },
+      { deviceId: deviceIdFromReq(req) },
+    );
     return success(res, item, '创建成功');
   } catch (err) {
     handleWishBoardError(err, res, next);
@@ -56,16 +60,20 @@ router.post('/wish-board/items', async (req, res, next) => {
 router.patch('/wish-board/items/:id', async (req, res, next) => {
   try {
     const body = req.body ?? {};
-    const item = await updateWishBoardItem(String(req.params.id ?? ''), {
-      title: body.title,
-      description: body.description,
-      cost_points: body.cost_points,
-      note: body.note,
-      icon_key: body.icon_key,
-      wish_type: body.wish_type,
-      sort_order: body.sort_order,
-      extra_data: body.extra_data,
-    });
+    const item = await updateWishBoardItem(
+      String(req.params.id ?? ''),
+      {
+        title: body.title,
+        description: body.description,
+        cost_points: body.cost_points,
+        note: body.note,
+        icon_key: body.icon_key,
+        wish_type: body.wish_type,
+        sort_order: body.sort_order,
+        extra_data: body.extra_data,
+      },
+      { deviceId: deviceIdFromReq(req) },
+    );
     return success(res, item, '更新成功');
   } catch (err) {
     handleWishBoardError(err, res, next);
@@ -75,7 +83,9 @@ router.patch('/wish-board/items/:id', async (req, res, next) => {
 /** DELETE /wish-board/items/:id — 删除心愿 */
 router.delete('/wish-board/items/:id', async (req, res, next) => {
   try {
-    const data = await deleteWishBoardItem(String(req.params.id ?? ''));
+    const data = await deleteWishBoardItem(String(req.params.id ?? ''), {
+      deviceId: deviceIdFromReq(req),
+    });
     return success(res, data, '删除成功');
   } catch (err) {
     handleWishBoardError(err, res, next);
@@ -106,7 +116,9 @@ router.delete('/wish-board/redeemed', async (req, res, next) => {
         : typeof req.query.id === 'string'
           ? req.query.id
           : null;
-    const data = await deleteRedeemedWishBoardItems(idRaw);
+    const data = await deleteRedeemedWishBoardItems(idRaw, {
+      deviceId: deviceIdFromReq(req),
+    });
     return success(res, data, '删除成功');
   } catch (err) {
     handleWishBoardError(err, res, next);
@@ -127,7 +139,9 @@ router.post('/wish-board/redeem', async (req, res, next) => {
       return fail(res, '参数缺失');
     }
 
-    const result = await redeemWishBoardItem(wishBoardItemId);
+    const result = await redeemWishBoardItem(wishBoardItemId, {
+      deviceId: deviceIdFromReq(req),
+    });
     const { ok: _ok, ...data } = result;
     return success(res, data);
   } catch (err) {

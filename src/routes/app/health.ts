@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { requireAuth } from '../../middlewares/auth.js';
 import { success } from '../../utils/response.js';
 import { createDomainErrorHandler } from '../../utils/domain-error-handler.js';
+import { deviceIdFromReq } from '../../utils/device-id-from-req.js';
 import {
   HealthError,
   createIntake,
@@ -68,19 +69,22 @@ router.get('/health/intakes', async (req, res, next) => {
 router.post('/health/intakes', async (req, res, next) => {
   try {
     const body = req.body ?? {};
-    const data = await createIntake({
-      id: body.id,
-      hydration: body.hydration,
-      protein: body.protein,
-      sodium: body.sodium,
-      carbohydrate: body.carbohydrate,
-      calories: body.calories,
-      record_date: body.record_date,
-      quick_add_key: body.quick_add_key,
-      source_image_uri: body.source_image_uri,
-      intake_display_title: body.intake_display_title,
-      intake_ai_comment: body.intake_ai_comment,
-    });
+    const data = await createIntake(
+      {
+        id: body.id,
+        hydration: body.hydration,
+        protein: body.protein,
+        sodium: body.sodium,
+        carbohydrate: body.carbohydrate,
+        calories: body.calories,
+        record_date: body.record_date,
+        quick_add_key: body.quick_add_key,
+        source_image_uri: body.source_image_uri,
+        intake_display_title: body.intake_display_title,
+        intake_ai_comment: body.intake_ai_comment,
+      },
+      { deviceId: deviceIdFromReq(req) },
+    );
     success(res, data, '创建成功');
   } catch (err) {
     handleHealthError(err, res, next);
@@ -94,18 +98,22 @@ router.post('/health/intakes', async (req, res, next) => {
 router.put('/health/intakes/:id', async (req, res, next) => {
   try {
     const body = req.body ?? {};
-    const data = await updateIntake(String(req.params.id ?? ''), {
-      hydration: body.hydration,
-      protein: body.protein,
-      sodium: body.sodium,
-      carbohydrate: body.carbohydrate,
-      calories: body.calories,
-      record_date: body.record_date,
-      quick_add_key: body.quick_add_key,
-      source_image_uri: body.source_image_uri,
-      intake_display_title: body.intake_display_title,
-      intake_ai_comment: body.intake_ai_comment,
-    });
+    const data = await updateIntake(
+      String(req.params.id ?? ''),
+      {
+        hydration: body.hydration,
+        protein: body.protein,
+        sodium: body.sodium,
+        carbohydrate: body.carbohydrate,
+        calories: body.calories,
+        record_date: body.record_date,
+        quick_add_key: body.quick_add_key,
+        source_image_uri: body.source_image_uri,
+        intake_display_title: body.intake_display_title,
+        intake_ai_comment: body.intake_ai_comment,
+      },
+      { deviceId: deviceIdFromReq(req) },
+    );
     success(res, data, '更新成功');
   } catch (err) {
     handleHealthError(err, res, next);
@@ -118,7 +126,9 @@ router.put('/health/intakes/:id', async (req, res, next) => {
 router.patch('/health/intakes/:id', async (req, res, next) => {
   try {
     const body = req.body ?? {};
-    const data = await updateIntake(String(req.params.id ?? ''), body);
+    const data = await updateIntake(String(req.params.id ?? ''), body, {
+      deviceId: deviceIdFromReq(req),
+    });
     success(res, data, '更新成功');
   } catch (err) {
     handleHealthError(err, res, next);
@@ -130,7 +140,9 @@ router.patch('/health/intakes/:id', async (req, res, next) => {
  */
 router.delete('/health/intakes/:id', async (req, res, next) => {
   try {
-    const data = await deleteIntake(String(req.params.id ?? ''));
+    const data = await deleteIntake(String(req.params.id ?? ''), {
+      deviceId: deviceIdFromReq(req),
+    });
     success(res, data, '删除成功');
   } catch (err) {
     handleHealthError(err, res, next);

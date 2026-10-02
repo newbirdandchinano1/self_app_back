@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { requireAuth } from '../../middlewares/auth.js';
 import { success, fail } from '../../utils/response.js';
 import { createDomainErrorHandler } from '../../utils/domain-error-handler.js';
+import { deviceIdFromReq } from '../../utils/device-id-from-req.js';
 import {
   adjustPoints,
   deletePointsLedgerEntry,
@@ -31,13 +32,16 @@ async function handleAdjust(
 ) {
   try {
     const body = (req.body ?? {}) as Record<string, unknown>;
-    const result = await adjustPoints({
-      delta: parseDelta(body),
-      reason: typeof body.reason === 'string' ? body.reason : '',
-      ref_type: typeof body.ref_type === 'string' ? body.ref_type : null,
-      ref_id: typeof body.ref_id === 'string' ? body.ref_id : null,
-      note: typeof body.note === 'string' ? body.note : null,
-    });
+    const result = await adjustPoints(
+      {
+        delta: parseDelta(body),
+        reason: typeof body.reason === 'string' ? body.reason : '',
+        ref_type: typeof body.ref_type === 'string' ? body.ref_type : null,
+        ref_id: typeof body.ref_id === 'string' ? body.ref_id : null,
+        note: typeof body.note === 'string' ? body.note : null,
+      },
+      { deviceId: deviceIdFromReq(req) },
+    );
     const { ok: _ok, ...data } = result;
     return success(res, data);
   } catch (err) {
@@ -84,7 +88,9 @@ async function handleLedgerDelete(
   next: import('express').NextFunction,
 ) {
   try {
-    const data = await deletePointsLedgerEntry(String(req.params.id ?? ''));
+    const data = await deletePointsLedgerEntry(String(req.params.id ?? ''), {
+      deviceId: deviceIdFromReq(req),
+    });
     return success(res, data);
   } catch (err) {
     handlePointsError(err, res, next);
@@ -92,12 +98,12 @@ async function handleLedgerDelete(
 }
 
 async function handleReset(
-  _req: import('express').Request,
+  req: import('express').Request,
   res: import('express').Response,
   next: import('express').NextFunction,
 ) {
   try {
-    const data = await resetPoints();
+    const data = await resetPoints({ deviceId: deviceIdFromReq(req) });
     return success(res, data);
   } catch (err) {
     handlePointsError(err, res, next);

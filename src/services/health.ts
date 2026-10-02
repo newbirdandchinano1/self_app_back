@@ -9,6 +9,11 @@ import {
   normalizeDbDateTimeForTableStorage,
   parseYmd,
 } from './calendar/logical-day.js';
+import {
+  appendChangeLog,
+  withSyncTransaction,
+  type SyncWriteOptions,
+} from './sync-change-log.js';
 
 export class HealthError extends Error {
   constructor(
@@ -263,7 +268,7 @@ export type CreateIntakeInput = {
 };
 
 /** 新增一条摄入记录 */
-export async function createIntake(input: CreateIntakeInput) {
+export async function createIntake(input: CreateIntakeInput, options?: SyncWriteOptions) {
   const id = asTrimmedString(input.id) || randomUUID();
 
   const hydration = parseNonNegNumber(input.hydration, 'hydration');
@@ -292,28 +297,39 @@ export async function createIntake(input: CreateIntakeInput) {
   const now = nowShanghaiMysql();
 
   try {
-    await db.query<ResultSetHeader>(
-      `INSERT INTO health_records (
-         id, hydration, protein, sodium, carbohydrate, calories,
-         record_date, quick_add_key, source_image_uri, intake_display_title, intake_ai_comment,
-         created_at, updated_at, sync_status
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced')`,
-      [
-        id,
-        hydration,
-        protein,
-        sodium,
-        carbohydrate,
-        calories,
-        recordDate,
-        quickAddKey,
-        sourceImageUri,
-        title,
-        aiComment,
-        now,
-        now,
-      ],
-    );
+    await withSyncTransaction(async (conn) => {
+      await conn.query<ResultSetHeader>(
+        `INSERT INTO health_records (
+           id, hydration, protein, sodium, carbohydrate, calories,
+           record_date, quick_add_key, source_image_uri, intake_display_title, intake_ai_comment,
+           created_at, updated_at, sync_status
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced')`,
+        [
+          id,
+          hydration,
+          protein,
+          sodium,
+          carbohydrate,
+          calories,
+          recordDate,
+          quickAddKey,
+          sourceImageUri,
+          title,
+          aiComment,
+          now,
+          now,
+        ],
+      );
+      await appendChangeLog(conn, [
+        {
+          tableName: 'health_records',
+          recordPk: id,
+          op: 'upsert',
+          updatedAt: now,
+          deviceId: options?.deviceId,
+        },
+      ]);
+    });
   } catch (err) {
     if ((err as { code?: string }).code === 'ER_DUP_ENTRY') {
       throw new HealthError('记录已存在（id 冲突）', 409);
@@ -343,7 +359,11 @@ export async function getIntake(id: string) {
 export type UpdateIntakeInput = CreateIntakeInput;
 
 /** 更新一条摄入记录（仅更新传入字段） */
-export async function updateIntake(id: string, input: UpdateIntakeInput) {
+export async function updateIntake(
+  id: string,
+  input: UpdateIntakeInput,
+  options?: SyncWriteOptions,
+) {
   const trimmed = asTrimmedString(id);
   if (!trimmed) throw new HealthError('缺少记录 id');
 
@@ -395,28 +415,39 @@ export async function updateIntake(id: string, input: UpdateIntakeInput) {
     : (existing.intake_ai_comment as string | null);
 
   const now = nowShanghaiMysql();
-  await db.query<ResultSetHeader>(
-    `UPDATE health_records SET
-       hydration = ?, protein = ?, sodium = ?, carbohydrate = ?, calories = ?,
-       record_date = ?, quick_add_key = ?, source_image_uri = ?,
-       intake_display_title = ?, intake_ai_comment = ?,
-       updated_at = ?, sync_status = 'synced'
-     WHERE id = ?`,
-    [
-      hydration,
-      protein,
-      sodium,
-      carbohydrate,
-      calories,
-      recordDate,
-      quickAddKey,
-      sourceImageUri,
-      title,
-      aiComment,
-      now,
-      trimmed,
-    ],
-  );
+  await withSyncTransaction(async (conn) => {
+    await conn.query<ResultSetHeader>(
+      `UPDATE health_records SET
+         hydration = ?, protein = ?, sodium = ?, carbohydrate = ?, calories = ?,
+         record_date = ?, quick_add_key = ?, source_image_uri = ?,
+         intake_display_title = ?, intake_ai_comment = ?,
+         updated_at = ?, sync_status = 'synced'
+       WHERE id = ?`,
+      [
+        hydration,
+        protein,
+        sodium,
+        carbohydrate,
+        calories,
+        recordDate,
+        quickAddKey,
+        sourceImageUri,
+        title,
+        aiComment,
+        now,
+        trimmed,
+      ],
+    );
+    await appendChangeLog(conn, [
+      {
+        tableName: 'health_records',
+        recordPk: trimmed,
+        op: 'upsert',
+        updatedAt: now,
+        deviceId: options?.deviceId,
+      },
+    ]);
+  });
 
   const updated = await getIntake(trimmed);
   if (!updated) throw new HealthError('更新失败', 500);
@@ -424,16 +455,27 @@ export async function updateIntake(id: string, input: UpdateIntakeInput) {
 }
 
 /** 删除一条摄入记录 */
-export async function deleteIntake(id: string) {
+export async function deleteIntake(id: string, options?: SyncWriteOptions) {
   const trimmed = asTrimmedString(id);
   if (!trimmed) throw new HealthError('缺少记录 id');
 
-  const [result] = await db.query<ResultSetHeader>(`DELETE FROM health_records WHERE id = ?`, [
-    trimmed,
-  ]);
-  if (result.affectedRows <= 0) {
-    throw new HealthError('记录不存在', 404);
-  }
+  await withSyncTransaction(async (conn) => {
+    const [result] = await conn.query<ResultSetHeader>(
+      `DELETE FROM health_records WHERE id = ?`,
+      [trimmed],
+    );
+    if (result.affectedRows <= 0) {
+      throw new HealthError('记录不存在', 404);
+    }
+    await appendChangeLog(conn, [
+      {
+        tableName: 'health_records',
+        recordPk: trimmed,
+        op: 'delete',
+        deviceId: options?.deviceId,
+      },
+    ]);
+  });
   return { deleted: true as const, id: trimmed };
 }
 

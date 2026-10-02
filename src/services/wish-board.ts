@@ -4,11 +4,20 @@ import type { PoolConnection } from 'mysql2/promise';
 import { db } from '../db/index.js';
 import { formatDbDateTimeForApi } from './calendar/logical-day.js';
 import {
+  POINTS_WALLET_ID,
   applyWalletDeltaOnConnection,
   asPoints,
   lockOrCreateWallet,
   nowUtcMysql,
 } from './points-wallet.js';
+import {
+  appendChangeLog,
+  discardPendingSyncPublish,
+  flushPendingSyncPublish,
+  withSyncTransaction,
+  type ChangeLogEvent,
+  type SyncWriteOptions,
+} from './sync-change-log.js';
 
 export class WishBoardError extends Error {
   constructor(
@@ -194,7 +203,10 @@ export interface RedeemResult {
 }
 
 /** 原子兑换：锁心愿 + 锁钱包 → 扣积分 → once 标兑换 / repeat 保持 active → 写流水 */
-export async function redeemWishBoardItem(wishBoardItemId: string): Promise<RedeemResult> {
+export async function redeemWishBoardItem(
+  wishBoardItemId: string,
+  options?: SyncWriteOptions,
+): Promise<RedeemResult> {
   const id = wishBoardItemId.trim();
   if (!id) {
     throw new WishBoardError('参数缺失', 400, { ok: false, error: '参数缺失' });
@@ -258,7 +270,32 @@ export async function redeemWishBoardItem(wishBoardItemId: string): Promise<Rede
       [nextStatus, now, now, id],
     );
 
+    await appendChangeLog(conn, [
+      {
+        tableName: 'wish_board_items',
+        recordPk: id,
+        op: 'upsert',
+        updatedAt: now,
+        deviceId: options?.deviceId,
+      },
+      {
+        tableName: 'points_wallet',
+        recordPk: POINTS_WALLET_ID,
+        op: 'upsert',
+        updatedAt: now,
+        deviceId: options?.deviceId,
+      },
+      {
+        tableName: 'points_ledger',
+        recordPk: wallet.ledger_id,
+        op: 'upsert',
+        updatedAt: now,
+        deviceId: options?.deviceId,
+      },
+    ]);
+
     await conn.commit();
+    await flushPendingSyncPublish(conn);
 
     return {
       ok: true,
@@ -273,7 +310,12 @@ export async function redeemWishBoardItem(wishBoardItemId: string): Promise<Rede
       },
     };
   } catch (err) {
-    await conn.rollback();
+    discardPendingSyncPublish(conn);
+    try {
+      await conn.rollback();
+    } catch {
+      // ignore
+    }
     throw err;
   } finally {
     conn.release();
@@ -397,6 +439,7 @@ const WISH_SELECT = `SELECT id, title, description, cost_points, note, icon_key,
 /** 添加新心愿（id 可选；未传则服务端生成 UUID） */
 export async function createWishBoardItem(
   input: CreateWishBoardItemInput,
+  options?: SyncWriteOptions,
 ): Promise<WishBoardItemRecord> {
   const title = normalizeTitle(input.title);
   const costPoints = normalizeCostPoints(input.cost_points, 0);
@@ -442,25 +485,36 @@ export async function createWishBoardItem(
 
   const now = nowUtcMysql();
   try {
-    await db.query(
-      `INSERT INTO wish_board_items
-        (id, title, description, cost_points, note, icon_key, wish_type, status,
-         redeemed_at, sort_order, created_at, updated_at, sync_status, extra_data)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'active', NULL, ?, ?, ?, 'synced', ?)`,
-      [
-        id,
-        title,
-        description,
-        costPoints,
-        note,
-        iconKey,
-        wishTypeRaw,
-        sortOrder,
-        now,
-        now,
-        extraData,
-      ],
-    );
+    await withSyncTransaction(async (conn) => {
+      await conn.query(
+        `INSERT INTO wish_board_items
+          (id, title, description, cost_points, note, icon_key, wish_type, status,
+           redeemed_at, sort_order, created_at, updated_at, sync_status, extra_data)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'active', NULL, ?, ?, ?, 'synced', ?)`,
+        [
+          id,
+          title,
+          description,
+          costPoints,
+          note,
+          iconKey,
+          wishTypeRaw,
+          sortOrder,
+          now,
+          now,
+          extraData,
+        ],
+      );
+      await appendChangeLog(conn, [
+        {
+          tableName: 'wish_board_items',
+          recordPk: id,
+          op: 'upsert',
+          updatedAt: now,
+          deviceId: options?.deviceId,
+        },
+      ]);
+    });
   } catch (err) {
     if ((err as { code?: string }).code === 'ER_DUP_ENTRY') {
       throw new WishBoardError('心愿已存在', 409, { ok: false, error: '心愿已存在' });
@@ -483,6 +537,7 @@ export async function createWishBoardItem(
 export async function updateWishBoardItem(
   wishId: string,
   input: UpdateWishBoardItemInput,
+  options?: SyncWriteOptions,
 ): Promise<WishBoardItemRecord> {
   const id = String(wishId ?? '').trim();
   if (!id) {
@@ -573,13 +628,24 @@ export async function updateWishBoardItem(
   }
 
   const now = nowUtcMysql();
-  await db.query(
-    `UPDATE wish_board_items SET
-       title = ?, description = ?, cost_points = ?, note = ?, icon_key = ?, wish_type = ?,
-       sort_order = ?, extra_data = ?, updated_at = ?, sync_status = 'synced'
-     WHERE id = ?`,
-    [title, description, costPoints, note, iconKey, wishType, sortOrder, extraData, now, id],
-  );
+  await withSyncTransaction(async (conn) => {
+    await conn.query(
+      `UPDATE wish_board_items SET
+         title = ?, description = ?, cost_points = ?, note = ?, icon_key = ?, wish_type = ?,
+         sort_order = ?, extra_data = ?, updated_at = ?, sync_status = 'synced'
+       WHERE id = ?`,
+      [title, description, costPoints, note, iconKey, wishType, sortOrder, extraData, now, id],
+    );
+    await appendChangeLog(conn, [
+      {
+        tableName: 'wish_board_items',
+        recordPk: id,
+        op: 'upsert',
+        updatedAt: now,
+        deviceId: options?.deviceId,
+      },
+    ]);
+  });
 
   const item = await getWishBoardItem(id);
   if (!item) {
@@ -662,19 +728,32 @@ export async function listRedeemedWishBoardItems(): Promise<RedeemedWishRecord[]
 }
 
 /** 删除心愿（按 id；不退回积分） */
-export async function deleteWishBoardItem(wishId: string): Promise<{ deleted: true; id: string }> {
+export async function deleteWishBoardItem(
+  wishId: string,
+  options?: SyncWriteOptions,
+): Promise<{ deleted: true; id: string }> {
   const id = wishId.trim();
   if (!id) {
     throw new WishBoardError('参数缺失', 400, { ok: false, error: '参数缺失' });
   }
 
-  const [result] = await db.query<ResultSetHeader>(
-    `DELETE FROM wish_board_items WHERE id = ?`,
-    [id],
-  );
-  if (result.affectedRows <= 0) {
-    throw new WishBoardError('心愿不存在', 404, { ok: false, error: '心愿不存在' });
-  }
+  await withSyncTransaction(async (conn) => {
+    const [result] = await conn.query<ResultSetHeader>(
+      `DELETE FROM wish_board_items WHERE id = ?`,
+      [id],
+    );
+    if (result.affectedRows <= 0) {
+      throw new WishBoardError('心愿不存在', 404, { ok: false, error: '心愿不存在' });
+    }
+    await appendChangeLog(conn, [
+      {
+        tableName: 'wish_board_items',
+        recordPk: id,
+        op: 'delete',
+        deviceId: options?.deviceId,
+      },
+    ]);
+  });
   return { deleted: true, id };
 }
 
@@ -686,6 +765,7 @@ export async function deleteWishBoardItem(wishId: string): Promise<{ deleted: tr
  */
 export async function deleteRedeemedWishBoardItems(
   wishId?: string | null,
+  options?: SyncWriteOptions,
 ): Promise<{ deleted: number; ids: string[] }> {
   const id = wishId != null ? String(wishId).trim() : '';
 
@@ -704,7 +784,17 @@ export async function deleteRedeemedWishBoardItems(
         error: '仅可删除已兑换心愿',
       });
     }
-    await db.query(`DELETE FROM wish_board_items WHERE id = ?`, [id]);
+    await withSyncTransaction(async (conn) => {
+      await conn.query(`DELETE FROM wish_board_items WHERE id = ?`, [id]);
+      await appendChangeLog(conn, [
+        {
+          tableName: 'wish_board_items',
+          recordPk: id,
+          op: 'delete',
+          deviceId: options?.deviceId,
+        },
+      ]);
+    });
     return { deleted: 1, ids: [id] };
   }
 
@@ -716,8 +806,20 @@ export async function deleteRedeemedWishBoardItems(
     return { deleted: 0, ids: [] };
   }
 
-  const [result] = await db.query<ResultSetHeader>(
-    `DELETE FROM wish_board_items WHERE status = 'redeemed'`,
-  );
-  return { deleted: result.affectedRows, ids };
+  await withSyncTransaction(async (conn) => {
+    const [result] = await conn.query<ResultSetHeader>(
+      `DELETE FROM wish_board_items WHERE status = 'redeemed'`,
+    );
+    const events: ChangeLogEvent[] = ids.map((pk) => ({
+      tableName: 'wish_board_items',
+      recordPk: pk,
+      op: 'delete',
+      deviceId: options?.deviceId,
+    }));
+    await appendChangeLog(conn, events);
+    if (result.affectedRows !== ids.length) {
+      // 仍按查出的 ids 记 delete；条数不一致不改业务语义
+    }
+  });
+  return { deleted: ids.length, ids };
 }

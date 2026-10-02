@@ -6,6 +6,14 @@ import {
   formatRecordDateTimesForApi,
   formatUtcMySQLDateTime,
 } from './calendar/logical-day.js';
+import {
+  appendChangeLog,
+  discardPendingSyncPublish,
+  flushPendingSyncPublish,
+  withSyncTransaction,
+  type ChangeLogEvent,
+  type SyncWriteOptions,
+} from './sync-change-log.js';
 
 export class RecipeError extends Error {
   constructor(
@@ -237,7 +245,10 @@ export async function getRecipeDetail(recipeId: string) {
 }
 
 /** 新建分类 */
-export async function createRecipeCategory(input: { id?: unknown; name: unknown }) {
+export async function createRecipeCategory(
+  input: { id?: unknown; name: unknown },
+  options?: SyncWriteOptions,
+) {
   const name = asTrimmedString(input.name);
   if (!name) throw new RecipeError('name 不能为空');
 
@@ -245,12 +256,23 @@ export async function createRecipeCategory(input: { id?: unknown; name: unknown 
   const now = nowUtcMysql();
 
   try {
-    await db.query(
-      `INSERT INTO recipe_categories
-         (id, name, created_at, updated_at, sync_status)
-       VALUES (?, ?, ?, ?, 'synced')`,
-      [id, name, now, now],
-    );
+    await withSyncTransaction(async (conn) => {
+      await conn.query(
+        `INSERT INTO recipe_categories
+           (id, name, created_at, updated_at, sync_status)
+         VALUES (?, ?, ?, ?, 'synced')`,
+        [id, name, now, now],
+      );
+      await appendChangeLog(conn, [
+        {
+          tableName: 'recipe_categories',
+          recordPk: id,
+          op: 'upsert',
+          updatedAt: now,
+          deviceId: options?.deviceId,
+        },
+      ]);
+    });
   } catch (err) {
     if ((err as { code?: string }).code === 'ER_DUP_ENTRY') {
       throw new RecipeError('分类已存在', 409);
@@ -264,7 +286,11 @@ export async function createRecipeCategory(input: { id?: unknown; name: unknown 
 }
 
 /** 修改分类名称 */
-export async function renameRecipeCategory(categoryId: string, nameRaw: unknown) {
+export async function renameRecipeCategory(
+  categoryId: string,
+  nameRaw: unknown,
+  options?: SyncWriteOptions,
+) {
   const id = categoryId.trim();
   if (!id) throw new RecipeError('id 不能为空');
 
@@ -275,12 +301,23 @@ export async function renameRecipeCategory(categoryId: string, nameRaw: unknown)
   if (!existing) throw new RecipeError('分类不存在', 404);
 
   const now = nowUtcMysql();
-  await db.query(
-    `UPDATE recipe_categories
-     SET name = ?, updated_at = ?, sync_status = 'synced'
-     WHERE id = ? AND ${ACTIVE_RECIPE_SQL}`,
-    [name, now, id],
-  );
+  await withSyncTransaction(async (conn) => {
+    await conn.query(
+      `UPDATE recipe_categories
+       SET name = ?, updated_at = ?, sync_status = 'synced'
+       WHERE id = ? AND ${ACTIVE_RECIPE_SQL}`,
+      [name, now, id],
+    );
+    await appendChangeLog(conn, [
+      {
+        tableName: 'recipe_categories',
+        recordPk: id,
+        op: 'upsert',
+        updatedAt: now,
+        deviceId: options?.deviceId,
+      },
+    ]);
+  });
 
   const updated = await getActiveCategory(id);
   if (!updated) throw new RecipeError('分类不存在', 404);
@@ -288,7 +325,10 @@ export async function renameRecipeCategory(categoryId: string, nameRaw: unknown)
 }
 
 /** 删除分类（软删，并级联软删其下菜谱） */
-export async function deleteRecipeCategory(categoryId: string) {
+export async function deleteRecipeCategory(
+  categoryId: string,
+  options?: SyncWriteOptions,
+) {
   const id = categoryId.trim();
   if (!id) throw new RecipeError('id 不能为空');
 
@@ -299,6 +339,14 @@ export async function deleteRecipeCategory(categoryId: string) {
   const conn = await db.getConnection();
   try {
     await conn.beginTransaction();
+
+    const [recipeRows] = await conn.query<RowDataPacket[]>(
+      `SELECT id FROM recipe_items
+       WHERE category_id = ? AND ${ACTIVE_RECIPE_SQL}`,
+      [id],
+    );
+    const recipeIds = recipeRows.map((r) => String(r.id));
+
     await conn.query(
       `UPDATE recipe_items
        SET sync_status = 'pending_delete', updated_at = ?
@@ -311,11 +359,36 @@ export async function deleteRecipeCategory(categoryId: string) {
        WHERE id = ? AND ${ACTIVE_RECIPE_SQL}`,
       [now, id],
     );
-    await conn.commit();
     if (result.affectedRows === 0) throw new RecipeError('分类不存在', 404);
+
+    const events: ChangeLogEvent[] = [
+      {
+        tableName: 'recipe_categories',
+        recordPk: id,
+        op: 'delete',
+        updatedAt: now,
+        deviceId: options?.deviceId,
+      },
+      ...recipeIds.map((pk) => ({
+        tableName: 'recipe_items',
+        recordPk: pk,
+        op: 'delete' as const,
+        updatedAt: now,
+        deviceId: options?.deviceId,
+      })),
+    ];
+    await appendChangeLog(conn, events);
+
+    await conn.commit();
+    await flushPendingSyncPublish(conn);
     return { id, deleted_at: formatDbDateTimeForApi(now, 'utc') ?? now };
   } catch (err) {
-    await conn.rollback();
+    discardPendingSyncPublish(conn);
+    try {
+      await conn.rollback();
+    } catch {
+      // ignore
+    }
     throw err;
   } finally {
     conn.release();
@@ -333,7 +406,7 @@ export type CreateRecipeInput = {
 };
 
 /** 新建菜谱 */
-export async function createRecipe(input: CreateRecipeInput) {
+export async function createRecipe(input: CreateRecipeInput, options?: SyncWriteOptions) {
   const categoryId = asTrimmedString(input.category_id);
   if (!categoryId) throw new RecipeError('category_id 不能为空');
 
@@ -351,13 +424,24 @@ export async function createRecipe(input: CreateRecipeInput) {
   const now = nowUtcMysql();
 
   try {
-    await db.query(
-      `INSERT INTO recipe_items
-         (id, category_id, title, ingredients_json, steps_json, notes,
-          finished_image_uri, created_at, updated_at, sync_status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced')`,
-      [id, categoryId, title, ingredientsJson, stepsJson, notes, finishedImageUri, now, now],
-    );
+    await withSyncTransaction(async (conn) => {
+      await conn.query(
+        `INSERT INTO recipe_items
+           (id, category_id, title, ingredients_json, steps_json, notes,
+            finished_image_uri, created_at, updated_at, sync_status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced')`,
+        [id, categoryId, title, ingredientsJson, stepsJson, notes, finishedImageUri, now, now],
+      );
+      await appendChangeLog(conn, [
+        {
+          tableName: 'recipe_items',
+          recordPk: id,
+          op: 'upsert',
+          updatedAt: now,
+          deviceId: options?.deviceId,
+        },
+      ]);
+    });
   } catch (err) {
     if ((err as { code?: string }).code === 'ER_DUP_ENTRY') {
       throw new RecipeError('菜谱已存在', 409);
@@ -380,7 +464,11 @@ export type UpdateRecipeInput = {
 };
 
 /** 编辑菜谱 */
-export async function updateRecipe(recipeId: string, input: UpdateRecipeInput) {
+export async function updateRecipe(
+  recipeId: string,
+  input: UpdateRecipeInput,
+  options?: SyncWriteOptions,
+) {
   const id = recipeId.trim();
   if (!id) throw new RecipeError('id 不能为空');
 
@@ -429,13 +517,24 @@ export async function updateRecipe(recipeId: string, input: UpdateRecipeInput) {
   updates.push('updated_at = ?', `sync_status = 'synced'`);
   values.push(now, id);
 
-  const [result] = await db.query<ResultSetHeader>(
-    `UPDATE recipe_items
-     SET ${updates.join(', ')}
-     WHERE id = ? AND ${ACTIVE_RECIPE_SQL}`,
-    values,
-  );
-  if (result.affectedRows === 0) throw new RecipeError('菜谱不存在', 404);
+  await withSyncTransaction(async (conn) => {
+    const [result] = await conn.query<ResultSetHeader>(
+      `UPDATE recipe_items
+       SET ${updates.join(', ')}
+       WHERE id = ? AND ${ACTIVE_RECIPE_SQL}`,
+      values,
+    );
+    if (result.affectedRows === 0) throw new RecipeError('菜谱不存在', 404);
+    await appendChangeLog(conn, [
+      {
+        tableName: 'recipe_items',
+        recordPk: id,
+        op: 'upsert',
+        updatedAt: now,
+        deviceId: options?.deviceId,
+      },
+    ]);
+  });
 
   const updated = await getActiveRecipe(id);
   if (!updated) throw new RecipeError('菜谱不存在', 404);
@@ -443,7 +542,7 @@ export async function updateRecipe(recipeId: string, input: UpdateRecipeInput) {
 }
 
 /** 删除菜谱（软删：sync_status=pending_delete） */
-export async function deleteRecipe(recipeId: string) {
+export async function deleteRecipe(recipeId: string, options?: SyncWriteOptions) {
   const id = recipeId.trim();
   if (!id) throw new RecipeError('id 不能为空');
 
@@ -451,13 +550,24 @@ export async function deleteRecipe(recipeId: string) {
   if (!existing) throw new RecipeError('菜谱不存在', 404);
 
   const now = nowUtcMysql();
-  const [result] = await db.query<ResultSetHeader>(
-    `UPDATE recipe_items
-     SET sync_status = 'pending_delete', updated_at = ?
-     WHERE id = ? AND ${ACTIVE_RECIPE_SQL}`,
-    [now, id],
-  );
-  if (result.affectedRows === 0) throw new RecipeError('菜谱不存在', 404);
+  await withSyncTransaction(async (conn) => {
+    const [result] = await conn.query<ResultSetHeader>(
+      `UPDATE recipe_items
+       SET sync_status = 'pending_delete', updated_at = ?
+       WHERE id = ? AND ${ACTIVE_RECIPE_SQL}`,
+      [now, id],
+    );
+    if (result.affectedRows === 0) throw new RecipeError('菜谱不存在', 404);
+    await appendChangeLog(conn, [
+      {
+        tableName: 'recipe_items',
+        recordPk: id,
+        op: 'delete',
+        updatedAt: now,
+        deviceId: options?.deviceId,
+      },
+    ]);
+  });
 
   return { id, deleted_at: formatDbDateTimeForApi(now, 'utc') ?? now };
 }

@@ -10,6 +10,11 @@ import {
   normalizeDbDateTimeForTableStorage,
 } from './calendar/logical-day.js';
 import { computeTransactionLedgerEffect } from './pages/finance.js';
+import {
+  appendChangeLog,
+  withSyncTransaction,
+  type SyncWriteOptions,
+} from './sync-change-log.js';
 
 export class FinanceTxnError extends Error {
   constructor(
@@ -230,6 +235,7 @@ async function assertBalanceAfterChange(params: {
 
 export async function createFinanceTransaction(
   input: CreateFinanceTxnInput,
+  options?: SyncWriteOptions,
 ): Promise<FinanceTxnRecord> {
   const accountId = resolveAccountId(input);
   if (!accountId) throw new FinanceTxnError('account_id 必填');
@@ -269,26 +275,37 @@ export async function createFinanceTransaction(
 
   const now = formatMySQLWallClockDateTime(new Date());
   try {
-    await db.query(
-      `INSERT INTO finance_transactions (
-         id, name, happened_at, account_id, ai_comment, transaction_type, flow_category_id,
-         amount, note, created_at, updated_at, sync_status, extra_data
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced', ?)`,
-      [
-        id,
-        name,
-        happenedAt,
-        accountId,
-        aiComment,
-        transactionType,
-        flowCategoryId,
-        amount,
-        note,
-        now,
-        now,
-        extraData,
-      ],
-    );
+    await withSyncTransaction(async (conn) => {
+      await conn.query(
+        `INSERT INTO finance_transactions (
+           id, name, happened_at, account_id, ai_comment, transaction_type, flow_category_id,
+           amount, note, created_at, updated_at, sync_status, extra_data
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced', ?)`,
+        [
+          id,
+          name,
+          happenedAt,
+          accountId,
+          aiComment,
+          transactionType,
+          flowCategoryId,
+          amount,
+          note,
+          now,
+          now,
+          extraData,
+        ],
+      );
+      await appendChangeLog(conn, [
+        {
+          tableName: 'finance_transactions',
+          recordPk: id,
+          op: 'upsert',
+          updatedAt: now,
+          deviceId: options?.deviceId,
+        },
+      ]);
+    });
   } catch (err) {
     if ((err as { code?: string }).code === 'ER_DUP_ENTRY') {
       throw new FinanceTxnError('流水已存在（id 冲突）', 409);
@@ -304,6 +321,7 @@ export async function createFinanceTransaction(
 export async function updateFinanceTransaction(
   id: string,
   input: UpdateFinanceTxnInput,
+  options?: SyncWriteOptions,
 ): Promise<FinanceTxnRecord> {
   const trimmed = asTrimmed(id);
   if (!trimmed) throw new FinanceTxnError('缺少流水 id');
@@ -403,33 +421,47 @@ export async function updateFinanceTransaction(
   }
 
   const now = formatMySQLWallClockDateTime(new Date());
-  await db.query(
-    `UPDATE finance_transactions SET
-       name = ?, happened_at = ?, account_id = ?, ai_comment = ?, transaction_type = ?,
-       flow_category_id = ?, amount = ?, note = ?, extra_data = ?,
-       updated_at = ?, sync_status = 'synced'
-     WHERE id = ?`,
-    [
-      name,
-      happenedAt,
-      accountId,
-      aiComment,
-      transactionType,
-      flowCategoryId,
-      amount,
-      note,
-      extraData,
-      now,
-      trimmed,
-    ],
-  );
+  await withSyncTransaction(async (conn) => {
+    await conn.query(
+      `UPDATE finance_transactions SET
+         name = ?, happened_at = ?, account_id = ?, ai_comment = ?, transaction_type = ?,
+         flow_category_id = ?, amount = ?, note = ?, extra_data = ?,
+         updated_at = ?, sync_status = 'synced'
+       WHERE id = ?`,
+      [
+        name,
+        happenedAt,
+        accountId,
+        aiComment,
+        transactionType,
+        flowCategoryId,
+        amount,
+        note,
+        extraData,
+        now,
+        trimmed,
+      ],
+    );
+    await appendChangeLog(conn, [
+      {
+        tableName: 'finance_transactions',
+        recordPk: trimmed,
+        op: 'upsert',
+        updatedAt: now,
+        deviceId: options?.deviceId,
+      },
+    ]);
+  });
 
   const row = await getFinanceTransaction(trimmed);
   if (!row) throw new FinanceTxnError('更新失败', 500);
   return row;
 }
 
-export async function deleteFinanceTransaction(id: string): Promise<{ deleted: true; id: string }> {
+export async function deleteFinanceTransaction(
+  id: string,
+  options?: SyncWriteOptions,
+): Promise<{ deleted: true; id: string }> {
   const trimmed = asTrimmed(id);
   if (!trimmed) throw new FinanceTxnError('缺少流水 id');
 
@@ -448,12 +480,22 @@ export async function deleteFinanceTransaction(id: string): Promise<{ deleted: t
     excludeTxnId: trimmed,
   });
 
-  const [result] = await db.query<ResultSetHeader>(
-    `DELETE FROM finance_transactions WHERE id = ?`,
-    [trimmed],
-  );
-  if (result.affectedRows <= 0) {
-    throw new FinanceTxnError('流水不存在', 404);
-  }
+  await withSyncTransaction(async (conn) => {
+    const [result] = await conn.query<ResultSetHeader>(
+      `DELETE FROM finance_transactions WHERE id = ?`,
+      [trimmed],
+    );
+    if (result.affectedRows <= 0) {
+      throw new FinanceTxnError('流水不存在', 404);
+    }
+    await appendChangeLog(conn, [
+      {
+        tableName: 'finance_transactions',
+        recordPk: trimmed,
+        op: 'delete',
+        deviceId: options?.deviceId,
+      },
+    ]);
+  });
   return { deleted: true, id: trimmed };
 }

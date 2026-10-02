@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { requireAuth } from '../../middlewares/auth.js';
 import { success } from '../../utils/response.js';
 import { createDomainErrorHandler } from '../../utils/domain-error-handler.js';
+import { deviceIdFromReq } from '../../utils/device-id-from-req.js';
 import {
   RecipeError,
   countRecipeCategories,
@@ -68,10 +69,13 @@ router.get('/recipes/categories/:categoryId/items', async (req, res, next) => {
 router.post('/recipes/categories', async (req, res, next) => {
   try {
     const body = req.body ?? {};
-    const data = await createRecipeCategory({
-      id: body.id,
-      name: body.name,
-    });
+    const data = await createRecipeCategory(
+      {
+        id: body.id,
+        name: body.name,
+      },
+      { deviceId: deviceIdFromReq(req) },
+    );
     success(res, data, '创建成功');
   } catch (err) {
     handleRecipeError(err, res, next);
@@ -82,7 +86,9 @@ router.post('/recipes/categories', async (req, res, next) => {
 router.patch('/recipes/categories/:id', async (req, res, next) => {
   try {
     const body = req.body ?? {};
-    const data = await renameRecipeCategory(String(req.params.id ?? ''), body.name);
+    const data = await renameRecipeCategory(String(req.params.id ?? ''), body.name, {
+      deviceId: deviceIdFromReq(req),
+    });
     success(res, data, '更新成功');
   } catch (err) {
     handleRecipeError(err, res, next);
@@ -92,7 +98,9 @@ router.patch('/recipes/categories/:id', async (req, res, next) => {
 /** DELETE /recipes/categories/:id — 删除分类（软删，级联软删菜谱） */
 router.delete('/recipes/categories/:id', async (req, res, next) => {
   try {
-    const data = await deleteRecipeCategory(String(req.params.id ?? ''));
+    const data = await deleteRecipeCategory(String(req.params.id ?? ''), {
+      deviceId: deviceIdFromReq(req),
+    });
     success(res, data, '删除成功');
   } catch (err) {
     handleRecipeError(err, res, next);
@@ -123,15 +131,18 @@ router.get('/recipes/:id', async (req, res, next) => {
 router.post('/recipes', async (req, res, next) => {
   try {
     const body = req.body ?? {};
-    const data = await createRecipe({
-      id: body.id,
-      category_id: body.category_id,
-      title: body.title,
-      ingredients_json: body.ingredients_json,
-      steps_json: body.steps_json,
-      notes: body.notes,
-      finished_image_uri: body.finished_image_uri,
-    });
+    const data = await createRecipe(
+      {
+        id: body.id,
+        category_id: body.category_id,
+        title: body.title,
+        ingredients_json: body.ingredients_json,
+        steps_json: body.steps_json,
+        notes: body.notes,
+        finished_image_uri: body.finished_image_uri,
+      },
+      { deviceId: deviceIdFromReq(req) },
+    );
     success(res, data, '创建成功');
   } catch (err) {
     handleRecipeError(err, res, next);
@@ -142,14 +153,18 @@ router.post('/recipes', async (req, res, next) => {
 router.put('/recipes/:id', async (req, res, next) => {
   try {
     const body = req.body ?? {};
-    const data = await updateRecipe(String(req.params.id ?? ''), {
-      category_id: body.category_id,
-      title: body.title,
-      ingredients_json: body.ingredients_json,
-      steps_json: body.steps_json,
-      notes: body.notes,
-      finished_image_uri: body.finished_image_uri,
-    });
+    const data = await updateRecipe(
+      String(req.params.id ?? ''),
+      {
+        category_id: body.category_id,
+        title: body.title,
+        ingredients_json: body.ingredients_json,
+        steps_json: body.steps_json,
+        notes: body.notes,
+        finished_image_uri: body.finished_image_uri,
+      },
+      { deviceId: deviceIdFromReq(req) },
+    );
     success(res, data, '更新成功');
   } catch (err) {
     handleRecipeError(err, res, next);
@@ -159,7 +174,9 @@ router.put('/recipes/:id', async (req, res, next) => {
 /** DELETE /recipes/:id — 删除菜谱（软删） */
 router.delete('/recipes/:id', async (req, res, next) => {
   try {
-    const data = await deleteRecipe(String(req.params.id ?? ''));
+    const data = await deleteRecipe(String(req.params.id ?? ''), {
+      deviceId: deviceIdFromReq(req),
+    });
     success(res, data, '删除成功');
   } catch (err) {
     handleRecipeError(err, res, next);

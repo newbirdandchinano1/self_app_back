@@ -6,6 +6,11 @@ import {
   formatRecordDateTimesForApi,
   formatUtcMySQLDateTime,
 } from './calendar/logical-day.js';
+import {
+  appendChangeLog,
+  withSyncTransaction,
+  type SyncWriteOptions,
+} from './sync-change-log.js';
 import { AiScenarioError, analyzeMemoReviewFromText } from './zhipu/scenarios.js';
 
 export class MemoError extends Error {
@@ -180,7 +185,7 @@ export type CreateMemoInput = {
 };
 
 /** 新建备忘 */
-export async function createMemo(input: CreateMemoInput) {
+export async function createMemo(input: CreateMemoInput, options?: SyncWriteOptions) {
   const title = asTrimmedString(input.title);
   const body = typeof input.body === 'string' ? input.body : '';
   if (!title && !body.trim()) throw new MemoError('title 与 body 不能同时为空');
@@ -195,13 +200,24 @@ export async function createMemo(input: CreateMemoInput) {
   const now = nowUtcMysql();
 
   try {
-    await db.query(
-      `INSERT INTO memos
-         (id, title, body, ai_evaluation, ai_suggestions, ai_review_at, linked_task_id,
-          created_at, updated_at, sync_status, dimension, dimension_id, is_pinned)
-       VALUES (?, ?, ?, NULL, NULL, NULL, ?, ?, ?, 'synced', NULL, NULL, ?)`,
-      [id, title, body, linkedTaskId, now, now, isPinned],
-    );
+    await withSyncTransaction(async (conn) => {
+      await conn.query(
+        `INSERT INTO memos
+           (id, title, body, ai_evaluation, ai_suggestions, ai_review_at, linked_task_id,
+            created_at, updated_at, sync_status, dimension, dimension_id, is_pinned)
+         VALUES (?, ?, ?, NULL, NULL, NULL, ?, ?, ?, 'synced', NULL, NULL, ?)`,
+        [id, title, body, linkedTaskId, now, now, isPinned],
+      );
+      await appendChangeLog(conn, [
+        {
+          tableName: 'memos',
+          recordPk: id,
+          op: 'upsert',
+          updatedAt: now,
+          deviceId: options?.deviceId,
+        },
+      ]);
+    });
   } catch (err) {
     if ((err as { code?: string }).code === 'ER_DUP_ENTRY') {
       throw new MemoError('备忘录已存在', 409);
@@ -224,7 +240,11 @@ export type UpdateMemoInput = {
 };
 
 /** 修改备忘 */
-export async function updateMemo(memoId: string, input: UpdateMemoInput) {
+export async function updateMemo(
+  memoId: string,
+  input: UpdateMemoInput,
+  options?: SyncWriteOptions,
+) {
   const id = memoId.trim();
   if (!id) throw new MemoError('id 不能为空');
 
@@ -264,13 +284,24 @@ export async function updateMemo(memoId: string, input: UpdateMemoInput) {
   updates.push('updated_at = ?', `sync_status = 'synced'`);
   values.push(now, id);
 
-  const [result] = await db.query<ResultSetHeader>(
-    `UPDATE memos
-     SET ${updates.join(', ')}
-     WHERE id = ? AND ${ACTIVE_MEMO_SQL}`,
-    values,
-  );
-  if (result.affectedRows === 0) throw new MemoError('备忘录不存在', 404);
+  await withSyncTransaction(async (conn) => {
+    const [result] = await conn.query<ResultSetHeader>(
+      `UPDATE memos
+       SET ${updates.join(', ')}
+       WHERE id = ? AND ${ACTIVE_MEMO_SQL}`,
+      values,
+    );
+    if (result.affectedRows === 0) throw new MemoError('备忘录不存在', 404);
+    await appendChangeLog(conn, [
+      {
+        tableName: 'memos',
+        recordPk: id,
+        op: 'upsert',
+        updatedAt: now,
+        deviceId: options?.deviceId,
+      },
+    ]);
+  });
 
   const updated = await getActiveMemo(id);
   if (!updated) throw new MemoError('备忘录不存在', 404);
@@ -278,7 +309,7 @@ export async function updateMemo(memoId: string, input: UpdateMemoInput) {
 }
 
 /** 删除备忘（软删：sync_status=pending_delete） */
-export async function deleteMemo(memoId: string) {
+export async function deleteMemo(memoId: string, options?: SyncWriteOptions) {
   const id = memoId.trim();
   if (!id) throw new MemoError('id 不能为空');
 
@@ -286,13 +317,24 @@ export async function deleteMemo(memoId: string) {
   if (!existing) throw new MemoError('备忘录不存在', 404);
 
   const now = nowUtcMysql();
-  const [result] = await db.query<ResultSetHeader>(
-    `UPDATE memos
-     SET sync_status = 'pending_delete', updated_at = ?
-     WHERE id = ? AND ${ACTIVE_MEMO_SQL}`,
-    [now, id],
-  );
-  if (result.affectedRows === 0) throw new MemoError('备忘录不存在', 404);
+  await withSyncTransaction(async (conn) => {
+    const [result] = await conn.query<ResultSetHeader>(
+      `UPDATE memos
+       SET sync_status = 'pending_delete', updated_at = ?
+       WHERE id = ? AND ${ACTIVE_MEMO_SQL}`,
+      [now, id],
+    );
+    if (result.affectedRows === 0) throw new MemoError('备忘录不存在', 404);
+    await appendChangeLog(conn, [
+      {
+        tableName: 'memos',
+        recordPk: id,
+        op: 'delete',
+        updatedAt: now,
+        deviceId: options?.deviceId,
+      },
+    ]);
+  });
 
   return { id, deleted_at: formatDbDateTimeForApi(now, 'utc') ?? now };
 }
@@ -308,7 +350,10 @@ function buildMemoContextText(memo: MemoRow): string {
  * AI 分析备忘并存库（写入 ai_evaluation / ai_suggestions / ai_review_at）
  * 复用 analyzeMemoReviewFromText
  */
-export async function analyzeAndPersistMemoReview(memoId: string) {
+export async function analyzeAndPersistMemoReview(
+  memoId: string,
+  options?: SyncWriteOptions,
+) {
   const id = memoId.trim();
   if (!id) throw new MemoError('id 不能为空');
 
@@ -332,14 +377,26 @@ export async function analyzeAndPersistMemoReview(memoId: string) {
   }
 
   const now = nowUtcMysql();
-  const [result] = await db.query<ResultSetHeader>(
-    `UPDATE memos
-     SET ai_evaluation = ?, ai_suggestions = ?, ai_review_at = ?,
-         updated_at = ?, sync_status = 'synced'
-     WHERE id = ? AND ${ACTIVE_MEMO_SQL}`,
-    [evaluation, suggestions, now, now, id],
-  );
-  if (result.affectedRows === 0) throw new MemoError('备忘录不存在', 404);
+  await withSyncTransaction(async (conn) => {
+    const [result] = await conn.query<ResultSetHeader>(
+      `UPDATE memos
+       SET ai_evaluation = ?, ai_suggestions = ?, ai_review_at = ?,
+           updated_at = ?, sync_status = 'synced'
+       WHERE id = ? AND ${ACTIVE_MEMO_SQL}`,
+      [evaluation, suggestions, now, now, id],
+    );
+    if (result.affectedRows === 0) throw new MemoError('备忘录不存在', 404);
+    await appendChangeLog(conn, [
+      {
+        tableName: 'memos',
+        recordPk: id,
+        op: 'upsert',
+        updatedAt: now,
+        deviceId: options?.deviceId,
+        hint: { reason: 'ai_review' },
+      },
+    ]);
+  });
 
   const updated = await getActiveMemo(id);
   if (!updated) throw new MemoError('备忘录不存在', 404);

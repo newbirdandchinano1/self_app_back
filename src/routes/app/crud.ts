@@ -16,16 +16,12 @@ import {
   isGenericWriteForbidden,
 } from '../../config/tables.js';
 import { parseListQueryFromRequest } from '../../services/list-query.js';
-import { resolveDeviceIdFromHeader } from '../../services/sync-change-log.js';
+import { deviceIdFromReq } from '../../utils/device-id-from-req.js';
 
 const router = Router();
 
 function isAdminPanelRequest(req: Request): boolean {
   return req.headers['x-admin-panel'] === '1';
-}
-
-function deviceIdFromReq(req: Request): string | null {
-  return resolveDeviceIdFromHeader(req.headers['x-device-id']);
 }
 
 /** 高危表禁止通用写：只允许 GET，写入须走专用业务接口 */

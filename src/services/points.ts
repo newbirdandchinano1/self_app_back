@@ -8,6 +8,12 @@ import {
   lockOrCreateWallet,
   nowUtcMysql,
 } from './points-wallet.js';
+import {
+  appendChangeLog,
+  discardPendingSyncPublish,
+  flushPendingSyncPublish,
+  type SyncWriteOptions,
+} from './sync-change-log.js';
 
 export { asPoints, lockOrCreateWallet, POINTS_WALLET_ID } from './points-wallet.js';
 
@@ -234,7 +240,10 @@ export type DeletePointsLedgerResult = {
  * 删除一条积分流水并回退其对钱包的影响：
  * newBalance = max(0, balance - row.delta)
  *  */
-export async function deletePointsLedgerEntry(ledgerId: string): Promise<DeletePointsLedgerResult> {
+export async function deletePointsLedgerEntry(
+  ledgerId: string,
+  options?: SyncWriteOptions,
+): Promise<DeletePointsLedgerResult> {
   const id = String(ledgerId ?? '').trim();
   if (!id) {
     throw new PointsError('参数缺失', 400, { ok: false, error: '参数缺失' });
@@ -280,13 +289,14 @@ export async function deletePointsLedgerEntry(ledgerId: string): Promise<DeleteP
     );
 
     // 删除 wish_redeem 流水时：一次性心愿恢复为可兑换
+    let wishRestored = false;
     if (
       reason === 'wish_redeem' &&
       refType === 'wish_board_item' &&
       refId &&
       String(refId).trim()
     ) {
-      await conn.query(
+      const [wishResult] = await conn.query<ResultSetHeader>(
         `UPDATE wish_board_items
          SET status = 'active',
              redeemed_at = NULL,
@@ -297,9 +307,37 @@ export async function deletePointsLedgerEntry(ledgerId: string): Promise<DeleteP
            AND status = 'redeemed'`,
         [now, String(refId).trim()],
       );
+      wishRestored = Number(wishResult.affectedRows) > 0;
     }
 
+    const events = [
+      {
+        tableName: 'points_ledger',
+        recordPk: id,
+        op: 'delete' as const,
+        deviceId: options?.deviceId,
+      },
+      {
+        tableName: 'points_wallet',
+        recordPk: WALLET_ID,
+        op: 'upsert' as const,
+        updatedAt: now,
+        deviceId: options?.deviceId,
+      },
+    ];
+    if (wishRestored && refId) {
+      events.push({
+        tableName: 'wish_board_items',
+        recordPk: String(refId).trim(),
+        op: 'upsert',
+        updatedAt: now,
+        deviceId: options?.deviceId,
+      });
+    }
+    await appendChangeLog(conn, events);
+
     await conn.commit();
+    await flushPendingSyncPublish(conn);
 
     return {
       deleted: true,
@@ -312,7 +350,12 @@ export async function deletePointsLedgerEntry(ledgerId: string): Promise<DeleteP
       ref_id: refId,
     };
   } catch (err) {
-    await conn.rollback();
+    discardPendingSyncPublish(conn);
+    try {
+      await conn.rollback();
+    } catch {
+      // ignore
+    }
     throw err;
   } finally {
     conn.release();
@@ -337,7 +380,10 @@ export interface AdjustPointsResult {
 }
 
 /** 原子调账：锁钱包 → 改余额 → 写流水 */
-export async function adjustPoints(input: AdjustPointsInput): Promise<AdjustPointsResult> {
+export async function adjustPoints(
+  input: AdjustPointsInput,
+  options?: SyncWriteOptions,
+): Promise<AdjustPointsResult> {
   let delta = asPoints(input.delta);
   if (!Number.isFinite(delta)) {
     throw new PointsError('delta 必须为数字', 400, {
@@ -400,7 +446,29 @@ export async function adjustPoints(input: AdjustPointsInput): Promise<AdjustPoin
       note: input.note,
     });
 
+    // ledger_id 为空的 no-op 不记（保险）
+    if (applied.ledger_id) {
+      const now = nowUtcMysql();
+      await appendChangeLog(conn, [
+        {
+          tableName: 'points_wallet',
+          recordPk: WALLET_ID,
+          op: 'upsert',
+          updatedAt: now,
+          deviceId: options?.deviceId,
+        },
+        {
+          tableName: 'points_ledger',
+          recordPk: applied.ledger_id,
+          op: 'upsert',
+          updatedAt: now,
+          deviceId: options?.deviceId,
+        },
+      ]);
+    }
+
     await conn.commit();
+    await flushPendingSyncPublish(conn);
 
     return {
       ok: true,
@@ -409,7 +477,12 @@ export async function adjustPoints(input: AdjustPointsInput): Promise<AdjustPoin
       delta: applied.delta,
     };
   } catch (err) {
-    await conn.rollback();
+    discardPendingSyncPublish(conn);
+    try {
+      await conn.rollback();
+    } catch {
+      // ignore
+    }
     throw err;
   } finally {
     conn.release();
@@ -417,8 +490,11 @@ export async function adjustPoints(input: AdjustPointsInput): Promise<AdjustPoin
 }
 
 /** 发分入口：与 adjust 同一套钱包写路径（语义别名） */
-export async function grantPoints(input: AdjustPointsInput): Promise<AdjustPointsResult> {
-  return adjustPoints(input);
+export async function grantPoints(
+  input: AdjustPointsInput,
+  options?: SyncWriteOptions,
+): Promise<AdjustPointsResult> {
+  return adjustPoints(input, options);
 }
 
 /**
@@ -437,7 +513,7 @@ export interface ResetPointsResult {
  * 重置积分：事务内清零钱包并追加 points_reset 负向流水。
  * 余额已为 0 时 no-op（不写流水），返回 delta=0、ledger_id=null。
  */
-export async function resetPoints(): Promise<ResetPointsResult> {
+export async function resetPoints(options?: SyncWriteOptions): Promise<ResetPointsResult> {
   const conn = await db.getConnection();
   try {
     await conn.beginTransaction();
@@ -456,11 +532,37 @@ export async function resetPoints(): Promise<ResetPointsResult> {
       ref_id: WALLET_ID,
     });
 
+    if (applied.ledger_id) {
+      const now = nowUtcMysql();
+      await appendChangeLog(conn, [
+        {
+          tableName: 'points_wallet',
+          recordPk: WALLET_ID,
+          op: 'upsert',
+          updatedAt: now,
+          deviceId: options?.deviceId,
+        },
+        {
+          tableName: 'points_ledger',
+          recordPk: applied.ledger_id,
+          op: 'upsert',
+          updatedAt: now,
+          deviceId: options?.deviceId,
+        },
+      ]);
+    }
+
     await conn.commit();
+    await flushPendingSyncPublish(conn);
 
     return { balance: 0, delta: applied.delta, ledger_id: applied.ledger_id };
   } catch (err) {
-    await conn.rollback();
+    discardPendingSyncPublish(conn);
+    try {
+      await conn.rollback();
+    } catch {
+      // ignore
+    }
     throw err;
   } finally {
     conn.release();
@@ -555,7 +657,9 @@ export async function getOrCreateDefaultWallet(): Promise<PointsWalletRecord> {
  * 流水权威：用 SUM(points_ledger.delta) 校正 default 钱包余额。
  * 通用同步追加 task_complete_undo 等负流水后调用，避免旧钱包快照把余额写回去。
  */
-export async function reconcilePointsWalletFromLedger(): Promise<{ balance: number }> {
+export async function reconcilePointsWalletFromLedger(
+  options?: SyncWriteOptions,
+): Promise<{ balance: number }> {
   const conn = await db.getConnection();
   try {
     await conn.beginTransaction();
@@ -574,12 +678,27 @@ export async function reconcilePointsWalletFromLedger(): Promise<{ balance: numb
          WHERE id = ?`,
         [total, now, WALLET_ID],
       );
+      await appendChangeLog(conn, [
+        {
+          tableName: 'points_wallet',
+          recordPk: WALLET_ID,
+          op: 'upsert',
+          updatedAt: now,
+          deviceId: options?.deviceId ?? null,
+        },
+      ]);
     }
 
     await conn.commit();
+    await flushPendingSyncPublish(conn);
     return { balance: total };
   } catch (err) {
-    await conn.rollback();
+    discardPendingSyncPublish(conn);
+    try {
+      await conn.rollback();
+    } catch {
+      // ignore
+    }
     throw err;
   } finally {
     conn.release();

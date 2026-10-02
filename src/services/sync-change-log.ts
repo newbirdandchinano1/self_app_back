@@ -28,25 +28,74 @@ type PendingSyncPublish = {
 const pendingPublishByConn = new WeakMap<PoolConnection, PendingSyncPublish>();
 
 /**
- * Phase 1 任务域高频表：经 CRUD / frog / task-delete 写入时追加 Change Log。
- * 其余业务域在 Phase 4 再覆盖。
+ * 参与多端 Change Log 的业务表（Phase 1 任务域 + Phase 4 其余域）。
+ * 不含 admin_users / users / app_meta / app_settings（避免广播配置或敏感字段）。
  */
-export const PHASE1_CHANGE_LOG_TABLES = new Set<string>([
+export const SYNC_CHANGE_LOG_TABLES = new Set<string>([
+  // Phase 1 — 任务域
   'tasks',
   'task_items',
   'habits',
+  'habit_contexts',
   'habit_check_ins',
   'projects',
+  'project_categories',
+  'task_categories',
   'frog_completion_events',
   'schedule_placements',
   'schedule_week_axis_snapshot',
   'task_execution_events',
   'project_completion_logs',
+  // Phase 4 — 财务
+  'finance_transactions',
+  'finance_accounts',
+  'finance_account_types',
+  'finance_flow_categories',
+  'finance_scheduled_expenses',
+  'cash_flow_profile',
+  'cash_flow_incomes',
+  'cash_flow_holdings',
+  'cash_flow_expense_lines',
+  'savings_plans',
+  'savings_plan_deposits',
+  // Phase 4 — 积分 / 心愿
+  'points_wallet',
+  'points_ledger',
+  'wish_board_items',
+  // Phase 4 — 备忘 / 标签
+  'memos',
+  'memo_dimensions',
+  'tags',
+  'tag_links',
+  // Phase 4 — 菜谱
+  'recipe_categories',
+  'recipe_items',
+  // Phase 4 — 健康
+  'health_records',
+  'health_daily_targets',
+  // Phase 4 — 复盘
+  'daily_review_journal',
+  'weekly_review_journal',
+  'monthly_review_journal',
+  'review_dimensions',
+  'review_columns',
 ]);
 
-export function isPhase1ChangeLogTable(table: string): boolean {
-  return PHASE1_CHANGE_LOG_TABLES.has(table);
+/** @deprecated 使用 SYNC_CHANGE_LOG_TABLES */
+export const PHASE1_CHANGE_LOG_TABLES = SYNC_CHANGE_LOG_TABLES;
+
+export function isChangeLogTable(table: string): boolean {
+  return SYNC_CHANGE_LOG_TABLES.has(table);
 }
+
+/** @deprecated 使用 isChangeLogTable */
+export function isPhase1ChangeLogTable(table: string): boolean {
+  return isChangeLogTable(table);
+}
+
+export type SyncWriteOptions = {
+  deviceId?: string | null;
+};
 
 function normalizeUpdatedAt(value: string | Date | null | undefined): string | null {
   if (value == null || value === '') return null;
@@ -131,6 +180,29 @@ export async function appendChangeLog(
   }
 }
 
+/** 自管事务 rollback 时丢弃待广播 */
+export function discardPendingSyncPublish(conn: PoolConnection): void {
+  pendingPublishByConn.delete(conn);
+}
+
+/** 自管事务 commit 后调用，投递 SSE（与 withSyncTransaction 同路径） */
+export async function flushPendingSyncPublish(conn: PoolConnection): Promise<void> {
+  const pending = pendingPublishByConn.get(conn);
+  pendingPublishByConn.delete(conn);
+  if (!pending || pending.dirtyTables.size === 0) return;
+  try {
+    const { publishSyncSignal } = await import('./sync-sse-hub.js');
+    publishSyncSignal({
+      userId: pending.userId,
+      skipDeviceId: pending.deviceId,
+      cursor: pending.cursor,
+      dirtyTables: [...pending.dirtyTables],
+    });
+  } catch (err) {
+    console.warn('[sync] SSE publish 失败（不影响写成功）', err);
+  }
+}
+
 /** 业务写 + Change Log 共用事务；commit 后广播 SSE */
 export async function withSyncTransaction<T>(
   fn: (conn: PoolConnection) => Promise<T>,
@@ -140,27 +212,10 @@ export async function withSyncTransaction<T>(
     await conn.beginTransaction();
     const result = await fn(conn);
     await conn.commit();
-
-    const pending = pendingPublishByConn.get(conn);
-    pendingPublishByConn.delete(conn);
-    if (pending && pending.dirtyTables.size > 0) {
-      try {
-        // 动态 import，避免与 sync-sse-hub 循环依赖
-        const { publishSyncSignal } = await import('./sync-sse-hub.js');
-        publishSyncSignal({
-          userId: pending.userId,
-          skipDeviceId: pending.deviceId,
-          cursor: pending.cursor,
-          dirtyTables: [...pending.dirtyTables],
-        });
-      } catch (err) {
-        console.warn('[sync] SSE publish 失败（不影响写成功）', err);
-      }
-    }
-
+    await flushPendingSyncPublish(conn);
     return result;
   } catch (err) {
-    pendingPublishByConn.delete(conn);
+    discardPendingSyncPublish(conn);
     try {
       await conn.rollback();
     } catch {

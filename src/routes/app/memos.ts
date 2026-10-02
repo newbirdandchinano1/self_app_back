@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { requireAuth } from '../../middlewares/auth.js';
 import { success } from '../../utils/response.js';
 import { createDomainErrorHandler } from '../../utils/domain-error-handler.js';
+import { deviceIdFromReq } from '../../utils/device-id-from-req.js';
 import {
   MemoError,
   analyzeAndPersistMemoReview,
@@ -42,13 +43,16 @@ router.get('/memos/:id', async (req, res, next) => {
 router.post('/memos', async (req, res, next) => {
   try {
     const body = req.body ?? {};
-    const data = await createMemo({
-      id: body.id,
-      title: body.title,
-      body: body.body,
-      linked_task_id: body.linked_task_id,
-      is_pinned: body.is_pinned,
-    });
+    const data = await createMemo(
+      {
+        id: body.id,
+        title: body.title,
+        body: body.body,
+        linked_task_id: body.linked_task_id,
+        is_pinned: body.is_pinned,
+      },
+      { deviceId: deviceIdFromReq(req) },
+    );
     success(res, data, '创建成功');
   } catch (err) {
     handleMemoError(err, res, next);
@@ -59,12 +63,16 @@ router.post('/memos', async (req, res, next) => {
 router.put('/memos/:id', async (req, res, next) => {
   try {
     const body = req.body ?? {};
-    const data = await updateMemo(String(req.params.id ?? ''), {
-      title: body.title,
-      body: body.body,
-      linked_task_id: body.linked_task_id,
-      is_pinned: body.is_pinned,
-    });
+    const data = await updateMemo(
+      String(req.params.id ?? ''),
+      {
+        title: body.title,
+        body: body.body,
+        linked_task_id: body.linked_task_id,
+        is_pinned: body.is_pinned,
+      },
+      { deviceId: deviceIdFromReq(req) },
+    );
     success(res, data, '更新成功');
   } catch (err) {
     handleMemoError(err, res, next);
@@ -74,7 +82,9 @@ router.put('/memos/:id', async (req, res, next) => {
 /** DELETE /memos/:id — 删除备忘（软删） */
 router.delete('/memos/:id', async (req, res, next) => {
   try {
-    const data = await deleteMemo(String(req.params.id ?? ''));
+    const data = await deleteMemo(String(req.params.id ?? ''), {
+      deviceId: deviceIdFromReq(req),
+    });
     success(res, data, '删除成功');
   } catch (err) {
     handleMemoError(err, res, next);
@@ -88,7 +98,9 @@ router.delete('/memos/:id', async (req, res, next) => {
  */
 router.post('/memos/:id/ai-review', async (req, res, next) => {
   try {
-    const data = await analyzeAndPersistMemoReview(String(req.params.id ?? ''));
+    const data = await analyzeAndPersistMemoReview(String(req.params.id ?? ''), {
+      deviceId: deviceIdFromReq(req),
+    });
     success(res, data, '分析完成');
   } catch (err) {
     handleMemoError(err, res, next);
