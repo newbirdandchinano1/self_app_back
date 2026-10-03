@@ -36,10 +36,17 @@ import {
 } from './calendar/logical-day.js';
 import {
   appendChangeLog,
+  isDayBoundaryAppSettingKey,
   isPhase1ChangeLogTable,
   withSyncTransaction,
   type ChangeLogEvent,
 } from './sync-change-log.js';
+
+/** 白名单表，或日界相关 app_settings 键 */
+function shouldAppendChangeLog(table: string, pk: string): boolean {
+  if (isPhase1ChangeLogTable(table)) return true;
+  return table === 'app_settings' && isDayBoundaryAppSettingKey(pk);
+}
 
 const DB_DATETIME_COLUMNS = new Set(['created_at', 'updated_at', 'completed_at', 'redeemed_at']);
 
@@ -792,7 +799,7 @@ export async function createRecord(
   const pk = String(payload[meta.primaryKey] ?? data[meta.primaryKey]);
   const insertSql = `INSERT INTO ${quoteIdent(table)} (${cols}) VALUES (${placeholders})`;
 
-  if (isPhase1ChangeLogTable(table)) {
+  if (shouldAppendChangeLog(table, pk)) {
     await withSyncTransaction(async (conn) => {
       await conn.query(insertSql, values);
       await appendChangeLog(conn, [
@@ -851,7 +858,7 @@ export async function updateRecord(
   const updateSql = `UPDATE ${quoteIdent(table)} SET ${sets}
      WHERE ${quoteIdent(meta.primaryKey)} = ?`;
 
-  if (isPhase1ChangeLogTable(table)) {
+  if (shouldAppendChangeLog(table, pkValue)) {
     const updated = await withSyncTransaction(async (conn) => {
       const [result] = await conn.query<ResultSetHeader>(updateSql, values);
       if (result.affectedRows === 0) return false;
@@ -918,7 +925,7 @@ export async function deleteRecord(
   const pk = getPrimaryKey(table);
   const deleteSql = `DELETE FROM ${quoteIdent(table)} WHERE ${quoteIdent(pk)} = ?`;
 
-  if (isPhase1ChangeLogTable(table)) {
+  if (shouldAppendChangeLog(table, pkValue)) {
     return withSyncTransaction(async (conn) => {
       const [result] = await conn.query<ResultSetHeader>(deleteSql, [pkValue]);
       if (result.affectedRows <= 0) return false;

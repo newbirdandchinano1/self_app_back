@@ -29,7 +29,8 @@ const pendingPublishByConn = new WeakMap<PoolConnection, PendingSyncPublish>();
 
 /**
  * 参与多端 Change Log 的业务表（Phase 1 任务域 + Phase 4 其余域）。
- * 不含 admin_users / users / app_meta / app_settings（避免广播配置或敏感字段）。
+ * 不含 admin_users / users / app_meta / 整表 app_settings（避免广播配置或敏感字段）。
+ * 日界相关 app_settings 键由 CRUD 单独选择性写入 Change Log（见 `isDayBoundaryAppSettingKey`）。
  */
 export const SYNC_CHANGE_LOG_TABLES = new Set<string>([
   // Phase 1 — 任务域
@@ -91,6 +92,19 @@ export function isChangeLogTable(table: string): boolean {
 /** @deprecated 使用 isChangeLogTable */
 export function isPhase1ChangeLogTable(table: string): boolean {
   return isChangeLogTable(table);
+}
+
+/**
+ * 与 App `AppSettingKey.tasksCompletionDayStart` / `dayBoundaryPages` 对齐。
+ * 仅这两项进入 Change Log，供桌面与其它端对齐逻辑日。
+ */
+export const DAY_BOUNDARY_APP_SETTING_KEYS = new Set<string>([
+  '@tasks_completion_day_start_v1',
+  '@selfapp/day_boundary_pages_v1',
+]);
+
+export function isDayBoundaryAppSettingKey(pk: string): boolean {
+  return DAY_BOUNDARY_APP_SETTING_KEYS.has(String(pk ?? '').trim());
 }
 
 export type SyncWriteOptions = {
