@@ -46,6 +46,7 @@ import {
   extractSyncWriteMeta,
   stampLiveUpsert,
   SyncOccConflictError,
+  throwTombstoneConflict,
 } from './sync-revision.js';
 
 /** 白名单表，或日界相关 app_settings 键 */
@@ -893,14 +894,7 @@ export async function updateRecord(
     const updated = await withSyncTransaction(async (conn) => {
       const [result] = await conn.query<ResultSetHeader>(updateSql, values);
       if (result.affectedRows === 0) {
-        throw new SyncOccConflictError({
-          kind: 'tombstone',
-          table,
-          pk: pkValue,
-          serverRev: null,
-          mutationId: null,
-          row: null,
-        });
+        await throwTombstoneConflict(conn, table, pkValue);
       }
 
       const stamp = await stampLiveUpsert(conn, table, pkValue, {

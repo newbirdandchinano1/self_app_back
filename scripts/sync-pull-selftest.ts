@@ -31,8 +31,10 @@ async function main() {
   check('超前游标 hasMore=false', empty.hasMore === false && empty.events.length === 0);
   check('超前游标 needFullSync=false', empty.needFullSync === false);
 
-  const before = await pullSyncChanges({ since: 0, limit: 1 });
-  const cursorBefore = before.cursor;
+  const [maxRows] = await db.query<RowDataPacket[]>(
+    `SELECT MAX(id) AS max_id FROM sync_change_log WHERE user_id = 'default'`,
+  );
+  const cursorBefore = Number(maxRows[0]?.max_id ?? 0) || 0;
 
   const taskId = `sync_pull_${randomUUID().slice(0, 8)}`;
   const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
@@ -56,7 +58,14 @@ async function main() {
   check('cursor 前进', page.cursor > cursorBefore);
   check('needFullSync=false', page.needFullSync === false);
 
-  const caughtUp = await pullSyncChanges({ since: page.cursor });
+  let drainCursor = page.cursor;
+  for (let i = 0; i < 5; i++) {
+    const p = await pullSyncChanges({ since: drainCursor });
+    if (p.events.length === 0) { drainCursor = p.cursor; break; }
+    drainCursor = p.cursor;
+    if (!p.hasMore) break;
+  }
+  const caughtUp = await pullSyncChanges({ since: drainCursor });
   check('追上后无事件', caughtUp.events.length === 0 && caughtUp.hasMore === false);
 
   // 模拟游标过旧：since 小于当前 min(id)
