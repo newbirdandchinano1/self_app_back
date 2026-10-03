@@ -16,11 +16,13 @@
     "test:finance-page": "tsx scripts/finance-page-selftest.ts",
     "test:dedicated-write": "tsx scripts/dedicated-write-selftest.ts",
     "test:profile-page": "tsx scripts/profile-page-selftest.ts",
-    "test:sync-change-log": "tsx scripts/sync-change-log-selftest.ts",
+    "test:sync-phase1": "tsx scripts/sync-phase1-selftest.ts",
     "test:sync-pull": "tsx scripts/sync-pull-selftest.ts",
     "test:sync-sse": "tsx scripts/sync-sse-selftest.ts",
     "test:sync-phase4": "tsx scripts/sync-phase4-selftest.ts",
-    "test:sync-phase5": "tsx scripts/sync-phase5-selftest.ts"
+    "test:sync-phase5": "tsx scripts/sync-phase5-selftest.ts",
+    "test:sync-bootstrap": "tsx scripts/sync-bootstrap-selftest.ts",
+    "test:sync-phase8": "tsx scripts/sync-bootstrap-selftest.ts"
   },
   "dependencies": {
     "bcrypt": "^6.0.0",

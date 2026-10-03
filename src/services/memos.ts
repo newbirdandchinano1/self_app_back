@@ -11,6 +11,7 @@ import {
   withSyncTransaction,
   type SyncWriteOptions,
 } from './sync-change-log.js';
+import { deleteLiveWithRevision, stampLiveUpsert, throwTombstoneConflict } from './sync-revision.js';
 import { AiScenarioError, analyzeMemoReviewFromText } from './zhipu/scenarios.js';
 
 export class MemoError extends Error {
@@ -208,6 +209,10 @@ export async function createMemo(input: CreateMemoInput, options?: SyncWriteOpti
          VALUES (?, ?, ?, NULL, NULL, NULL, ?, ?, ?, 'synced', NULL, NULL, ?)`,
         [id, title, body, linkedTaskId, now, now, isPinned],
       );
+      const stamp = await stampLiveUpsert(conn, 'memos', id, {
+        mode: 'insert',
+        mutationId: options?.mutationId,
+      });
       await appendChangeLog(conn, [
         {
           tableName: 'memos',
@@ -215,6 +220,8 @@ export async function createMemo(input: CreateMemoInput, options?: SyncWriteOpti
           op: 'upsert',
           updatedAt: now,
           deviceId: options?.deviceId,
+          serverRev: stamp.serverRev,
+          mutationId: stamp.mutationId,
         },
       ]);
     });
@@ -249,7 +256,9 @@ export async function updateMemo(
   if (!id) throw new MemoError('id 不能为空');
 
   const existing = await getActiveMemo(id);
-  if (!existing) throw new MemoError('备忘录不存在', 404);
+  if (!existing) {
+    await throwTombstoneConflict(db, 'memos', id);
+  }
 
   const updates: string[] = [];
   const values: unknown[] = [];
@@ -292,6 +301,11 @@ export async function updateMemo(
       values,
     );
     if (result.affectedRows === 0) throw new MemoError('备忘录不存在', 404);
+    const stamp = await stampLiveUpsert(conn, 'memos', id, {
+      mode: 'update',
+      mutationId: options?.mutationId,
+      expectedRev: options?.expectedRev,
+    });
     await appendChangeLog(conn, [
       {
         tableName: 'memos',
@@ -299,6 +313,8 @@ export async function updateMemo(
         op: 'upsert',
         updatedAt: now,
         deviceId: options?.deviceId,
+        serverRev: stamp.serverRev,
+        mutationId: stamp.mutationId,
       },
     ]);
   });
@@ -313,18 +329,13 @@ export async function deleteMemo(memoId: string, options?: SyncWriteOptions) {
   const id = memoId.trim();
   if (!id) throw new MemoError('id 不能为空');
 
-  const existing = await getActiveMemo(id);
-  if (!existing) throw new MemoError('备忘录不存在', 404);
-
   const now = nowUtcMysql();
   await withSyncTransaction(async (conn) => {
-    const [result] = await conn.query<ResultSetHeader>(
-      `UPDATE memos
-       SET sync_status = 'pending_delete', updated_at = ?
-       WHERE id = ? AND ${ACTIVE_MEMO_SQL}`,
-      [now, id],
-    );
-    if (result.affectedRows === 0) throw new MemoError('备忘录不存在', 404);
+    const del = await deleteLiveWithRevision(conn, 'memos', id, {
+      mutationId: options?.mutationId,
+      expectedRev: options?.expectedRev,
+    });
+    if (del.kind === 'already_gone') return;
     await appendChangeLog(conn, [
       {
         tableName: 'memos',
@@ -332,6 +343,8 @@ export async function deleteMemo(memoId: string, options?: SyncWriteOptions) {
         op: 'delete',
         updatedAt: now,
         deviceId: options?.deviceId,
+        serverRev: del.serverRev,
+        mutationId: del.mutationId,
       },
     ]);
   });
@@ -386,6 +399,11 @@ export async function analyzeAndPersistMemoReview(
       [evaluation, suggestions, now, now, id],
     );
     if (result.affectedRows === 0) throw new MemoError('备忘录不存在', 404);
+    const stamp = await stampLiveUpsert(conn, 'memos', id, {
+      mode: 'update',
+      skipOcc: true,
+      mutationId: options?.mutationId,
+    });
     await appendChangeLog(conn, [
       {
         tableName: 'memos',
@@ -394,6 +412,8 @@ export async function analyzeAndPersistMemoReview(
         updatedAt: now,
         deviceId: options?.deviceId,
         hint: { reason: 'ai_review' },
+        serverRev: stamp.serverRev,
+        mutationId: stamp.mutationId,
       },
     ]);
   });

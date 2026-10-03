@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { requireAuth } from '../../middlewares/auth.js';
 import { success } from '../../utils/response.js';
 import { createDomainErrorHandler } from '../../utils/domain-error-handler.js';
-import { deviceIdFromReq } from '../../utils/device-id-from-req.js';
+import { syncWriteOptionsFromReq } from '../../utils/device-id-from-req.js';
 import {
   RecipeError,
   countRecipeCategories,
@@ -74,7 +74,7 @@ router.post('/recipes/categories', async (req, res, next) => {
         id: body.id,
         name: body.name,
       },
-      { deviceId: deviceIdFromReq(req) },
+      syncWriteOptionsFromReq(req),
     );
     success(res, data, '创建成功');
   } catch (err) {
@@ -87,7 +87,7 @@ router.patch('/recipes/categories/:id', async (req, res, next) => {
   try {
     const body = req.body ?? {};
     const data = await renameRecipeCategory(String(req.params.id ?? ''), body.name, {
-      deviceId: deviceIdFromReq(req),
+      ...syncWriteOptionsFromReq(req),
     });
     success(res, data, '更新成功');
   } catch (err) {
@@ -99,7 +99,7 @@ router.patch('/recipes/categories/:id', async (req, res, next) => {
 router.delete('/recipes/categories/:id', async (req, res, next) => {
   try {
     const data = await deleteRecipeCategory(String(req.params.id ?? ''), {
-      deviceId: deviceIdFromReq(req),
+      ...syncWriteOptionsFromReq(req),
     });
     success(res, data, '删除成功');
   } catch (err) {
@@ -141,7 +141,7 @@ router.post('/recipes', async (req, res, next) => {
         notes: body.notes,
         finished_image_uri: body.finished_image_uri,
       },
-      { deviceId: deviceIdFromReq(req) },
+      syncWriteOptionsFromReq(req),
     );
     success(res, data, '创建成功');
   } catch (err) {
@@ -163,7 +163,7 @@ router.put('/recipes/:id', async (req, res, next) => {
         notes: body.notes,
         finished_image_uri: body.finished_image_uri,
       },
-      { deviceId: deviceIdFromReq(req) },
+      syncWriteOptionsFromReq(req),
     );
     success(res, data, '更新成功');
   } catch (err) {
@@ -175,7 +175,7 @@ router.put('/recipes/:id', async (req, res, next) => {
 router.delete('/recipes/:id', async (req, res, next) => {
   try {
     const data = await deleteRecipe(String(req.params.id ?? ''), {
-      deviceId: deviceIdFromReq(req),
+      ...syncWriteOptionsFromReq(req),
     });
     success(res, data, '删除成功');
   } catch (err) {

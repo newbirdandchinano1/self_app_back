@@ -15,6 +15,7 @@ import {
   withSyncTransaction,
   type SyncWriteOptions,
 } from './sync-change-log.js';
+import { deleteLiveWithRevision, stampLiveUpsert, throwTombstoneConflict } from './sync-revision.js';
 
 export class FinanceTxnError extends Error {
   constructor(
@@ -296,6 +297,10 @@ export async function createFinanceTransaction(
           extraData,
         ],
       );
+      const stamp = await stampLiveUpsert(conn, 'finance_transactions', id, {
+        mode: 'insert',
+        mutationId: options?.mutationId,
+      });
       await appendChangeLog(conn, [
         {
           tableName: 'finance_transactions',
@@ -303,6 +308,8 @@ export async function createFinanceTransaction(
           op: 'upsert',
           updatedAt: now,
           deviceId: options?.deviceId,
+          serverRev: stamp.serverRev,
+          mutationId: stamp.mutationId,
         },
       ]);
     });
@@ -327,7 +334,9 @@ export async function updateFinanceTransaction(
   if (!trimmed) throw new FinanceTxnError('缺少流水 id');
 
   const existing = await getFinanceTransaction(trimmed);
-  if (!existing) throw new FinanceTxnError('流水不存在', 404);
+  if (!existing) {
+    await throwTombstoneConflict(db, 'finance_transactions', trimmed);
+  }
 
   const has = (key: string) => Object.prototype.hasOwnProperty.call(input, key);
 
@@ -442,6 +451,11 @@ export async function updateFinanceTransaction(
         trimmed,
       ],
     );
+    const stamp = await stampLiveUpsert(conn, 'finance_transactions', trimmed, {
+      mode: 'update',
+      mutationId: options?.mutationId,
+      expectedRev: options?.expectedRev,
+    });
     await appendChangeLog(conn, [
       {
         tableName: 'finance_transactions',
@@ -449,6 +463,8 @@ export async function updateFinanceTransaction(
         op: 'upsert',
         updatedAt: now,
         deviceId: options?.deviceId,
+        serverRev: stamp.serverRev,
+        mutationId: stamp.mutationId,
       },
     ]);
   });
@@ -466,7 +482,9 @@ export async function deleteFinanceTransaction(
   if (!trimmed) throw new FinanceTxnError('缺少流水 id');
 
   const existing = await getFinanceTransaction(trimmed);
-  if (!existing) throw new FinanceTxnError('流水不存在', 404);
+  if (!existing) {
+    return { deleted: true, id: trimmed };
+  }
 
   const accountId = String(existing.account_id ?? '');
   const account = await loadAccount(accountId);
@@ -481,12 +499,12 @@ export async function deleteFinanceTransaction(
   });
 
   await withSyncTransaction(async (conn) => {
-    const [result] = await conn.query<ResultSetHeader>(
-      `DELETE FROM finance_transactions WHERE id = ?`,
-      [trimmed],
-    );
-    if (result.affectedRows <= 0) {
-      throw new FinanceTxnError('流水不存在', 404);
+    const del = await deleteLiveWithRevision(conn, 'finance_transactions', trimmed, {
+      mutationId: options?.mutationId,
+      expectedRev: options?.expectedRev,
+    });
+    if (del.kind === 'already_gone') {
+      return;
     }
     await appendChangeLog(conn, [
       {
@@ -494,6 +512,8 @@ export async function deleteFinanceTransaction(
         recordPk: trimmed,
         op: 'delete',
         deviceId: options?.deviceId,
+        serverRev: del.serverRev,
+        mutationId: del.mutationId,
       },
     ]);
   });

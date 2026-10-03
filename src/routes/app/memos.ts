@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { requireAuth } from '../../middlewares/auth.js';
 import { success } from '../../utils/response.js';
 import { createDomainErrorHandler } from '../../utils/domain-error-handler.js';
-import { deviceIdFromReq } from '../../utils/device-id-from-req.js';
+import { syncWriteOptionsFromReq } from '../../utils/device-id-from-req.js';
 import {
   MemoError,
   analyzeAndPersistMemoReview,
@@ -51,7 +51,7 @@ router.post('/memos', async (req, res, next) => {
         linked_task_id: body.linked_task_id,
         is_pinned: body.is_pinned,
       },
-      { deviceId: deviceIdFromReq(req) },
+      syncWriteOptionsFromReq(req),
     );
     success(res, data, '创建成功');
   } catch (err) {
@@ -71,7 +71,7 @@ router.put('/memos/:id', async (req, res, next) => {
         linked_task_id: body.linked_task_id,
         is_pinned: body.is_pinned,
       },
-      { deviceId: deviceIdFromReq(req) },
+      syncWriteOptionsFromReq(req),
     );
     success(res, data, '更新成功');
   } catch (err) {
@@ -83,7 +83,7 @@ router.put('/memos/:id', async (req, res, next) => {
 router.delete('/memos/:id', async (req, res, next) => {
   try {
     const data = await deleteMemo(String(req.params.id ?? ''), {
-      deviceId: deviceIdFromReq(req),
+      ...syncWriteOptionsFromReq(req),
     });
     success(res, data, '删除成功');
   } catch (err) {
@@ -99,7 +99,7 @@ router.delete('/memos/:id', async (req, res, next) => {
 router.post('/memos/:id/ai-review', async (req, res, next) => {
   try {
     const data = await analyzeAndPersistMemoReview(String(req.params.id ?? ''), {
-      deviceId: deviceIdFromReq(req),
+      ...syncWriteOptionsFromReq(req),
     });
     success(res, data, '分析完成');
   } catch (err) {

@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { requireAuth } from '../../middlewares/auth.js';
 import { success } from '../../utils/response.js';
 import { createDomainErrorHandler } from '../../utils/domain-error-handler.js';
-import { deviceIdFromReq } from '../../utils/device-id-from-req.js';
+import { syncWriteOptionsFromReq } from '../../utils/device-id-from-req.js';
 import {
   HealthError,
   createIntake,
@@ -83,7 +83,7 @@ router.post('/health/intakes', async (req, res, next) => {
         intake_display_title: body.intake_display_title,
         intake_ai_comment: body.intake_ai_comment,
       },
-      { deviceId: deviceIdFromReq(req) },
+      syncWriteOptionsFromReq(req),
     );
     success(res, data, '创建成功');
   } catch (err) {
@@ -112,7 +112,7 @@ router.put('/health/intakes/:id', async (req, res, next) => {
         intake_display_title: body.intake_display_title,
         intake_ai_comment: body.intake_ai_comment,
       },
-      { deviceId: deviceIdFromReq(req) },
+      syncWriteOptionsFromReq(req),
     );
     success(res, data, '更新成功');
   } catch (err) {
@@ -127,7 +127,7 @@ router.patch('/health/intakes/:id', async (req, res, next) => {
   try {
     const body = req.body ?? {};
     const data = await updateIntake(String(req.params.id ?? ''), body, {
-      deviceId: deviceIdFromReq(req),
+      ...syncWriteOptionsFromReq(req),
     });
     success(res, data, '更新成功');
   } catch (err) {
@@ -141,7 +141,7 @@ router.patch('/health/intakes/:id', async (req, res, next) => {
 router.delete('/health/intakes/:id', async (req, res, next) => {
   try {
     const data = await deleteIntake(String(req.params.id ?? ''), {
-      deviceId: deviceIdFromReq(req),
+      ...syncWriteOptionsFromReq(req),
     });
     success(res, data, '删除成功');
   } catch (err) {

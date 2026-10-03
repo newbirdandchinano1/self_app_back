@@ -22,7 +22,9 @@ import {
   type FrogSubjectKind,
 } from '../../../services/pages/frog.js';
 import { resolveDeviceIdFromHeader } from '../../../services/sync-change-log.js';
-import { success } from '../../../utils/response.js';
+import { isSyncOccConflictError } from '../../../services/sync-revision.js';
+import { fail, success } from '../../../utils/response.js';
+import { syncWriteOptionsFromReq } from '../../../utils/device-id-from-req.js';
 import {
   parseBoolQuery,
   parseIntQuery,
@@ -67,15 +69,21 @@ router.post('/pages/tasks/frog-assign', async (req, res, next) => {
     const id = String(body.id ?? '');
     const assignYmd = String(body.assignYmd ?? '');
     const action = body.action === 'unassign' ? 'unassign' : 'assign';
+    const write = syncWriteOptionsFromReq(req);
     const data = await assignOrUnassignFrog({
       kind,
       id,
       assignYmd,
       action,
-      deviceId: resolveDeviceIdFromHeader(req.headers['x-device-id']),
+      deviceId: write.deviceId,
+      mutationId: write.mutationId,
+      expectedRev: write.expectedRev,
     });
     success(res, data);
   } catch (err) {
+    if (isSyncOccConflictError(err)) {
+      return fail(res, err.message, -1, 409, err.payload);
+    }
     if (err instanceof FrogAssignError) {
       res.status(err.status).json({ success: false, message: err.message });
       return;
@@ -127,11 +135,10 @@ router.post('/pages/tasks/frog-schedule/placement', async (req, res, next) => {
   try {
     const body = (req.body ?? {}) as Record<string, unknown>;
     const action = body.action === 'delete' ? 'delete' : 'upsert';
+    const write = syncWriteOptionsFromReq(req);
     if (action === 'delete') {
       const id = String(body.id ?? '');
-      const data = await deleteFrogSchedulePlacement(id, {
-        deviceId: resolveDeviceIdFromHeader(req.headers['x-device-id']),
-      });
+      const data = await deleteFrogSchedulePlacement(id, write);
       success(res, data);
       return;
     }
@@ -150,10 +157,15 @@ router.post('/pages/tasks/frog-schedule/placement', async (req, res, next) => {
       orphaned: Number(p.orphaned ?? 0),
       createdAt: typeof p.createdAt === 'string' ? p.createdAt : typeof p.created_at === 'string' ? p.created_at : undefined,
       updatedAt: typeof p.updatedAt === 'string' ? p.updatedAt : typeof p.updated_at === 'string' ? p.updated_at : undefined,
-      deviceId: resolveDeviceIdFromHeader(req.headers['x-device-id']),
+      deviceId: write.deviceId,
+      mutationId: write.mutationId,
+      expectedRev: write.expectedRev,
     });
     success(res, data);
   } catch (err) {
+    if (isSyncOccConflictError(err)) {
+      return fail(res, err.message, -1, 409, err.payload);
+    }
     if (err instanceof FrogScheduleError) {
       res.status(err.status).json({ success: false, message: err.message });
       return;

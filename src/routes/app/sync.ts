@@ -73,6 +73,40 @@ router.get(
 );
 
 /**
+ * GET /api/app/sync/snapshot-meta
+ * Bootstrap 会话开始：读一次 cursor0，后续 snapshot 分页原样回传。
+ */
+router.get('/snapshot-meta', async (_req, res, next) => {
+  try {
+    const { getSnapshotCursor0 } = await import('../../services/sync-snapshot.js');
+    success(res, { syncCursor: await getSnapshotCursor0(), serverTime: new Date().toISOString() });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /api/app/sync/snapshot?table=tasks&limit=200&after=lastPk
+ * 账号级全量快照分页（完整表，无日期过滤）。不是 /sync/full 新协议，
+ * 而是 bootstrap 家族的 snapshot 模式；taskView 视图不走这里。
+ */
+router.get('/snapshot', async (req, res, next) => {
+  try {
+    const { pullSnapshotTable } = await import('../../services/sync-snapshot.js');
+    const table = String(req.query.table ?? '');
+    const after = req.query.after == null || req.query.after === '' ? null : String(req.query.after);
+    const limit = Number(req.query.limit ?? 200);
+    const cursor0 = Number(req.query.cursor0 ?? NaN);
+    const { getSnapshotCursor0 } = await import('../../services/sync-snapshot.js');
+    const c0 = Number.isFinite(cursor0) && cursor0 >= 0 ? Math.floor(cursor0) : await getSnapshotCursor0();
+    const data = await pullSnapshotTable(table, after, limit, c0);
+    success(res, data);
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
  * GET /api/app/sync/stats
  * 运维：SSE 在线人数 + 进程内同步计数器（不含业务数据）。
  */

@@ -18,6 +18,7 @@ import {
   type ChangeLogEvent,
   type SyncWriteOptions,
 } from './sync-change-log.js';
+import { deleteLiveWithRevision, stampLiveUpsert, throwTombstoneConflict } from './sync-revision.js';
 
 export class WishBoardError extends Error {
   constructor(
@@ -270,6 +271,22 @@ export async function redeemWishBoardItem(
       [nextStatus, now, now, id],
     );
 
+    const wishStamp = await stampLiveUpsert(conn, 'wish_board_items', id, {
+      mode: 'update',
+      skipOcc: true,
+      mutationId: options?.mutationId,
+    });
+    const walletStamp = await stampLiveUpsert(conn, 'points_wallet', POINTS_WALLET_ID, {
+      mode: 'update',
+      skipOcc: true,
+    });
+    const ledgerStamp = wallet.ledger_id
+      ? await stampLiveUpsert(conn, 'points_ledger', wallet.ledger_id, {
+          mode: 'insert',
+          skipOcc: true,
+        })
+      : null;
+
     await appendChangeLog(conn, [
       {
         tableName: 'wish_board_items',
@@ -277,6 +294,8 @@ export async function redeemWishBoardItem(
         op: 'upsert',
         updatedAt: now,
         deviceId: options?.deviceId,
+        serverRev: wishStamp.serverRev,
+        mutationId: wishStamp.mutationId,
       },
       {
         tableName: 'points_wallet',
@@ -284,14 +303,22 @@ export async function redeemWishBoardItem(
         op: 'upsert',
         updatedAt: now,
         deviceId: options?.deviceId,
+        serverRev: walletStamp.serverRev,
+        mutationId: walletStamp.mutationId,
       },
-      {
-        tableName: 'points_ledger',
-        recordPk: wallet.ledger_id,
-        op: 'upsert',
-        updatedAt: now,
-        deviceId: options?.deviceId,
-      },
+      ...(ledgerStamp && wallet.ledger_id
+        ? [
+            {
+              tableName: 'points_ledger',
+              recordPk: wallet.ledger_id,
+              op: 'upsert' as const,
+              updatedAt: now,
+              deviceId: options?.deviceId,
+              serverRev: ledgerStamp.serverRev,
+              mutationId: ledgerStamp.mutationId,
+            },
+          ]
+        : []),
     ]);
 
     await conn.commit();
@@ -505,6 +532,10 @@ export async function createWishBoardItem(
           extraData,
         ],
       );
+      const stamp = await stampLiveUpsert(conn, 'wish_board_items', id, {
+        mode: 'insert',
+        mutationId: options?.mutationId,
+      });
       await appendChangeLog(conn, [
         {
           tableName: 'wish_board_items',
@@ -512,6 +543,8 @@ export async function createWishBoardItem(
           op: 'upsert',
           updatedAt: now,
           deviceId: options?.deviceId,
+          serverRev: stamp.serverRev,
+          mutationId: stamp.mutationId,
         },
       ]);
     });
@@ -546,7 +579,7 @@ export async function updateWishBoardItem(
 
   const existing = await getWishBoardItem(id);
   if (!existing) {
-    throw new WishBoardError('心愿不存在', 404, { ok: false, error: '心愿不存在' });
+    await throwTombstoneConflict(db, 'wish_board_items', id);
   }
 
   const patchingCore =
@@ -636,6 +669,11 @@ export async function updateWishBoardItem(
        WHERE id = ?`,
       [title, description, costPoints, note, iconKey, wishType, sortOrder, extraData, now, id],
     );
+    const stamp = await stampLiveUpsert(conn, 'wish_board_items', id, {
+      mode: 'update',
+      mutationId: options?.mutationId,
+      expectedRev: options?.expectedRev,
+    });
     await appendChangeLog(conn, [
       {
         tableName: 'wish_board_items',
@@ -643,6 +681,8 @@ export async function updateWishBoardItem(
         op: 'upsert',
         updatedAt: now,
         deviceId: options?.deviceId,
+        serverRev: stamp.serverRev,
+        mutationId: stamp.mutationId,
       },
     ]);
   });
@@ -738,12 +778,12 @@ export async function deleteWishBoardItem(
   }
 
   await withSyncTransaction(async (conn) => {
-    const [result] = await conn.query<ResultSetHeader>(
-      `DELETE FROM wish_board_items WHERE id = ?`,
-      [id],
-    );
-    if (result.affectedRows <= 0) {
-      throw new WishBoardError('心愿不存在', 404, { ok: false, error: '心愿不存在' });
+    const del = await deleteLiveWithRevision(conn, 'wish_board_items', id, {
+      mutationId: options?.mutationId,
+      expectedRev: options?.expectedRev,
+    });
+    if (del.kind === 'already_gone') {
+      return;
     }
     await appendChangeLog(conn, [
       {
@@ -751,6 +791,8 @@ export async function deleteWishBoardItem(
         recordPk: id,
         op: 'delete',
         deviceId: options?.deviceId,
+        serverRev: del.serverRev,
+        mutationId: del.mutationId,
       },
     ]);
   });
@@ -776,7 +818,7 @@ export async function deleteRedeemedWishBoardItems(
     );
     const row = rows[0];
     if (!row) {
-      throw new WishBoardError('心愿不存在', 404, { ok: false, error: '心愿不存在' });
+      return { deleted: 0, ids: [] };
     }
     if (row.status !== 'redeemed') {
       throw new WishBoardError('仅可删除已兑换心愿', 400, {
@@ -784,18 +826,27 @@ export async function deleteRedeemedWishBoardItems(
         error: '仅可删除已兑换心愿',
       });
     }
-    await withSyncTransaction(async (conn) => {
-      await conn.query(`DELETE FROM wish_board_items WHERE id = ?`, [id]);
+    const removed = await withSyncTransaction(async (conn) => {
+      const del = await deleteLiveWithRevision(conn, 'wish_board_items', id, {
+        mutationId: options?.mutationId,
+        expectedRev: options?.expectedRev,
+      });
+      if (del.kind === 'already_gone') {
+        return false;
+      }
       await appendChangeLog(conn, [
         {
           tableName: 'wish_board_items',
           recordPk: id,
           op: 'delete',
           deviceId: options?.deviceId,
+          serverRev: del.serverRev,
+          mutationId: del.mutationId,
         },
       ]);
+      return true;
     });
-    return { deleted: 1, ids: [id] };
+    return { deleted: removed ? 1 : 0, ids: removed ? [id] : [] };
   }
 
   const [existing] = await db.query<RowDataPacket[]>(
@@ -807,19 +858,24 @@ export async function deleteRedeemedWishBoardItems(
   }
 
   await withSyncTransaction(async (conn) => {
-    const [result] = await conn.query<ResultSetHeader>(
-      `DELETE FROM wish_board_items WHERE status = 'redeemed'`,
-    );
-    const events: ChangeLogEvent[] = ids.map((pk) => ({
-      tableName: 'wish_board_items',
-      recordPk: pk,
-      op: 'delete',
-      deviceId: options?.deviceId,
-    }));
-    await appendChangeLog(conn, events);
-    if (result.affectedRows !== ids.length) {
-      // 仍按查出的 ids 记 delete；条数不一致不改业务语义
+    const events: ChangeLogEvent[] = [];
+    for (const pk of ids) {
+      const del = await deleteLiveWithRevision(conn, 'wish_board_items', pk, {
+        skipOcc: true,
+        mutationId: options?.mutationId,
+      });
+      if (del.kind === 'deleted') {
+        events.push({
+          tableName: 'wish_board_items',
+          recordPk: pk,
+          op: 'delete',
+          deviceId: options?.deviceId,
+          serverRev: del.serverRev,
+          mutationId: del.mutationId,
+        });
+      }
     }
+    if (events.length > 0) await appendChangeLog(conn, events);
   });
   return { deleted: ids.length, ids };
 }

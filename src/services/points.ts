@@ -14,6 +14,7 @@ import {
   flushPendingSyncPublish,
   type SyncWriteOptions,
 } from './sync-change-log.js';
+import { stampLiveUpsert, deleteLiveWithRevision } from './sync-revision.js';
 
 export { asPoints, lockOrCreateWallet, POINTS_WALLET_ID } from './points-wallet.js';
 
@@ -273,7 +274,13 @@ export async function deletePointsLedgerEntry(
     const refType = row.ref_type == null ? null : String(row.ref_type);
     const refId = row.ref_id == null ? null : String(row.ref_id);
 
-    await conn.query(`DELETE FROM points_ledger WHERE id = ?`, [id]);
+    const ledgerDel = await deleteLiveWithRevision(conn, 'points_ledger', id, {
+      skipOcc: true,
+      mutationId: options?.mutationId,
+    });
+    if (ledgerDel.kind === 'already_gone') {
+      throw new PointsError('流水不存在', 404, { ok: false, error: '流水不存在' });
+    }
 
     // 回退：去掉该笔 delta 的影响；余额允许为负（负奖励扣除场景）
     // 删流水不写新流水，故直接改钱包（不用 applyWalletDeltaOnConnection）
@@ -310,12 +317,18 @@ export async function deletePointsLedgerEntry(
       wishRestored = Number(wishResult.affectedRows) > 0;
     }
 
+    const walletStamp = await stampLiveUpsert(conn, 'points_wallet', WALLET_ID, {
+      mode: 'update',
+      skipOcc: true,
+    });
     const events = [
       {
         tableName: 'points_ledger',
         recordPk: id,
         op: 'delete' as const,
         deviceId: options?.deviceId,
+        serverRev: ledgerDel.serverRev,
+        mutationId: ledgerDel.mutationId,
       },
       {
         tableName: 'points_wallet',
@@ -323,15 +336,23 @@ export async function deletePointsLedgerEntry(
         op: 'upsert' as const,
         updatedAt: now,
         deviceId: options?.deviceId,
+        serverRev: walletStamp.serverRev,
+        mutationId: walletStamp.mutationId,
       },
     ];
     if (wishRestored && refId) {
+      const wishStamp = await stampLiveUpsert(conn, 'wish_board_items', String(refId).trim(), {
+        mode: 'update',
+        skipOcc: true,
+      });
       events.push({
         tableName: 'wish_board_items',
         recordPk: String(refId).trim(),
         op: 'upsert',
         updatedAt: now,
         deviceId: options?.deviceId,
+        serverRev: wishStamp.serverRev,
+        mutationId: wishStamp.mutationId,
       });
     }
     await appendChangeLog(conn, events);
@@ -449,6 +470,15 @@ export async function adjustPoints(
     // ledger_id 为空的 no-op 不记（保险）
     if (applied.ledger_id) {
       const now = nowUtcMysql();
+      const walletStamp = await stampLiveUpsert(conn, 'points_wallet', WALLET_ID, {
+        mode: 'update',
+        skipOcc: true,
+        mutationId: options?.mutationId,
+      });
+      const ledgerStamp = await stampLiveUpsert(conn, 'points_ledger', applied.ledger_id, {
+        mode: 'insert',
+        mutationId: options?.mutationId,
+      });
       await appendChangeLog(conn, [
         {
           tableName: 'points_wallet',
@@ -456,6 +486,8 @@ export async function adjustPoints(
           op: 'upsert',
           updatedAt: now,
           deviceId: options?.deviceId,
+          serverRev: walletStamp.serverRev,
+          mutationId: walletStamp.mutationId,
         },
         {
           tableName: 'points_ledger',
@@ -463,6 +495,8 @@ export async function adjustPoints(
           op: 'upsert',
           updatedAt: now,
           deviceId: options?.deviceId,
+          serverRev: ledgerStamp.serverRev,
+          mutationId: ledgerStamp.mutationId,
         },
       ]);
     }
@@ -534,6 +568,15 @@ export async function resetPoints(options?: SyncWriteOptions): Promise<ResetPoin
 
     if (applied.ledger_id) {
       const now = nowUtcMysql();
+      const walletStamp = await stampLiveUpsert(conn, 'points_wallet', WALLET_ID, {
+        mode: 'update',
+        skipOcc: true,
+        mutationId: options?.mutationId,
+      });
+      const ledgerStamp = await stampLiveUpsert(conn, 'points_ledger', applied.ledger_id, {
+        mode: 'insert',
+        mutationId: options?.mutationId,
+      });
       await appendChangeLog(conn, [
         {
           tableName: 'points_wallet',
@@ -541,6 +584,8 @@ export async function resetPoints(options?: SyncWriteOptions): Promise<ResetPoin
           op: 'upsert',
           updatedAt: now,
           deviceId: options?.deviceId,
+          serverRev: walletStamp.serverRev,
+          mutationId: walletStamp.mutationId,
         },
         {
           tableName: 'points_ledger',
@@ -548,6 +593,8 @@ export async function resetPoints(options?: SyncWriteOptions): Promise<ResetPoin
           op: 'upsert',
           updatedAt: now,
           deviceId: options?.deviceId,
+          serverRev: ledgerStamp.serverRev,
+          mutationId: ledgerStamp.mutationId,
         },
       ]);
     }
@@ -678,6 +725,11 @@ export async function reconcilePointsWalletFromLedger(
          WHERE id = ?`,
         [total, now, WALLET_ID],
       );
+      const walletStamp = await stampLiveUpsert(conn, 'points_wallet', WALLET_ID, {
+        mode: 'update',
+        skipOcc: true,
+        mutationId: options?.mutationId,
+      });
       await appendChangeLog(conn, [
         {
           tableName: 'points_wallet',
@@ -685,6 +737,8 @@ export async function reconcilePointsWalletFromLedger(
           op: 'upsert',
           updatedAt: now,
           deviceId: options?.deviceId ?? null,
+          serverRev: walletStamp.serverRev,
+          mutationId: walletStamp.mutationId,
         },
       ]);
     }

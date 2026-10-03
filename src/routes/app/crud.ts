@@ -16,7 +16,8 @@ import {
   isGenericWriteForbidden,
 } from '../../config/tables.js';
 import { parseListQueryFromRequest } from '../../services/list-query.js';
-import { deviceIdFromReq } from '../../utils/device-id-from-req.js';
+import { syncWriteOptionsFromReq } from '../../utils/device-id-from-req.js';
+import { isSyncOccConflictError } from '../../services/sync-revision.js';
 
 const router = Router();
 
@@ -88,10 +89,13 @@ router.post('/data/:table', async (req, res, next) => {
 
     const record = await createRecord(table, req.body ?? {}, {
       adminPanel: isAdminPanelRequest(req),
-      deviceId: deviceIdFromReq(req),
+      ...syncWriteOptionsFromReq(req),
     });
     success(res, record, '创建成功');
   } catch (err) {
+    if (isSyncOccConflictError(err)) {
+      return fail(res, err.message, -1, 409, err.payload);
+    }
     if (err instanceof CrudError) {
       return fail(res, err.message, err.code, err.status);
     }
@@ -120,13 +124,16 @@ async function handleUpdateRecord(
 
     const record = await updateRecord(table, id, req.body ?? {}, {
       adminPanel: isAdminPanelRequest(req),
-      deviceId: deviceIdFromReq(req),
+      ...syncWriteOptionsFromReq(req),
     });
     if (!record) {
       return fail(res, '记录不存在', -1, 404);
     }
     success(res, record, '更新成功');
   } catch (err) {
+    if (isSyncOccConflictError(err)) {
+      return fail(res, err.message, -1, 409, err.payload);
+    }
     if (err instanceof CrudError) {
       return fail(res, err.message, err.code, err.status);
     }
@@ -152,13 +159,16 @@ router.delete('/data/:table/:id', async (req, res, next) => {
     if (rejectGenericWriteIfForbidden(res, table)) return;
 
     const deleted = await deleteRecord(table, id, {
-      deviceId: deviceIdFromReq(req),
+      ...syncWriteOptionsFromReq(req),
     });
     if (!deleted) {
       return fail(res, '记录不存在', -1, 404);
     }
     success(res, null, '删除成功');
   } catch (err) {
+    if (isSyncOccConflictError(err)) {
+      return fail(res, err.message, -1, 409, err.payload);
+    }
     if (err instanceof CrudError) {
       return fail(res, err.message, err.code, err.status);
     }

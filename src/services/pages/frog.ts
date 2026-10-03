@@ -2,11 +2,13 @@ import type { ResultSetHeader, RowDataPacket } from 'mysql2';
 import { db } from '../../db/index.js';
 import { isValidYmd } from '../../utils/ymd.js';
 import { collectFrogAssignedDates } from '../calendar/aggregation.js';
+import { formatUtcMySQLDateTime } from '../calendar/logical-day.js';
 import { getTableMeta } from '../crud.js';
 import {
   appendChangeLog,
   withSyncTransaction,
 } from '../sync-change-log.js';
+import { deleteLiveWithRevision, stampLiveUpsert } from '../sync-revision.js';
 import {
   resolveTasksBootstrapContext,
   TASKS_PAGE_FILTERS_VERSION,
@@ -96,6 +98,8 @@ export type FrogAssignInput = {
   assignYmd: string;
   action?: 'assign' | 'unassign';
   deviceId?: string | null;
+  mutationId?: string | null;
+  expectedRev?: number | null;
 };
 
 export type FrogAssignResult = {
@@ -105,6 +109,7 @@ export type FrogAssignResult = {
   action: 'assign' | 'unassign';
   extra_data: string | null;
   assignedDates: string[];
+  updated_at: string;
 };
 
 async function loadTaskRow(id: string): Promise<RowDataPacket | null> {
@@ -188,18 +193,28 @@ export async function assignOrUnassignFrog(input: FrogAssignInput): Promise<Frog
         action === 'assign'
           ? mergeFrogAssignedOn(row.extra_data, assignYmd)
           : removeFrogAssignedOn(row.extra_data, assignYmd);
-      await conn.query<ResultSetHeader>(`UPDATE tasks SET extra_data = ? WHERE id = ?`, [
-        nextExtra,
-        id,
-      ]);
+      const now = formatUtcMySQLDateTime(new Date());
+      // 必须 bump updated_at，否则后续任务 PATCH / LWW 会用旧 extra_data 把指派盖掉
+      await conn.query<ResultSetHeader>(
+        `UPDATE tasks SET extra_data = ?, updated_at = ? WHERE id = ?`,
+        [nextExtra, now, id],
+      );
       await syncFrogAssignedOnColumn('tasks', id, nextExtra, conn);
+      const stamp = await stampLiveUpsert(conn, 'tasks', id, {
+        mode: 'update',
+        mutationId: input.mutationId,
+        expectedRev: input.expectedRev,
+      });
       await appendChangeLog(conn, [
         {
           tableName: 'tasks',
           recordPk: id,
           op: 'upsert',
+          updatedAt: now,
           deviceId: input.deviceId,
           hint: { reason: 'frog_assign', action, assignYmd },
+          serverRev: stamp.serverRev,
+          mutationId: stamp.mutationId,
         },
       ]);
       return {
@@ -209,6 +224,7 @@ export async function assignOrUnassignFrog(input: FrogAssignInput): Promise<Frog
         action,
         extra_data: nextExtra,
         assignedDates: collectFrogAssignedDates(nextExtra),
+        updated_at: now,
       };
     }
 
@@ -219,18 +235,27 @@ export async function assignOrUnassignFrog(input: FrogAssignInput): Promise<Frog
       action === 'assign'
         ? mergeFrogAssignedOn(row.extra_data, assignYmd)
         : removeFrogAssignedOn(row.extra_data, assignYmd);
-    await conn.query<ResultSetHeader>(`UPDATE projects SET extra_data = ? WHERE id = ?`, [
-      nextExtra,
-      id,
-    ]);
+    const now = formatUtcMySQLDateTime(new Date());
+    await conn.query<ResultSetHeader>(
+      `UPDATE projects SET extra_data = ?, updated_at = ? WHERE id = ?`,
+      [nextExtra, now, id],
+    );
     await syncFrogAssignedOnColumn('projects', id, nextExtra, conn);
+    const stamp = await stampLiveUpsert(conn, 'projects', id, {
+      mode: 'update',
+      mutationId: input.mutationId,
+      expectedRev: input.expectedRev,
+    });
     await appendChangeLog(conn, [
       {
         tableName: 'projects',
         recordPk: id,
         op: 'upsert',
+        updatedAt: now,
         deviceId: input.deviceId,
         hint: { reason: 'frog_assign', action, assignYmd },
+        serverRev: stamp.serverRev,
+        mutationId: stamp.mutationId,
       },
     ]);
     return {
@@ -240,6 +265,7 @@ export async function assignOrUnassignFrog(input: FrogAssignInput): Promise<Frog
       action,
       extra_data: nextExtra,
       assignedDates: collectFrogAssignedDates(nextExtra),
+      updated_at: now,
     };
   });
 }
@@ -700,6 +726,9 @@ export async function getFrogScheduleWeek(params: {
           ],
         );
         if (result.affectedRows > 0) {
+          const stamp = await stampLiveUpsert(conn, 'schedule_week_axis_snapshot', weekStartYmd, {
+            mode: 'insert',
+          });
           await appendChangeLog(conn, [
             {
               tableName: 'schedule_week_axis_snapshot',
@@ -707,6 +736,8 @@ export async function getFrogScheduleWeek(params: {
               op: 'upsert',
               updatedAt: now,
               hint: { reason: 'historical_axis_snapshot' },
+              serverRev: stamp.serverRev,
+              mutationId: stamp.mutationId,
             },
           ]);
         }
@@ -796,6 +827,8 @@ export async function upsertFrogSchedulePlacement(body: {
   createdAt?: string;
   updatedAt?: string;
   deviceId?: string | null;
+  mutationId?: string | null;
+  expectedRev?: number | null;
 }) {
   if (!body.id || !YMD_RE.test(body.weekStartYmd)) {
     throw new FrogScheduleError('placement 参数无效');
@@ -831,6 +864,11 @@ export async function upsertFrogSchedulePlacement(body: {
         updatedAt,
       ],
     );
+    const stamp = await stampLiveUpsert(conn, 'schedule_placements', body.id, {
+      mode: 'upsert',
+      mutationId: body.mutationId,
+      expectedRev: body.expectedRev,
+    });
     await appendChangeLog(conn, [
       {
         tableName: 'schedule_placements',
@@ -838,6 +876,8 @@ export async function upsertFrogSchedulePlacement(body: {
         op: 'upsert',
         updatedAt,
         deviceId: body.deviceId,
+        serverRev: stamp.serverRev,
+        mutationId: stamp.mutationId,
       },
     ]);
   });
@@ -846,24 +886,29 @@ export async function upsertFrogSchedulePlacement(body: {
 
 export async function deleteFrogSchedulePlacement(
   id: string,
-  options: { deviceId?: string | null } = {},
+  options: {
+    deviceId?: string | null;
+    mutationId?: string | null;
+    expectedRev?: number | null;
+  } = {},
 ) {
   if (!id) throw new FrogScheduleError('id 无效');
   await withSyncTransaction(async (conn) => {
-    const [result] = await conn.query<ResultSetHeader>(
-      `DELETE FROM schedule_placements WHERE id = ?`,
-      [id],
-    );
-    if (result.affectedRows > 0) {
-      await appendChangeLog(conn, [
-        {
-          tableName: 'schedule_placements',
-          recordPk: id,
-          op: 'delete',
-          deviceId: options.deviceId,
-        },
-      ]);
-    }
+    const del = await deleteLiveWithRevision(conn, 'schedule_placements', id, {
+      mutationId: options.mutationId,
+      expectedRev: options.expectedRev,
+    });
+    if (del.kind === 'already_gone') return;
+    await appendChangeLog(conn, [
+      {
+        tableName: 'schedule_placements',
+        recordPk: id,
+        op: 'delete',
+        deviceId: options.deviceId,
+        serverRev: del.serverRev,
+        mutationId: del.mutationId,
+      },
+    ]);
   });
   return { id };
 }

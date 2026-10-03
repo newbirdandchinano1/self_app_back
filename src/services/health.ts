@@ -14,6 +14,7 @@ import {
   withSyncTransaction,
   type SyncWriteOptions,
 } from './sync-change-log.js';
+import { deleteLiveWithRevision, stampLiveUpsert, throwTombstoneConflict } from './sync-revision.js';
 
 export class HealthError extends Error {
   constructor(
@@ -320,6 +321,10 @@ export async function createIntake(input: CreateIntakeInput, options?: SyncWrite
           now,
         ],
       );
+      const stamp = await stampLiveUpsert(conn, 'health_records', id, {
+        mode: 'insert',
+        mutationId: options?.mutationId,
+      });
       await appendChangeLog(conn, [
         {
           tableName: 'health_records',
@@ -327,6 +332,8 @@ export async function createIntake(input: CreateIntakeInput, options?: SyncWrite
           op: 'upsert',
           updatedAt: now,
           deviceId: options?.deviceId,
+          serverRev: stamp.serverRev,
+          mutationId: stamp.mutationId,
         },
       ]);
     });
@@ -368,7 +375,9 @@ export async function updateIntake(
   if (!trimmed) throw new HealthError('缺少记录 id');
 
   const existing = await getIntake(trimmed);
-  if (!existing) throw new HealthError('记录不存在', 404);
+  if (!existing) {
+    await throwTombstoneConflict(db, 'health_records', trimmed);
+  }
 
   const has = (key: keyof UpdateIntakeInput) => Object.prototype.hasOwnProperty.call(input, key);
 
@@ -438,6 +447,11 @@ export async function updateIntake(
         trimmed,
       ],
     );
+    const stamp = await stampLiveUpsert(conn, 'health_records', trimmed, {
+      mode: 'update',
+      mutationId: options?.mutationId,
+      expectedRev: options?.expectedRev,
+    });
     await appendChangeLog(conn, [
       {
         tableName: 'health_records',
@@ -445,6 +459,8 @@ export async function updateIntake(
         op: 'upsert',
         updatedAt: now,
         deviceId: options?.deviceId,
+        serverRev: stamp.serverRev,
+        mutationId: stamp.mutationId,
       },
     ]);
   });
@@ -460,12 +476,12 @@ export async function deleteIntake(id: string, options?: SyncWriteOptions) {
   if (!trimmed) throw new HealthError('缺少记录 id');
 
   await withSyncTransaction(async (conn) => {
-    const [result] = await conn.query<ResultSetHeader>(
-      `DELETE FROM health_records WHERE id = ?`,
-      [trimmed],
-    );
-    if (result.affectedRows <= 0) {
-      throw new HealthError('记录不存在', 404);
+    const del = await deleteLiveWithRevision(conn, 'health_records', trimmed, {
+      mutationId: options?.mutationId,
+      expectedRev: options?.expectedRev,
+    });
+    if (del.kind === 'already_gone') {
+      return;
     }
     await appendChangeLog(conn, [
       {
@@ -473,6 +489,8 @@ export async function deleteIntake(id: string, options?: SyncWriteOptions) {
         recordPk: trimmed,
         op: 'delete',
         deviceId: options?.deviceId,
+        serverRev: del.serverRev,
+        mutationId: del.mutationId,
       },
     ]);
   });

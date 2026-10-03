@@ -18,6 +18,8 @@ export async function ensureSyncChangeLogTable(): Promise<void> {
         updated_at DATETIME(3) NULL COMMENT '业务行时间或服务端写入时间',
         created_at DATETIME(3) NOT NULL COMMENT '入队时间',
         hint JSON NULL COMMENT '可选 pageKeys / dirtyTables 等',
+        server_rev BIGINT NULL COMMENT '该事件对应的 server_rev',
+        mutation_id VARCHAR(36) NULL COMMENT '客户端 Push mutation_id',
         PRIMARY KEY (id),
         KEY idx_sync_change_log_user_id (user_id, id),
         KEY idx_sync_change_log_created_at (created_at)

@@ -668,6 +668,8 @@ export async function getTasksPageBootstrap(
 ): Promise<TasksBootstrapResult> {
   const context = resolveTasksBootstrapContext(params);
   const views = parseTaskPageViews(params);
+  // Phase 3: snapshot 会话开始时读取一次 cursor0，后续分页原样回传，禁止每页重读 MAX(id)。
+  // taskView 视图请求不是 snapshot，不带 syncCursor/snapshotComplete。
   if (views.length > 0) {
     const filtered = await loadFilteredTasks(params, context);
     const serverTime = new Date().toISOString();
@@ -823,6 +825,20 @@ export async function getTasksPageBootstrap(
   if (include.frogCompletionEvents) versionTables.push('frog_completion_events');
 
   result.meta.tablesVersion = await loadTableVersions(versionTables, context);
+
+  // Phase 3 (Decision 1/5): snapshot 模式唯一全量协议。会话开始时读一次 cursor0，
+  // 后续分页由客户端原样回传（此处单次返回即为完整 snapshot，snapshotComplete=true）。
+  try {
+    const [maxRows] = await db.query<RowDataPacket[]>(
+      'SELECT MAX(id) AS max_id FROM sync_change_log',
+    );
+    const cursor0 = maxRows[0]?.max_id == null ? 0 : Number(maxRows[0].max_id);
+    (result.meta as Record<string, unknown>).syncCursor = cursor0;
+    (result.meta as Record<string, unknown>).snapshotComplete = true;
+  } catch {
+    (result.meta as Record<string, unknown>).syncCursor = 0;
+    (result.meta as Record<string, unknown>).snapshotComplete = true;
+  }
 
   return result;
 }

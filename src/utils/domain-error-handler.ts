@@ -4,6 +4,7 @@
  */
 import type { NextFunction, Response } from 'express';
 import { fail } from './response.js';
+import { isSyncOccConflictError } from '../services/sync-revision.js';
 
 type DomainErrorLike = Error & {
   status?: number;
@@ -36,6 +37,9 @@ export function createDomainErrorHandler(
   const includeBodyExtras = options.includeBodyExtras === true;
 
   return function handleDomainError(err: unknown, res: Response, next: NextFunction) {
+    if (isSyncOccConflictError(err)) {
+      return fail(res, err.message, -1, 409, err.payload);
+    }
     for (const Ctor of classes) {
       if (!(err instanceof Ctor)) continue;
       const e = err as DomainErrorLike;

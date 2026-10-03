@@ -14,6 +14,7 @@ import {
   type ChangeLogEvent,
   type SyncWriteOptions,
 } from './sync-change-log.js';
+import { deleteLiveWithRevision, stampLiveUpsert, throwTombstoneConflict } from './sync-revision.js';
 
 export class RecipeError extends Error {
   constructor(
@@ -263,6 +264,10 @@ export async function createRecipeCategory(
          VALUES (?, ?, ?, ?, 'synced')`,
         [id, name, now, now],
       );
+      const stamp = await stampLiveUpsert(conn, 'recipe_categories', id, {
+        mode: 'insert',
+        mutationId: options?.mutationId,
+      });
       await appendChangeLog(conn, [
         {
           tableName: 'recipe_categories',
@@ -270,6 +275,8 @@ export async function createRecipeCategory(
           op: 'upsert',
           updatedAt: now,
           deviceId: options?.deviceId,
+          serverRev: stamp.serverRev,
+          mutationId: stamp.mutationId,
         },
       ]);
     });
@@ -298,7 +305,9 @@ export async function renameRecipeCategory(
   if (!name) throw new RecipeError('name 不能为空');
 
   const existing = await getActiveCategory(id);
-  if (!existing) throw new RecipeError('分类不存在', 404);
+  if (!existing) {
+    await throwTombstoneConflict(db, 'recipe_categories', id);
+  }
 
   const now = nowUtcMysql();
   await withSyncTransaction(async (conn) => {
@@ -308,6 +317,11 @@ export async function renameRecipeCategory(
        WHERE id = ? AND ${ACTIVE_RECIPE_SQL}`,
       [name, now, id],
     );
+    const stamp = await stampLiveUpsert(conn, 'recipe_categories', id, {
+      mode: 'update',
+      mutationId: options?.mutationId,
+      expectedRev: options?.expectedRev,
+    });
     await appendChangeLog(conn, [
       {
         tableName: 'recipe_categories',
@@ -315,6 +329,8 @@ export async function renameRecipeCategory(
         op: 'upsert',
         updatedAt: now,
         deviceId: options?.deviceId,
+        serverRev: stamp.serverRev,
+        mutationId: stamp.mutationId,
       },
     ]);
   });
@@ -333,7 +349,9 @@ export async function deleteRecipeCategory(
   if (!id) throw new RecipeError('id 不能为空');
 
   const existing = await getActiveCategory(id);
-  if (!existing) throw new RecipeError('分类不存在', 404);
+  if (!existing) {
+    return { id, deleted_at: formatDbDateTimeForApi(nowUtcMysql(), 'utc') ?? nowUtcMysql() };
+  }
 
   const now = nowUtcMysql();
   const conn = await db.getConnection();
@@ -346,38 +364,43 @@ export async function deleteRecipeCategory(
       [id],
     );
     const recipeIds = recipeRows.map((r) => String(r.id));
+    const events: ChangeLogEvent[] = [];
 
-    await conn.query(
-      `UPDATE recipe_items
-       SET sync_status = 'pending_delete', updated_at = ?
-       WHERE category_id = ? AND ${ACTIVE_RECIPE_SQL}`,
-      [now, id],
-    );
-    const [result] = await conn.query<ResultSetHeader>(
-      `UPDATE recipe_categories
-       SET sync_status = 'pending_delete', updated_at = ?
-       WHERE id = ? AND ${ACTIVE_RECIPE_SQL}`,
-      [now, id],
-    );
-    if (result.affectedRows === 0) throw new RecipeError('分类不存在', 404);
+    for (const pk of recipeIds) {
+      const del = await deleteLiveWithRevision(conn, 'recipe_items', pk, {
+        skipOcc: true,
+      });
+      if (del.kind === 'deleted') {
+        events.push({
+          tableName: 'recipe_items',
+          recordPk: pk,
+          op: 'delete',
+          updatedAt: now,
+          deviceId: options?.deviceId,
+          serverRev: del.serverRev,
+          mutationId: del.mutationId,
+        });
+      }
+    }
 
-    const events: ChangeLogEvent[] = [
-      {
+    const catDel = await deleteLiveWithRevision(conn, 'recipe_categories', id, {
+      mutationId: options?.mutationId,
+      expectedRev: options?.expectedRev,
+    });
+    if (catDel.kind === 'deleted') {
+      events.unshift({
         tableName: 'recipe_categories',
         recordPk: id,
         op: 'delete',
         updatedAt: now,
         deviceId: options?.deviceId,
-      },
-      ...recipeIds.map((pk) => ({
-        tableName: 'recipe_items',
-        recordPk: pk,
-        op: 'delete' as const,
-        updatedAt: now,
-        deviceId: options?.deviceId,
-      })),
-    ];
-    await appendChangeLog(conn, events);
+        serverRev: catDel.serverRev,
+        mutationId: catDel.mutationId,
+      });
+    }
+    if (events.length > 0) {
+      await appendChangeLog(conn, events);
+    }
 
     await conn.commit();
     await flushPendingSyncPublish(conn);
@@ -432,6 +455,10 @@ export async function createRecipe(input: CreateRecipeInput, options?: SyncWrite
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced')`,
         [id, categoryId, title, ingredientsJson, stepsJson, notes, finishedImageUri, now, now],
       );
+      const stamp = await stampLiveUpsert(conn, 'recipe_items', id, {
+        mode: 'insert',
+        mutationId: options?.mutationId,
+      });
       await appendChangeLog(conn, [
         {
           tableName: 'recipe_items',
@@ -439,6 +466,8 @@ export async function createRecipe(input: CreateRecipeInput, options?: SyncWrite
           op: 'upsert',
           updatedAt: now,
           deviceId: options?.deviceId,
+          serverRev: stamp.serverRev,
+          mutationId: stamp.mutationId,
         },
       ]);
     });
@@ -473,7 +502,9 @@ export async function updateRecipe(
   if (!id) throw new RecipeError('id 不能为空');
 
   const existing = await getActiveRecipe(id);
-  if (!existing) throw new RecipeError('菜谱不存在', 404);
+  if (!existing) {
+    await throwTombstoneConflict(db, 'recipe_items', id);
+  }
 
   const updates: string[] = [];
   const values: unknown[] = [];
@@ -525,6 +556,11 @@ export async function updateRecipe(
       values,
     );
     if (result.affectedRows === 0) throw new RecipeError('菜谱不存在', 404);
+    const stamp = await stampLiveUpsert(conn, 'recipe_items', id, {
+      mode: 'update',
+      mutationId: options?.mutationId,
+      expectedRev: options?.expectedRev,
+    });
     await appendChangeLog(conn, [
       {
         tableName: 'recipe_items',
@@ -532,6 +568,8 @@ export async function updateRecipe(
         op: 'upsert',
         updatedAt: now,
         deviceId: options?.deviceId,
+        serverRev: stamp.serverRev,
+        mutationId: stamp.mutationId,
       },
     ]);
   });
@@ -546,18 +584,13 @@ export async function deleteRecipe(recipeId: string, options?: SyncWriteOptions)
   const id = recipeId.trim();
   if (!id) throw new RecipeError('id 不能为空');
 
-  const existing = await getActiveRecipe(id);
-  if (!existing) throw new RecipeError('菜谱不存在', 404);
-
   const now = nowUtcMysql();
   await withSyncTransaction(async (conn) => {
-    const [result] = await conn.query<ResultSetHeader>(
-      `UPDATE recipe_items
-       SET sync_status = 'pending_delete', updated_at = ?
-       WHERE id = ? AND ${ACTIVE_RECIPE_SQL}`,
-      [now, id],
-    );
-    if (result.affectedRows === 0) throw new RecipeError('菜谱不存在', 404);
+    const del = await deleteLiveWithRevision(conn, 'recipe_items', id, {
+      mutationId: options?.mutationId,
+      expectedRev: options?.expectedRev,
+    });
+    if (del.kind === 'already_gone') return;
     await appendChangeLog(conn, [
       {
         tableName: 'recipe_items',
@@ -565,6 +598,8 @@ export async function deleteRecipe(recipeId: string, options?: SyncWriteOptions)
         op: 'delete',
         updatedAt: now,
         deviceId: options?.deviceId,
+        serverRev: del.serverRev,
+        mutationId: del.mutationId,
       },
     ]);
   });

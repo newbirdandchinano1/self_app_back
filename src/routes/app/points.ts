@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { requireAuth } from '../../middlewares/auth.js';
 import { success, fail } from '../../utils/response.js';
 import { createDomainErrorHandler } from '../../utils/domain-error-handler.js';
-import { deviceIdFromReq } from '../../utils/device-id-from-req.js';
+import { syncWriteOptionsFromReq } from '../../utils/device-id-from-req.js';
 import {
   adjustPoints,
   deletePointsLedgerEntry,
@@ -40,7 +40,7 @@ async function handleAdjust(
         ref_id: typeof body.ref_id === 'string' ? body.ref_id : null,
         note: typeof body.note === 'string' ? body.note : null,
       },
-      { deviceId: deviceIdFromReq(req) },
+      syncWriteOptionsFromReq(req),
     );
     const { ok: _ok, ...data } = result;
     return success(res, data);
@@ -89,7 +89,7 @@ async function handleLedgerDelete(
 ) {
   try {
     const data = await deletePointsLedgerEntry(String(req.params.id ?? ''), {
-      deviceId: deviceIdFromReq(req),
+      ...syncWriteOptionsFromReq(req),
     });
     return success(res, data);
   } catch (err) {
@@ -103,7 +103,7 @@ async function handleReset(
   next: import('express').NextFunction,
 ) {
   try {
-    const data = await resetPoints({ deviceId: deviceIdFromReq(req) });
+    const data = await resetPoints(syncWriteOptionsFromReq(req));
     return success(res, data);
   } catch (err) {
     handlePointsError(err, res, next);

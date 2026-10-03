@@ -36,15 +36,21 @@ import {
 } from './calendar/logical-day.js';
 import {
   appendChangeLog,
+  isChangeLogTable,
   isDayBoundaryAppSettingKey,
-  isPhase1ChangeLogTable,
   withSyncTransaction,
   type ChangeLogEvent,
 } from './sync-change-log.js';
+import {
+  deleteLiveWithRevision,
+  extractSyncWriteMeta,
+  stampLiveUpsert,
+  SyncOccConflictError,
+} from './sync-revision.js';
 
 /** 白名单表，或日界相关 app_settings 键 */
 function shouldAppendChangeLog(table: string, pk: string): boolean {
-  if (isPhase1ChangeLogTable(table)) return true;
+  if (isChangeLogTable(table)) return true;
   return table === 'app_settings' && isDayBoundaryAppSettingKey(pk);
 }
 
@@ -715,6 +721,8 @@ export interface CrudWriteOptions {
   adminPanel?: boolean;
   /** 写入端设备 ID（X-Device-Id），写入 Change Log 便于跳过回声 */
   deviceId?: string | null;
+  mutationId?: string | null;
+  expectedRev?: number | null;
 }
 
 type SqlExecutor = {
@@ -776,7 +784,15 @@ export async function createRecord(
   const table = assertTable(tableName);
   assertGenericWriteAllowed(table);
   const meta = await getTableMeta(table);
-  const payload = await normalizeWriteData(table, meta, data, true, options.adminPanel);
+  const extracted = extractSyncWriteMeta(data);
+  const mutationId = options.mutationId ?? extracted.meta.mutationId;
+  const payload = await normalizeWriteData(
+    table,
+    meta,
+    extracted.rest,
+    true,
+    options.adminPanel,
+  );
 
   if (!payload[meta.primaryKey]) {
     throw new CrudError(`创建 ${table} 时必须提供 ${meta.primaryKey}`);
@@ -802,6 +818,10 @@ export async function createRecord(
   if (shouldAppendChangeLog(table, pk)) {
     await withSyncTransaction(async (conn) => {
       await conn.query(insertSql, values);
+      const stamp = await stampLiveUpsert(conn, table, pk, {
+        mode: 'insert',
+        mutationId,
+      });
       await appendChangeLog(conn, [
         {
           tableName: table,
@@ -809,6 +829,8 @@ export async function createRecord(
           op: 'upsert',
           updatedAt: changeLogUpdatedAt(payload),
           deviceId: options.deviceId,
+          serverRev: stamp.serverRev,
+          mutationId: stamp.mutationId,
         },
       ]);
     });
@@ -828,8 +850,17 @@ export async function updateRecord(
   const table = assertTable(tableName);
   assertGenericWriteAllowed(table);
   const meta = await getTableMeta(table);
+  const extracted = extractSyncWriteMeta(data);
+  const mutationId = options.mutationId ?? extracted.meta.mutationId;
+  const expectedRev = options.expectedRev ?? extracted.meta.expectedRev;
 
-  const payload = await normalizeWriteData(table, meta, data, false, options.adminPanel);
+  const payload = await normalizeWriteData(
+    table,
+    meta,
+    extracted.rest,
+    false,
+    options.adminPanel,
+  );
 
   if (table === 'tasks') {
     let existingProjectId: string | null = null;
@@ -861,7 +892,22 @@ export async function updateRecord(
   if (shouldAppendChangeLog(table, pkValue)) {
     const updated = await withSyncTransaction(async (conn) => {
       const [result] = await conn.query<ResultSetHeader>(updateSql, values);
-      if (result.affectedRows === 0) return false;
+      if (result.affectedRows === 0) {
+        throw new SyncOccConflictError({
+          kind: 'tombstone',
+          table,
+          pk: pkValue,
+          serverRev: null,
+          mutationId: null,
+          row: null,
+        });
+      }
+
+      const stamp = await stampLiveUpsert(conn, table, pkValue, {
+        mode: 'update',
+        mutationId,
+        expectedRev,
+      });
 
       const events: ChangeLogEvent[] = [
         {
@@ -870,6 +916,8 @@ export async function updateRecord(
           op: 'upsert',
           updatedAt: changeLogUpdatedAt(payload),
           deviceId: options.deviceId,
+          serverRev: stamp.serverRev,
+          mutationId: stamp.mutationId,
         },
       ];
 
@@ -881,6 +929,11 @@ export async function updateRecord(
         );
         const now = changeLogUpdatedAt(payload);
         for (const taskId of taskIds) {
+          const childStamp = await stampLiveUpsert(conn, 'tasks', taskId, {
+            mode: 'update',
+            skipOcc: true,
+            mutationId: null,
+          });
           events.push({
             tableName: 'tasks',
             recordPk: taskId,
@@ -888,6 +941,8 @@ export async function updateRecord(
             updatedAt: now,
             deviceId: options.deviceId,
             hint: { reason: 'cascade_project_priority' },
+            serverRev: childStamp.serverRev,
+            mutationId: childStamp.mutationId,
           });
         }
       }
@@ -917,9 +972,16 @@ export async function deleteRecord(
   const table = assertTable(tableName);
   assertGenericWriteAllowed(table);
 
+  const mutationId = options.mutationId ?? null;
+  const expectedRev = options.expectedRev ?? null;
+
   if (table === 'tasks') {
     const { deleteTaskCascade } = await import('./task-delete.js');
-    return deleteTaskCascade(pkValue, { deviceId: options.deviceId });
+    return deleteTaskCascade(pkValue, {
+      deviceId: options.deviceId,
+      mutationId,
+      expectedRev,
+    });
   }
 
   const pk = getPrimaryKey(table);
@@ -927,14 +989,19 @@ export async function deleteRecord(
 
   if (shouldAppendChangeLog(table, pkValue)) {
     return withSyncTransaction(async (conn) => {
-      const [result] = await conn.query<ResultSetHeader>(deleteSql, [pkValue]);
-      if (result.affectedRows <= 0) return false;
+      const del = await deleteLiveWithRevision(conn, table, pkValue, {
+        mutationId,
+        expectedRev,
+      });
+      if (del.kind === 'already_gone') return true;
       await appendChangeLog(conn, [
         {
           tableName: table,
           recordPk: pkValue,
           op: 'delete',
           deviceId: options.deviceId,
+          serverRev: del.serverRev,
+          mutationId: del.mutationId,
         },
       ]);
       return true;

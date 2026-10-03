@@ -15,6 +15,10 @@ export type ChangeLogEvent = {
   deviceId?: string | null;
   userId?: string | null;
   hint?: Record<string, unknown> | null;
+  /** Phase 1：该事件的 server_rev（活行或 tombstone） */
+  serverRev?: number | null;
+  /** Phase 1：客户端 Push 身份；服务端不自造 */
+  mutationId?: string | null;
 };
 
 /** 事务内待广播信号（commit 后投递 SSE） */
@@ -82,16 +86,8 @@ export const SYNC_CHANGE_LOG_TABLES = new Set<string>([
   'review_columns',
 ]);
 
-/** @deprecated 使用 SYNC_CHANGE_LOG_TABLES */
-export const PHASE1_CHANGE_LOG_TABLES = SYNC_CHANGE_LOG_TABLES;
-
 export function isChangeLogTable(table: string): boolean {
   return SYNC_CHANGE_LOG_TABLES.has(table);
-}
-
-/** @deprecated 使用 isChangeLogTable */
-export function isPhase1ChangeLogTable(table: string): boolean {
-  return isChangeLogTable(table);
 }
 
 /**
@@ -109,6 +105,8 @@ export function isDayBoundaryAppSettingKey(pk: string): boolean {
 
 export type SyncWriteOptions = {
   deviceId?: string | null;
+  mutationId?: string | null;
+  expectedRev?: number | null;
 };
 
 function normalizeUpdatedAt(value: string | Date | null | undefined): string | null {
@@ -136,8 +134,10 @@ export async function appendChangeLog(
   if (events.length === 0) return;
 
   const cols =
-    'user_id, device_id, table_name, record_pk, op, updated_at, created_at, hint';
-  const placeholders = events.map(() => '(?, ?, ?, ?, ?, ?, UTC_TIMESTAMP(3), ?)').join(', ');
+    'user_id, device_id, table_name, record_pk, op, updated_at, created_at, hint, server_rev, mutation_id';
+  const placeholders = events
+    .map(() => '(?, ?, ?, ?, ?, ?, UTC_TIMESTAMP(3), ?, ?, ?)')
+    .join(', ');
   const values: unknown[] = [];
 
   for (const ev of events) {
@@ -149,6 +149,10 @@ export async function appendChangeLog(
     if (ev.op !== 'upsert' && ev.op !== 'delete') {
       throw new Error(`appendChangeLog: 非法 op ${String(ev.op)}`);
     }
+    const serverRev =
+      ev.serverRev == null || ev.serverRev === ('' as unknown)
+        ? null
+        : Number(ev.serverRev);
     values.push(
       (ev.userId && String(ev.userId).trim()) || DEFAULT_SYNC_USER_ID,
       ev.deviceId == null || ev.deviceId === '' ? null : String(ev.deviceId).slice(0, 64),
@@ -157,6 +161,10 @@ export async function appendChangeLog(
       ev.op,
       normalizeUpdatedAt(ev.updatedAt),
       ev.hint == null ? null : JSON.stringify(ev.hint),
+      serverRev != null && Number.isFinite(serverRev) ? Math.trunc(serverRev) : null,
+      ev.mutationId == null || ev.mutationId === ''
+        ? null
+        : String(ev.mutationId).slice(0, 36),
     );
   }
 

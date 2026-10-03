@@ -9,6 +9,9 @@ export type SyncChangeEventDto = {
   op: 'upsert' | 'delete';
   updatedAt: string | null;
   deviceId: string | null;
+  serverRev: number | null;
+  mutationId: string | null;
+  row: Record<string, unknown> | null;
 };
 
 export type SyncChangesResult = {
@@ -64,11 +67,11 @@ export async function pullSyncChanges(
 
   const serverTime = new Date().toISOString();
 
-  // 游标落后于保留窗口：丢失中间事件，要求全量
+  // 游标落后于保留窗口：丢失中间事件，要求全量（禁止把 cursor 跳到 maxId，必须保留 since 等 bootstrap 成功后才推进）
   if (since > 0 && minId != null && since + 1 < minId) {
     return {
       serverTime,
-      cursor: maxId ?? since,
+      cursor: since,
       hasMore: false,
       needFullSync: true,
       events: [],
@@ -88,7 +91,7 @@ export async function pullSyncChanges(
   }
 
   const [rows] = await db.query<RowDataPacket[]>(
-    `SELECT id, table_name, record_pk, op, updated_at, device_id
+    `SELECT id, table_name, record_pk, op, updated_at, device_id, server_rev, mutation_id
      FROM sync_change_log
      WHERE user_id = ? AND id > ?
      ORDER BY id ASC
@@ -98,14 +101,54 @@ export async function pullSyncChanges(
 
   const hasMore = rows.length > limit;
   const page = hasMore ? rows.slice(0, limit) : rows;
-  const events: SyncChangeEventDto[] = page.map((r) => ({
-    id: Number(r.id),
-    table: String(r.table_name),
-    pk: String(r.record_pk),
-    op: r.op === 'delete' ? 'delete' : 'upsert',
-    updatedAt: r.updated_at == null ? null : String(r.updated_at),
-    deviceId: r.device_id == null ? null : String(r.device_id),
-  }));
+  // 同页同 pk 折叠：只保留最后一条（用其 serverRev/mutationId/op）
+  const folded = new Map<string, RowDataPacket>();
+  for (const r of page) folded.set(`${r.table_name}||${r.record_pk}`, r);
+  // 批量取 upsert 当前行（按表分组 IN 查询，避免 N+1）
+  const upsertsByTable = new Map<string, string[]>();
+  for (const r of folded.values()) {
+    if (String(r.op) !== 'delete') {
+      const t = String(r.table_name);
+      const arr = upsertsByTable.get(t) ?? [];
+      arr.push(String(r.record_pk));
+      upsertsByTable.set(t, arr);
+    }
+  }
+  const rowMap = new Map<string, Record<string, unknown>>();
+  for (const [table, pks] of upsertsByTable) {
+    try {
+      const uniq = [...new Set(pks)].slice(0, 500);
+      if (uniq.length === 0) continue;
+      const placeholders = uniq.map(() => '?').join(',');
+      // 表名白名单校验：非允许表跳过行体（仍返回事件，row=null）
+      const { isAllowedTable, getPrimaryKey } = await import('../config/tables.js');
+      if (!isAllowedTable(table)) continue;
+      const pkCol = getPrimaryKey(table as never);
+      const [liveRows] = await db.query<RowDataPacket[]>(
+        `SELECT * FROM \`${table.replace(/`/g, '``')}\` WHERE \`${pkCol.replace(/`/g, '``')}\` IN (${placeholders})`,
+        uniq,
+      );
+      for (const lr of liveRows) {
+        const pkVal = String((lr as Record<string, unknown>)[pkCol] ?? '');
+        if (pkVal) rowMap.set(`${table}||${pkVal}`, { ...(lr as Record<string, unknown>) });
+      }
+    } catch {
+      // 单表取行失败不阻塞整页；对应 row 置 null，客户端按旧脏表路径兜底
+    }
+  }
+  const events: SyncChangeEventDto[] = [...folded.values()]
+    .map((r) => ({
+      id: Number(r.id),
+      table: String(r.table_name),
+      pk: String(r.record_pk),
+      op: r.op === 'delete' ? 'delete' : 'upsert',
+      updatedAt: r.updated_at == null ? null : String(r.updated_at),
+      deviceId: r.device_id == null ? null : String(r.device_id),
+      serverRev: r.server_rev == null ? null : Number(r.server_rev),
+      mutationId: r.mutation_id == null ? null : String(r.mutation_id),
+      row: (rowMap.get(`${String(r.table_name)}||${String(r.record_pk)}`) ?? null) as Record<string, unknown> | null,
+    }))
+    .sort((a, b) => a.id - b.id);
 
   const dirtySet = new Set<string>();
   for (const ev of events) dirtySet.add(ev.table);

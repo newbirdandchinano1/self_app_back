@@ -8,6 +8,7 @@ import {
   withSyncTransaction,
   type ChangeLogEvent,
 } from './sync-change-log.js';
+import { deleteLiveWithRevision, readLiveServerRev, SyncOccConflictError } from './sync-revision.js';
 
 /**
  * 任务删除时清理的从表。
@@ -21,6 +22,8 @@ const TASK_RELATED_TABLES: AllowedTable[] = [
 
 export type DeleteTaskCascadeOptions = {
   deviceId?: string | null;
+  mutationId?: string | null;
+  expectedRev?: number | null;
 };
 
 function quoteIdent(name: string): string {
@@ -59,9 +62,8 @@ async function collectTaskSubtreeIds(
 async function deleteRelatedRowsByTaskIds(
   table: AllowedTable,
   taskIds: string[],
-  executor: SqlExecutor,
+  conn: PoolConnection,
   events: ChangeLogEvent[],
-  deviceId?: string | null,
 ): Promise<void> {
   if (taskIds.length === 0) return;
 
@@ -76,35 +78,38 @@ async function deleteRelatedRowsByTaskIds(
   const chunkSize = 200;
   for (let i = 0; i < taskIds.length; i += chunkSize) {
     const chunk = taskIds.slice(i, i + chunkSize);
-    const [existing] = await executor.query<RowDataPacket[]>(
+    const [existing] = await conn.query<RowDataPacket[]>(
       `SELECT ${quoteIdent(meta.primaryKey)} AS pk FROM ${quoteIdent(table)}
        WHERE task_id IN (${chunk.map(() => '?').join(', ')})`,
       chunk,
     );
     for (const row of existing) {
-      events.push({
-        tableName: table,
-        recordPk: String(row.pk),
-        op: 'delete',
-        deviceId,
-      });
+      const pk = String(row.pk);
+      const del = await deleteLiveWithRevision(conn, table, pk, { skipOcc: true });
+      if (del.kind === 'deleted') {
+        events.push({
+          tableName: table,
+          recordPk: pk,
+          op: 'delete',
+          serverRev: del.serverRev,
+          mutationId: del.mutationId,
+        });
+      }
     }
-    if (existing.length === 0) continue;
-    await executor.query<ResultSetHeader>(
-      `DELETE FROM ${quoteIdent(table)} WHERE task_id IN (${chunk.map(() => '?').join(', ')})`,
-      chunk,
-    );
   }
 }
 
 async function deleteTasksInTreeOrder(
   taskIds: string[],
-  executor: SqlExecutor,
+  rootId: string,
+  conn: PoolConnection,
+  events: ChangeLogEvent[],
+  rootMutationId: string | null,
 ): Promise<void> {
   if (taskIds.length === 0) return;
 
   const idSet = new Set(taskIds);
-  const [rows] = await executor.query<RowDataPacket[]>(
+  const [rows] = await conn.query<RowDataPacket[]>(
     `SELECT id, parent_task_id FROM tasks WHERE id IN (${taskIds.map(() => '?').join(', ')})`,
     taskIds,
   );
@@ -120,6 +125,22 @@ async function deleteTasksInTreeOrder(
   }
 
   const remaining = new Set(taskIds);
+  const deleteOne = async (id: string) => {
+    const del = await deleteLiveWithRevision(conn, 'tasks', id, {
+      skipOcc: true,
+      mutationId: id === rootId ? rootMutationId : null,
+    });
+    if (del.kind === 'deleted') {
+      events.push({
+        tableName: 'tasks',
+        recordPk: id,
+        op: 'delete',
+        serverRev: del.serverRev,
+        mutationId: del.mutationId,
+      });
+    }
+  };
+
   while (remaining.size > 0) {
     const leaves = [...remaining].filter((id) => {
       const children = childrenByParent.get(id) ?? [];
@@ -127,56 +148,65 @@ async function deleteTasksInTreeOrder(
     });
 
     if (leaves.length === 0) {
-      const fallback = [...remaining];
-      await executor.query<ResultSetHeader>(
-        `DELETE FROM tasks WHERE id IN (${fallback.map(() => '?').join(', ')})`,
-        fallback,
-      );
+      for (const id of remaining) await deleteOne(id);
       return;
     }
 
-    await executor.query<ResultSetHeader>(
-      `DELETE FROM tasks WHERE id IN (${leaves.map(() => '?').join(', ')})`,
-      leaves,
-    );
-    for (const id of leaves) remaining.delete(id);
+    for (const id of leaves) {
+      await deleteOne(id);
+      remaining.delete(id);
+    }
   }
 }
 
 /**
  * 递归删除任务及其所有子孙任务，并清理关联的 task_items / 事件记录。
- * 若根任务不存在返回 false（幂等：子任务已被级联删除时同样返回 false）。
- * 与 Change Log 同事务：回滚时无脏 log。
+ * 根任务已不存在：幂等成功。
  */
 export async function deleteTaskCascade(
   taskId: string,
   options: DeleteTaskCascadeOptions = {},
 ): Promise<boolean> {
   return withSyncTransaction(async (conn) => {
-    const [rootRows] = await conn.query<RowDataPacket[]>(
-      'SELECT id FROM tasks WHERE id = ? LIMIT 1',
-      [taskId],
-    );
-    if (rootRows.length === 0) return false;
+    const live = await readLiveServerRev(conn, 'tasks', taskId);
+    if (live == null) return true;
+    if (options.expectedRev != null && options.expectedRev !== live) {
+      const [rows] = await conn.query<RowDataPacket[]>(
+        'SELECT * FROM tasks WHERE id = ? LIMIT 1',
+        [taskId],
+      );
+      const row = rows[0] ? { ...(rows[0] as Record<string, unknown>) } : null;
+      throw new SyncOccConflictError({
+        kind: 'row',
+        table: 'tasks',
+        pk: taskId,
+        serverRev: live,
+        mutationId:
+          row && row.mutation_id != null ? String(row.mutation_id).slice(0, 36) : null,
+        row,
+      });
+    }
 
     const taskIds = await collectTaskSubtreeIds(taskId, conn);
     const events: ChangeLogEvent[] = [];
 
     for (const table of TASK_RELATED_TABLES) {
-      await deleteRelatedRowsByTaskIds(table, taskIds, conn, events, options.deviceId);
+      await deleteRelatedRowsByTaskIds(table, taskIds, conn, events);
     }
-    await deleteTasksInTreeOrder(taskIds, conn);
+    await deleteTasksInTreeOrder(
+      taskIds,
+      taskId,
+      conn,
+      events,
+      options.mutationId ?? null,
+    );
 
-    for (const id of taskIds) {
-      events.push({
-        tableName: 'tasks',
-        recordPk: id,
-        op: 'delete',
-        deviceId: options.deviceId,
-      });
+    if (events.length > 0) {
+      for (const ev of events) {
+        ev.deviceId = options.deviceId;
+      }
+      await appendChangeLog(conn, events);
     }
-
-    await appendChangeLog(conn, events);
     return true;
   });
 }

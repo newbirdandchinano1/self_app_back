@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { requireAuth } from '../../middlewares/auth.js';
 import { success, fail } from '../../utils/response.js';
 import { createDomainErrorHandler } from '../../utils/domain-error-handler.js';
-import { deviceIdFromReq } from '../../utils/device-id-from-req.js';
+import { syncWriteOptionsFromReq } from '../../utils/device-id-from-req.js';
 import {
   createWishBoardItem,
   deleteRedeemedWishBoardItems,
@@ -48,7 +48,7 @@ router.post('/wish-board/items', async (req, res, next) => {
         sort_order: body.sort_order,
         extra_data: body.extra_data,
       },
-      { deviceId: deviceIdFromReq(req) },
+      syncWriteOptionsFromReq(req),
     );
     return success(res, item, '创建成功');
   } catch (err) {
@@ -72,7 +72,7 @@ router.patch('/wish-board/items/:id', async (req, res, next) => {
         sort_order: body.sort_order,
         extra_data: body.extra_data,
       },
-      { deviceId: deviceIdFromReq(req) },
+      syncWriteOptionsFromReq(req),
     );
     return success(res, item, '更新成功');
   } catch (err) {
@@ -84,7 +84,7 @@ router.patch('/wish-board/items/:id', async (req, res, next) => {
 router.delete('/wish-board/items/:id', async (req, res, next) => {
   try {
     const data = await deleteWishBoardItem(String(req.params.id ?? ''), {
-      deviceId: deviceIdFromReq(req),
+      ...syncWriteOptionsFromReq(req),
     });
     return success(res, data, '删除成功');
   } catch (err) {
@@ -117,7 +117,7 @@ router.delete('/wish-board/redeemed', async (req, res, next) => {
           ? req.query.id
           : null;
     const data = await deleteRedeemedWishBoardItems(idRaw, {
-      deviceId: deviceIdFromReq(req),
+      ...syncWriteOptionsFromReq(req),
     });
     return success(res, data, '删除成功');
   } catch (err) {
@@ -140,7 +140,7 @@ router.post('/wish-board/redeem', async (req, res, next) => {
     }
 
     const result = await redeemWishBoardItem(wishBoardItemId, {
-      deviceId: deviceIdFromReq(req),
+      ...syncWriteOptionsFromReq(req),
     });
     const { ok: _ok, ...data } = result;
     return success(res, data);
