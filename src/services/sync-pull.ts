@@ -137,17 +137,20 @@ export async function pullSyncChanges(
     }
   }
   const events: SyncChangeEventDto[] = [...folded.values()]
-    .map((r) => ({
-      id: Number(r.id),
-      table: String(r.table_name),
-      pk: String(r.record_pk),
-      op: r.op === 'delete' ? 'delete' : 'upsert',
-      updatedAt: r.updated_at == null ? null : String(r.updated_at),
-      deviceId: r.device_id == null ? null : String(r.device_id),
-      serverRev: r.server_rev == null ? null : Number(r.server_rev),
-      mutationId: r.mutation_id == null ? null : String(r.mutation_id),
-      row: (rowMap.get(`${String(r.table_name)}||${String(r.record_pk)}`) ?? null) as Record<string, unknown> | null,
-    }))
+    .map((r): SyncChangeEventDto => {
+      const op: SyncChangeEventDto['op'] = String(r.op) === 'delete' ? 'delete' : 'upsert';
+      return {
+        id: Number(r.id),
+        table: String(r.table_name),
+        pk: String(r.record_pk),
+        op,
+        updatedAt: r.updated_at == null ? null : String(r.updated_at),
+        deviceId: r.device_id == null ? null : String(r.device_id),
+        serverRev: r.server_rev == null ? null : Number(r.server_rev),
+        mutationId: r.mutation_id == null ? null : String(r.mutation_id),
+        row: (rowMap.get(`${String(r.table_name)}||${String(r.record_pk)}`) ?? null) as Record<string, unknown> | null,
+      };
+    })
     .sort((a, b) => a.id - b.id);
 
   const dirtySet = new Set<string>();

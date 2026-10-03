@@ -376,7 +376,7 @@ export async function updateIntake(
 
   const existing = await getIntake(trimmed);
   if (!existing) {
-    await throwTombstoneConflict(db, 'health_records', trimmed);
+    throw await throwTombstoneConflict(db, 'health_records', trimmed);
   }
 
   const has = (key: keyof UpdateIntakeInput) => Object.prototype.hasOwnProperty.call(input, key);

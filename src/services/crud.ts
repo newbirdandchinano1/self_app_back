@@ -894,7 +894,7 @@ export async function updateRecord(
     const updated = await withSyncTransaction(async (conn) => {
       const [result] = await conn.query<ResultSetHeader>(updateSql, values);
       if (result.affectedRows === 0) {
-        await throwTombstoneConflict(conn, table, pkValue);
+        throw await throwTombstoneConflict(conn, table, pkValue);
       }
 
       const stamp = await stampLiveUpsert(conn, table, pkValue, {

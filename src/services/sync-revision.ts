@@ -263,19 +263,19 @@ export async function stampLiveUpsert(
   } else if (opts.mode === 'update') {
     const live = await readLiveServerRev(conn, table, recordPk);
     if (live == null) {
-      await throwTombstoneConflict(conn, table, recordPk, opts.userId);
+      throw await throwTombstoneConflict(conn, table, recordPk, opts.userId);
     }
     if (!opts.skipOcc && opts.expectedRev != null && opts.expectedRev !== live) {
-      await throwRowConflict(conn, table, recordPk, live);
+      throw await throwRowConflict(conn, table, recordPk, live);
     }
     serverRev = live + 1;
   } else {
     const live = await readLiveServerRev(conn, table, recordPk);
     if (live == null) {
-      await throwTombstoneConflict(conn, table, recordPk, opts.userId);
+      throw await throwTombstoneConflict(conn, table, recordPk, opts.userId);
     }
     if (!opts.skipOcc && opts.expectedRev != null && opts.expectedRev !== live) {
-      await throwRowConflict(conn, table, recordPk, live);
+      throw await throwRowConflict(conn, table, recordPk, live);
     }
     serverRev = await allocateRev(conn, table, recordPk, opts.userId);
   }
@@ -287,7 +287,7 @@ export async function stampLiveUpsert(
     [serverRev, mutationId, recordPk],
   );
   if (result.affectedRows <= 0) {
-    await throwTombstoneConflict(conn, table, recordPk, opts.userId);
+    throw await throwTombstoneConflict(conn, table, recordPk, opts.userId);
   }
   await deleteTombstone(conn, table, recordPk, opts.userId);
   return { serverRev, mutationId };
@@ -321,7 +321,7 @@ export async function deleteLiveWithRevision(
     return { kind: 'already_gone', tombstone: tomb };
   }
   if (!opts.skipOcc && opts.expectedRev != null && opts.expectedRev !== live) {
-    await throwRowConflict(conn, table, recordPk, live);
+    throw await throwRowConflict(conn, table, recordPk, live);
   }
 
   const mutationId = parseMutationId(opts.mutationId);

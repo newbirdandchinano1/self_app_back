@@ -579,7 +579,7 @@ export async function updateWishBoardItem(
 
   const existing = await getWishBoardItem(id);
   if (!existing) {
-    await throwTombstoneConflict(db, 'wish_board_items', id);
+    throw await throwTombstoneConflict(db, 'wish_board_items', id);
   }
 
   const patchingCore =

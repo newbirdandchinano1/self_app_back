@@ -257,7 +257,7 @@ export async function updateMemo(
 
   const existing = await getActiveMemo(id);
   if (!existing) {
-    await throwTombstoneConflict(db, 'memos', id);
+    throw await throwTombstoneConflict(db, 'memos', id);
   }
 
   const updates: string[] = [];

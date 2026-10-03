@@ -306,7 +306,7 @@ export async function renameRecipeCategory(
 
   const existing = await getActiveCategory(id);
   if (!existing) {
-    await throwTombstoneConflict(db, 'recipe_categories', id);
+    throw await throwTombstoneConflict(db, 'recipe_categories', id);
   }
 
   const now = nowUtcMysql();
@@ -503,7 +503,7 @@ export async function updateRecipe(
 
   const existing = await getActiveRecipe(id);
   if (!existing) {
-    await throwTombstoneConflict(db, 'recipe_items', id);
+    throw await throwTombstoneConflict(db, 'recipe_items', id);
   }
 
   const updates: string[] = [];

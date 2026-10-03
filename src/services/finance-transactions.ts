@@ -335,7 +335,7 @@ export async function updateFinanceTransaction(
 
   const existing = await getFinanceTransaction(trimmed);
   if (!existing) {
-    await throwTombstoneConflict(db, 'finance_transactions', trimmed);
+    throw await throwTombstoneConflict(db, 'finance_transactions', trimmed);
   }
 
   const has = (key: string) => Object.prototype.hasOwnProperty.call(input, key);
