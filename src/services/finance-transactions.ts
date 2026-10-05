@@ -16,6 +16,7 @@ import {
   type SyncWriteOptions,
 } from './sync-change-log.js';
 import { deleteLiveWithRevision, stampLiveUpsert, throwTombstoneConflict } from './sync-revision.js';
+import { slimExtraDataForMysql } from '../utils/slim-extra-data.js';
 
 export class FinanceTxnError extends Error {
   constructor(
@@ -68,24 +69,13 @@ function normalizeSignRule(signRule: unknown, accountType?: string | null): -1 |
 
 function serializeExtraData(raw: unknown): string | null {
   if (raw == null || raw === '') return null;
-  if (typeof raw === 'string') {
-    const t = raw.trim();
-    if (!t) return null;
-    try {
-      JSON.parse(t);
-      return t;
-    } catch {
-      throw new FinanceTxnError('extra_data 无效 JSON');
-    }
+  try {
+    return slimExtraDataForMysql(raw);
+  } catch {
+    throw new FinanceTxnError(
+      typeof raw === 'string' ? 'extra_data 无效 JSON' : 'extra_data 无效',
+    );
   }
-  if (typeof raw === 'object') {
-    try {
-      return JSON.stringify(raw);
-    } catch {
-      throw new FinanceTxnError('extra_data 无效');
-    }
-  }
-  throw new FinanceTxnError('extra_data 无效');
 }
 
 function normalizeAmount(raw: unknown): number {

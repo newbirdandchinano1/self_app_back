@@ -24,6 +24,7 @@ import {
 } from '../config/tables.js';
 import { buildColumnMeta, getColumnLabel, getTableLabel } from '../config/table-labels.js';
 import { hashPassword } from '../utils/password.js';
+import { slimExtraDataForMysql } from '../utils/slim-extra-data.js';
 import { buildListQuery, type ListQueryParams } from './list-query.js';
 import {
   formatDbDateTimeForApi,
@@ -281,6 +282,14 @@ async function normalizeWriteData(
     'extra_data' in result
   ) {
     result.extra_data = normalizeRewardPointsExtraData(result.extra_data);
+  }
+
+  if ('extra_data' in result && result.extra_data != null && result.extra_data !== '') {
+    try {
+      result.extra_data = slimExtraDataForMysql(result.extra_data);
+    } catch {
+      /* 非 JSON 的 extra_data 保持原样，由列类型约束报错 */
+    }
   }
 
   if (table === 'tasks' && meta.columns.includes('status') && (isCreate || 'status' in result)) {
