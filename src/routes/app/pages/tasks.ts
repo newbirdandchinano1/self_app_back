@@ -54,8 +54,7 @@ router.get('/pages/tasks/frog-candidates', async (req, res, next) => {
     success(res, data);
   } catch (err) {
     if (err instanceof FrogAssignError) {
-      res.status(err.status).json({ success: false, message: err.message });
-      return;
+      return fail(res, err.message, -1, err.status);
     }
     next(err);
   }
@@ -85,8 +84,7 @@ router.post('/pages/tasks/frog-assign', async (req, res, next) => {
       return fail(res, err.message, -1, 409, err.payload);
     }
     if (err instanceof FrogAssignError) {
-      res.status(err.status).json({ success: false, message: err.message });
-      return;
+      return fail(res, err.message, -1, err.status);
     }
     next(err);
   }
@@ -102,8 +100,7 @@ router.get('/pages/tasks/frog-schedule', async (req, res, next) => {
     success(res, data);
   } catch (err) {
     if (err instanceof FrogScheduleError) {
-      res.status(err.status).json({ success: false, message: err.message });
-      return;
+      return fail(res, err.message, -1, err.status);
     }
     next(err);
   }
@@ -123,8 +120,7 @@ router.post('/pages/tasks/frog-schedule/axis', async (req, res, next) => {
     success(res, data);
   } catch (err) {
     if (err instanceof FrogScheduleError) {
-      res.status(err.status).json({ success: false, message: err.message });
-      return;
+      return fail(res, err.message, -1, err.status);
     }
     next(err);
   }
@@ -167,8 +163,7 @@ router.post('/pages/tasks/frog-schedule/placement', async (req, res, next) => {
       return fail(res, err.message, -1, 409, err.payload);
     }
     if (err instanceof FrogScheduleError) {
-      res.status(err.status).json({ success: false, message: err.message });
-      return;
+      return fail(res, err.message, -1, err.status);
     }
     next(err);
   }
