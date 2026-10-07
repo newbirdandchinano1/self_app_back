@@ -1434,3 +1434,77 @@ export async function getFinanceStats(params: FinanceStatsParams) {
     },
   };
 }
+
+export interface FinancePredictedSavingsParams extends FinanceDayBoundaryParams {
+  /** 目标日期 YYYY-MM-DD */
+  targetDate: string;
+  logicalToday?: string;
+  /** 回看天数，默认 30（过去约 1 个月） */
+  lookbackDays?: number;
+}
+
+/**
+ * 预测存款：用过去 N 天纯利润（收入 − 支出）日均，乘以到目标日（含今天）的天数。
+ * 专供 APP 财务页「预测存款」展示。
+ */
+export async function getFinancePredictedSavings(params: FinancePredictedSavingsParams) {
+  const targetDate = String(params.targetDate ?? '').trim();
+  if (!isValidYmd(targetDate)) {
+    throw new FinancePageError('targetDate 须为 YYYY-MM-DD');
+  }
+
+  const boundary = resolveDayBoundary(params);
+  const logicalToday = resolveLogicalToday(params);
+  const lookbackDays = Math.min(90, Math.max(1, params.lookbackDays ?? 30));
+  const lookbackStart = addDaysToYmd(logicalToday, -(lookbackDays - 1));
+  const daysLeftRaw = countInclusiveYmdDays(logicalToday, targetDate);
+  const daysLeft = Math.max(1, daysLeftRaw);
+  const overdue = daysLeftRaw < 1;
+
+  const logicalDayExpr = logicalDaySql(boundary);
+  const { columns } = await loadMeta(TXN_TABLE);
+
+  const [[aggRows], accountsPayload] = await Promise.all([
+    db.query<RowDataPacket[]>(
+      `SELECT
+          COALESCE(SUM(CASE WHEN transaction_type = 'income' THEN ABS(COALESCE(amount, 0)) ELSE 0 END), 0) AS income,
+          COALESCE(SUM(CASE WHEN transaction_type = 'expense' THEN ABS(COALESCE(amount, 0)) ELSE 0 END), 0) AS expense
+       FROM ${TXN_TABLE}
+       WHERE ${activeWhereSql(columns)}
+         AND ${logicalDayExpr} >= ?
+         AND ${logicalDayExpr} <= ?
+         AND transaction_type IN ('income', 'expense')
+         AND NOT ${balanceCorrectionSql()}`,
+      [lookbackStart, logicalToday],
+    ),
+    loadAccountsWithBalance(),
+  ]);
+
+  const row = aggRows[0];
+  const lookbackIncome = roundMoney(Number(row?.income) || 0);
+  const lookbackExpense = roundMoney(Number(row?.expense) || 0);
+  const lookbackNetProfit = roundMoney(lookbackIncome - lookbackExpense);
+  const avgDailyProfit = roundMoney(lookbackNetProfit / lookbackDays);
+  const predictedDeposit = overdue ? 0 : roundMoney(avgDailyProfit * daysLeft);
+  const currentNetWorth = accountsPayload.netWorth;
+
+  return {
+    targetDate,
+    daysLeft: overdue ? 0 : daysLeft,
+    overdue,
+    lookbackDays,
+    lookbackStart,
+    lookbackEnd: logicalToday,
+    lookbackIncome,
+    lookbackExpense,
+    lookbackNetProfit,
+    avgDailyProfit,
+    predictedDeposit,
+    currentNetWorth,
+    predictedNetWorth: roundMoney(currentNetWorth + predictedDeposit),
+    meta: {
+      serverTime: serverNowIso(),
+      logicalToday,
+    },
+  };
+}

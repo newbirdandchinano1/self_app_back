@@ -12,6 +12,7 @@ import {
   getFinanceDailySummaries,
   getFinanceHome,
   getFinanceInsights,
+  getFinancePredictedSavings,
   getFinanceRecentDays,
   getFinanceStats,
   getFinanceTransactions,
@@ -229,6 +230,21 @@ router.get('/pages/finance/stats', async (req, res, next) => {
       rankLimit: parseIntQuery(req.query.rankLimit),
       recentDaysLimit: parseIntQuery(req.query.recentDaysLimit),
       excludeCorrections: parseBoolQuery(req.query.excludeCorrections),
+    });
+    success(res, data);
+  } catch (err) {
+    handleFinanceError(err, res, next);
+  }
+});
+
+/** GET /pages/finance/predicted-savings — 预测存款（近1月纯利润日均 × 目标剩余天数） */
+router.get('/pages/finance/predicted-savings', async (req, res, next) => {
+  try {
+    const data = await getFinancePredictedSavings({
+      ...parseDayBoundary(req),
+      targetDate: parseStringQuery(req.query.targetDate)?.trim() ?? '',
+      logicalToday: parseStringQuery(req.query.logicalToday),
+      lookbackDays: parseIntQuery(req.query.lookbackDays),
     });
     success(res, data);
   } catch (err) {
