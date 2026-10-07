@@ -67,6 +67,9 @@ export const SYNC_CHANGE_LOG_TABLES = new Set<string>([
   'points_wallet',
   'points_ledger',
   'wish_board_items',
+  // 我的道路（总方向 / 年度赌注）
+  'life_directions',
+  'life_bets',
   // Phase 4 — 备忘 / 标签
   'memos',
   'memo_dimensions',

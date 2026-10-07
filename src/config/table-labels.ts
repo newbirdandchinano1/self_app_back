@@ -21,6 +21,8 @@ export const TABLE_LABELS: Record<AllowedTable, string> = {
   habits: '习惯',
   health_daily_targets: '健康日目标',
   health_records: '健康摄入记录',
+  life_bets: '道路赌注',
+  life_directions: '道路总方向',
   memo_dimensions: '备忘录维度',
   memos: '备忘录',
   monthly_review_journal: '每月复盘',
@@ -217,6 +219,10 @@ export const COLUMN_LABELS: Record<string, string> = {
   slot_id: '时段ID',
   day_of_week: '星期几',
   content: '计划内容',
+  year_theme: '年主题',
+  horizon: '时间桶',
+  year: '公历年',
+  life_bet_id: '道路赌注ID',
 };
 
 /** 表级字段中文名覆盖 */
@@ -254,6 +260,18 @@ export const TABLE_COLUMN_LABELS: Partial<
   projects: {
     category_id: '项目分类ID',
     status: '状态（进行中/已完成/已归档）',
+    life_bet_id: '归属道路赌注ID（可空）',
+  },
+  life_directions: {
+    body: '总方向',
+    year_theme: '年主题（可选）',
+  },
+  life_bets: {
+    title: '赌注标题',
+    horizon: '时间桶（今年/两三年/更远）',
+    year: '归属公历年',
+    note: '做成了长什么样',
+    status: '状态（在路上/暂搁/已抵达/放弃）',
   },
   tags: {
     weight: '权重',

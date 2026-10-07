@@ -25,6 +25,8 @@ export const ALLOWED_TABLES = [
   'habits',
   'health_daily_targets',
   'health_records',
+  'life_bets',
+  'life_directions',
   'memo_dimensions',
   'memos',
   'monthly_review_journal',
@@ -65,6 +67,8 @@ export const TABLE_PRIMARY_KEYS: Partial<Record<AllowedTable, string>> = {
 export const CLIENT_ID_TABLES: readonly AllowedTable[] = [
   'points_ledger',
   'wish_board_items',
+  'life_bets',
+  'life_directions',
   'project_categories',
   'projects',
   'schedule_placements',
@@ -90,6 +94,7 @@ export const TABLE_FOREIGN_KEYS: Partial<
   },
   projects: {
     category_id: 'project_categories',
+    life_bet_id: 'life_bets',
   },
   tag_links: {
     tag_id: 'tags',
@@ -110,7 +115,7 @@ export const TABLE_FOREIGN_KEYS: Partial<
 export const TABLE_SYNC_DEPENDS_ON: Partial<Record<AllowedTable, AllowedTable[]>> = {
   tasks: ['task_categories', 'project_categories', 'projects'],
   task_items: ['tasks'],
-  projects: ['project_categories'],
+  projects: ['project_categories', 'life_bets'],
   tag_links: ['tags'],
   recipe_items: ['recipe_categories'],
   finance_scheduled_expenses: ['finance_accounts', 'finance_flow_categories'],
@@ -166,6 +171,21 @@ export const PROJECT_STATUS_OPTIONS: readonly EnumOption[] = [
 
 export const PROJECT_STATUS_VALUES = PROJECT_STATUS_OPTIONS.map((o) => o.value);
 
+/** 道路赌注时间桶 */
+export const LIFE_BET_HORIZON_OPTIONS: readonly EnumOption[] = [
+  { value: 'year', label: '今年' },
+  { value: 'multi', label: '两三年' },
+  { value: 'farther', label: '更远' },
+];
+
+/** 道路赌注手标状态 */
+export const LIFE_BET_STATUS_OPTIONS: readonly EnumOption[] = [
+  { value: 'on_track', label: '在路上' },
+  { value: 'paused', label: '暂搁' },
+  { value: 'arrived', label: '已抵达' },
+  { value: 'dropped', label: '放弃' },
+];
+
 /** Admin 表单用下拉框的枚举字段 */
 export const TABLE_ENUM_COLUMNS: Partial<
   Record<AllowedTable, Partial<Record<string, readonly EnumOption[]>>>
@@ -189,6 +209,10 @@ export const TABLE_ENUM_COLUMNS: Partial<
   },
   projects: {
     status: PROJECT_STATUS_OPTIONS,
+  },
+  life_bets: {
+    horizon: LIFE_BET_HORIZON_OPTIONS,
+    status: LIFE_BET_STATUS_OPTIONS,
   },
 };
 

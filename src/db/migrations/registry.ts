@@ -11,6 +11,7 @@ import { ensureSyncChangeLogTable } from '../ensure-sync-change-log.js';
 import { ensureSyncRevisionSchema } from '../ensure-sync-revision.js';
 import { ensureUsersPersonaPortraitColumn } from '../ensure-users-persona-portrait.js';
 import { ensureWishBoardTables } from '../ensure-wish-board.js';
+import { ensureLifeRoadTables } from '../ensure-life-road.js';
 import type { Migration } from './types.js';
 
 /**
@@ -31,4 +32,5 @@ export const MIGRATIONS: readonly Migration[] = [
   { id: '011_frog_schedule', up: ensureFrogScheduleTables },
   { id: '012_sync_change_log', up: ensureSyncChangeLogTable },
   { id: '013_sync_revision', up: ensureSyncRevisionSchema },
+  { id: '014_life_road', up: ensureLifeRoadTables },
 ];

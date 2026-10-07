@@ -15,6 +15,7 @@
     "test:projects": "tsx scripts/project-list-selftest.ts",
     "test:finance-page": "tsx scripts/finance-page-selftest.ts",
     "test:dedicated-write": "tsx scripts/dedicated-write-selftest.ts",
+    "test:life-road": "tsx scripts/life-road-selftest.ts",
     "test:profile-page": "tsx scripts/profile-page-selftest.ts",
     "test:sync-phase1": "tsx scripts/sync-phase1-selftest.ts",
     "test:sync-pull": "tsx scripts/sync-pull-selftest.ts",

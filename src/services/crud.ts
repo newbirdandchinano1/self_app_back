@@ -49,6 +49,12 @@ import {
   SyncOccConflictError,
   throwTombstoneConflict,
 } from './sync-revision.js';
+import {
+  assertLifeBetYearRules,
+  LifeRoadError,
+  normalizeLifeBetWrite,
+  normalizeLifeDirectionWrite,
+} from './life-road-validate.js';
 
 /** 白名单表，或日界相关 app_settings 键 */
 function shouldAppendChangeLog(table: string, pk: string): boolean {
@@ -112,6 +118,13 @@ export class CrudError extends Error {
     super(message);
     this.name = 'CrudError';
   }
+}
+
+function throwLifeRoadAsCrud(err: unknown): never {
+  if (err instanceof LifeRoadError) {
+    throw new CrudError(err.message, err.status);
+  }
+  throw err;
 }
 
 const ENSURE_ON_MISSING_TABLES = new Set<AllowedTable>([
@@ -365,6 +378,22 @@ async function normalizeWriteData(
     delete result.source;
     if (isCreate) {
       result.source = 'manual';
+    }
+  }
+
+  if (table === 'life_directions') {
+    try {
+      normalizeLifeDirectionWrite(result, isCreate);
+    } catch (err) {
+      throwLifeRoadAsCrud(err);
+    }
+  }
+
+  if (table === 'life_bets') {
+    try {
+      normalizeLifeBetWrite(result, isCreate);
+    } catch (err) {
+      throwLifeRoadAsCrud(err);
     }
   }
 
@@ -812,6 +841,14 @@ export async function createRecord(
     await inheritTaskPriorityFromProject(payload);
   }
 
+  if (table === 'life_bets') {
+    try {
+      await assertLifeBetYearRules(payload, { isCreate: true });
+    } catch (err) {
+      throwLifeRoadAsCrud(err);
+    }
+  }
+
   await validateForeignKeys(table, payload);
 
   const keys = Object.keys(payload);
@@ -890,6 +927,14 @@ export async function updateRecord(
   const keys = Object.keys(payload);
   if (keys.length === 0) {
     throw new CrudError('没有可更新的字段');
+  }
+
+  if (table === 'life_bets') {
+    try {
+      await assertLifeBetYearRules(payload, { isCreate: false, excludeId: pkValue });
+    } catch (err) {
+      throwLifeRoadAsCrud(err);
+    }
   }
 
   await validateForeignKeys(table, payload);
