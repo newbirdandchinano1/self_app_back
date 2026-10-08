@@ -1,9 +1,10 @@
 import { Request, Response, NextFunction } from 'express';
 import { fail } from '../utils/response.js';
 
-export function errorHandler(err: Error, _req: Request, res: Response, _next: NextFunction) {
-  console.error('[Error]', err.message);
+/** 未捕获异常对外统一文案；原文只写日志，避免 SQL/堆栈/驱动信息泄漏到 App */
+const INTERNAL_ERROR_MESSAGE = '服务器繁忙，请稍后重试';
 
+export function errorHandler(err: Error, _req: Request, res: Response, _next: NextFunction) {
   // express.json() 解析失败时的 SyntaxError，避免把原始 "Unexpected token…" 直接甩给 App
   const isBodyJsonSyntax =
     err instanceof SyntaxError ||
@@ -15,5 +16,9 @@ export function errorHandler(err: Error, _req: Request, res: Response, _next: Ne
     return fail(res, '请求体不是合法 JSON，请检查客户端序列化', -1, 400);
   }
 
-  return fail(res, err.message || '服务器内部错误', -1, 500);
+  console.error('[Error]', err.message);
+  if (err.stack) {
+    console.error(err.stack);
+  }
+  return fail(res, INTERNAL_ERROR_MESSAGE, -1, 500);
 }
