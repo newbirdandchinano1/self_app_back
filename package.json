@@ -23,7 +23,9 @@
     "test:sync-phase4": "tsx scripts/sync-phase4-selftest.ts",
     "test:sync-phase5": "tsx scripts/sync-phase5-selftest.ts",
     "test:sync-bootstrap": "tsx scripts/sync-bootstrap-selftest.ts",
-    "test:sync-phase8": "tsx scripts/sync-bootstrap-selftest.ts"
+    "test:sync-phase8": "tsx scripts/sync-bootstrap-selftest.ts",
+    "test:memo-richdoc-phase1": "tsx scripts/memo-richdoc-phase1-selftest.ts",
+    "test:memo-richdoc-phase5": "tsx scripts/memo-richdoc-phase5-selftest.ts"
   },
   "dependencies": {
     "bcrypt": "^6.0.0",

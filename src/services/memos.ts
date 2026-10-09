@@ -11,6 +11,7 @@ import {
   withSyncTransaction,
   type SyncWriteOptions,
 } from './sync-change-log.js';
+import { plainTextFromMemoBody } from './memo-plain-text.js';
 import { deleteLiveWithRevision, stampLiveUpsert, throwTombstoneConflict } from './sync-revision.js';
 import { AiScenarioError, analyzeMemoReviewFromText } from './zhipu/scenarios.js';
 
@@ -21,6 +22,42 @@ export class MemoError extends Error {
   ) {
     super(message);
     this.name = 'MemoError';
+  }
+}
+
+export const MEMO_BODY_MAX_BYTES = 524288;
+
+function bodyByteLength(s: string): number {
+  return Buffer.byteLength(s, 'utf8');
+}
+
+function assertMemoBody(body: string): void {
+  if (bodyByteLength(body) > MEMO_BODY_MAX_BYTES) {
+    throw new MemoError(`正文超过上限（${MEMO_BODY_MAX_BYTES / 1024}KB），请删减后保存`);
+  }
+  const t = body.trimStart();
+  if (t[0] === '{') {
+    let o: unknown;
+    try {
+      o = JSON.parse(body);
+    } catch {
+      throw new MemoError('富文本格式损坏，请清空后重试');
+    }
+    const r = (o ?? {}) as Record<string, unknown>;
+    if (r.format === 'selfapp-richdoc') {
+      if (typeof r.v !== 'number' || !r.doc || typeof r.doc !== 'object') {
+        throw new MemoError('富文本版本号异常');
+      }
+      if (!Array.isArray((r.doc as Record<string, unknown>).blocks)) {
+        throw new MemoError('富文本文档结构异常');
+      }
+      for (const b of (r.doc as { blocks: unknown[] }).blocks) {
+        const bb = (b ?? {}) as Record<string, unknown>;
+        if (bb.type === 'image' && typeof bb.uri === 'string' && /^data:/i.test(bb.uri.trim())) {
+          throw new MemoError('图片请使用链接，禁止 base64 直存');
+        }
+      }
+    }
   }
 }
 
@@ -195,6 +232,7 @@ export async function createMemo(input: CreateMemoInput, options?: SyncWriteOpti
     input.linked_task_id == null || input.linked_task_id === ''
       ? null
       : asTrimmedString(input.linked_task_id) || null;
+  assertMemoBody(body);
 
   const isPinned = coercePinned(input.is_pinned);
   const id = asTrimmedString(input.id) || randomUUID();
@@ -269,6 +307,7 @@ export async function updateMemo(
   }
   if (input.body !== undefined) {
     if (typeof input.body !== 'string') throw new MemoError('body 必须是字符串');
+    assertMemoBody(input.body);
     updates.push('body = ?');
     values.push(input.body);
   }
@@ -352,11 +391,11 @@ export async function deleteMemo(memoId: string, options?: SyncWriteOptions) {
   return { id, deleted_at: formatDbDateTimeForApi(now, 'utc') ?? now };
 }
 
-function buildMemoContextText(memo: MemoRow): string {
+/** AI 入参：标题 + 纯文本正文（禁止喂 JSON 结构键名） */
+export function buildMemoContextText(memo: { title?: string | null; body?: string | null }): string {
   const title = memo.title?.trim() || '(无标题)';
-  const body = memo.body ?? '';
-  const parts = [`标题：${title}`, `正文：\n${body}`];
-  return parts.join('\n');
+  const body = plainTextFromMemoBody(memo.body ?? '');
+  return [`标题：${title}`, `正文：\n${body}`].join('\n');
 }
 
 /**

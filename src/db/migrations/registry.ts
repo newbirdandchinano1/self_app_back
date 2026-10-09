@@ -3,6 +3,7 @@ import { ensureDropEarnedRewards } from '../ensure-drop-earned-rewards.js';
 import { ensureDropProfileFeatures } from '../ensure-drop-profile-features.js';
 import { ensureFrogScheduleTables } from '../ensure-frog-schedule.js';
 import { ensureHealthDropUserId } from '../ensure-health-drop-user-id.js';
+import { ensureMemosBodyMediumText } from '../ensure-memos-body-mediumtext.js';
 import { ensureMemosPinnedColumn } from '../ensure-memos-pinned.js';
 import { ensurePointsTables } from '../ensure-points.js';
 import { ensureProjectTagsTables } from '../ensure-project-tags.js';
@@ -33,4 +34,5 @@ export const MIGRATIONS: readonly Migration[] = [
   { id: '012_sync_change_log', up: ensureSyncChangeLogTable },
   { id: '013_sync_revision', up: ensureSyncRevisionSchema },
   { id: '014_life_road', up: ensureLifeRoadTables },
+  { id: '015_memos_body_mediumtext', up: ensureMemosBodyMediumText },
 ];
