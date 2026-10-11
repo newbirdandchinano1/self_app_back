@@ -568,10 +568,17 @@ type AxisRow = {
   updatedAt?: string;
 };
 
-function snapHourMinutes(n: number, allow24: boolean): number {
-  const max = allow24 ? 24 * 60 : 23 * 60;
+/** 逻辑日轴最大终点：次日 23:00（与客户端日程终点对齐日界） */
+const SCHEDULE_LOGICAL_END_MAX_MINUTES = 24 * 60 + 23 * 60;
+
+function snapHourMinutes(n: number, allow24: boolean, allowOvernight = false): number {
+  const max = allowOvernight
+    ? SCHEDULE_LOGICAL_END_MAX_MINUTES
+    : allow24
+      ? 24 * 60
+      : 23 * 60;
   const clamped = Math.min(max, Math.max(0, Math.round(n)));
-  if (allow24 && clamped >= 24 * 60) return 24 * 60;
+  if (!allowOvernight && allow24 && clamped >= 24 * 60) return 24 * 60;
   return Math.floor(clamped / 60) * 60;
 }
 
@@ -581,14 +588,15 @@ function normalizeBreaks(
   dayEndMinutes: number,
 ): ScheduleBreak[] {
   if (!Array.isArray(raw)) return [];
-  const dayStart = snapHourMinutes(dayStartMinutes, false);
-  const dayEnd = snapHourMinutes(dayEndMinutes, true);
+  const overnight = dayEndMinutes > 24 * 60;
+  const dayStart = snapHourMinutes(dayStartMinutes, false, overnight);
+  const dayEnd = snapHourMinutes(dayEndMinutes, true, overnight);
   const parsed: ScheduleBreak[] = [];
   for (const item of raw) {
     if (!item || typeof item !== 'object' || Array.isArray(item)) continue;
     const o = item as Record<string, unknown>;
-    const start = snapHourMinutes(Number(o.startMinutes), false);
-    const end = snapHourMinutes(Number(o.endMinutes), true);
+    const start = snapHourMinutes(Number(o.startMinutes), false, overnight);
+    const end = snapHourMinutes(Number(o.endMinutes), true, overnight);
     if (!(end > start)) continue;
     const clippedStart = Math.max(start, dayStart);
     const clippedEnd = Math.min(end, dayEnd);
@@ -625,7 +633,7 @@ function parseAxisJson(raw: unknown): AxisRow {
       ? snapHourMinutes(startMinutes, false)
       : defaults.startMinutes;
     const end = Number.isFinite(endMinutes)
-      ? snapHourMinutes(endMinutes, true)
+      ? snapHourMinutes(endMinutes, true, endMinutes > 24 * 60)
       : defaults.endMinutes;
     return {
       startMinutes: start,
@@ -784,15 +792,18 @@ export async function saveFrogScheduleAxis(body: {
   breaks?: ScheduleBreak[];
   updatedAt?: string;
 }) {
-  const snapHour = (n: number, allow24: boolean) => snapHourMinutes(Number(n), allow24);
-  const startMinutes = snapHour(body.startMinutes, false);
-  const endMinutes = snapHour(body.endMinutes, true);
+  const startMinutes = snapHourMinutes(Number(body.startMinutes), false);
+  const endRaw = Number(body.endMinutes);
+  const endMinutes = snapHourMinutes(endRaw, true, endRaw > 24 * 60);
   const slotHours = Number(body.slotHours);
   if (![1, 2, 3, 4].includes(slotHours)) {
     throw new FrogScheduleError('格宽仅允许 1–4 小时');
   }
   if (!(endMinutes > startMinutes)) {
     throw new FrogScheduleError('日结束时间必须晚于日开始时间');
+  }
+  if (endMinutes > SCHEDULE_LOGICAL_END_MAX_MINUTES) {
+    throw new FrogScheduleError('日结束时间超出逻辑日范围');
   }
   if (endMinutes - startMinutes < slotHours * 60) {
     throw new FrogScheduleError(`日时间范围至少需要容纳 1 个 ${slotHours} 小时格子`);
