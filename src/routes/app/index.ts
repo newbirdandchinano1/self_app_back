@@ -15,6 +15,7 @@ import reviewRouter from './review.js';
 import profileRouter from './profile.js';
 import crudRouter from './crud.js';
 import syncRouter from './sync.js';
+import inboxRouter from './inbox.js';
 
 /**
  * App-facing API (mobile / client).
@@ -48,6 +49,7 @@ router.use(healthRouter);
 router.use(financeRouter);
 router.use(reviewRouter);
 router.use(profileRouter);
+router.use(inboxRouter);
 router.use(crudRouter);
 
 export default router;

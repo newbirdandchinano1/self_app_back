@@ -13,6 +13,7 @@ import { ensureSyncRevisionSchema } from '../ensure-sync-revision.js';
 import { ensureUsersPersonaPortraitColumn } from '../ensure-users-persona-portrait.js';
 import { ensureWishBoardTables } from '../ensure-wish-board.js';
 import { ensureLifeRoadTables } from '../ensure-life-road.js';
+import { ensureAppInboxTable } from '../ensure-app-inbox.js';
 import type { Migration } from './types.js';
 
 /**
@@ -35,4 +36,5 @@ export const MIGRATIONS: readonly Migration[] = [
   { id: '013_sync_revision', up: ensureSyncRevisionSchema },
   { id: '014_life_road', up: ensureLifeRoadTables },
   { id: '015_memos_body_mediumtext', up: ensureMemosBodyMediumText },
+  { id: '016_app_inbox', up: ensureAppInboxTable },
 ];
