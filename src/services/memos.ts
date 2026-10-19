@@ -12,6 +12,7 @@ import {
   type SyncWriteOptions,
 } from './sync-change-log.js';
 import { plainTextFromMemoBody } from './memo-plain-text.js';
+import { syncMemoStoredImages } from './memo-stored-images.js';
 import { deleteLiveWithRevision, stampLiveUpsert, throwTombstoneConflict } from './sync-revision.js';
 import { AiScenarioError, analyzeMemoReviewFromText } from './zhipu/scenarios.js';
 
@@ -270,6 +271,8 @@ export async function createMemo(input: CreateMemoInput, options?: SyncWriteOpti
     throw err;
   }
 
+  await syncMemoStoredImages(id, '', body);
+
   const created = await getActiveMemo(id);
   if (!created) throw new MemoError('创建备忘录失败', 500);
   return formatMemo(created);
@@ -358,6 +361,10 @@ export async function updateMemo(
     ]);
   });
 
+  if (typeof input.body === 'string') {
+    await syncMemoStoredImages(id, existing.body ?? '', input.body);
+  }
+
   const updated = await getActiveMemo(id);
   if (!updated) throw new MemoError('备忘录不存在', 404);
   return formatMemo(updated);
@@ -368,6 +375,7 @@ export async function deleteMemo(memoId: string, options?: SyncWriteOptions) {
   const id = memoId.trim();
   if (!id) throw new MemoError('id 不能为空');
 
+  const existing = await getActiveMemo(id);
   const now = nowUtcMysql();
   await withSyncTransaction(async (conn) => {
     const del = await deleteLiveWithRevision(conn, 'memos', id, {
@@ -387,6 +395,8 @@ export async function deleteMemo(memoId: string, options?: SyncWriteOptions) {
       },
     ]);
   });
+
+  await syncMemoStoredImages(id, existing?.body ?? '', '');
 
   return { id, deleted_at: formatDbDateTimeForApi(now, 'utc') ?? now };
 }

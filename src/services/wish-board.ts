@@ -470,8 +470,8 @@ export async function createWishBoardItem(
 ): Promise<WishBoardItemRecord> {
   const title = normalizeTitle(input.title);
   const costPoints = normalizeCostPoints(input.cost_points, 0);
-  let description = normalizeOptionalText(input.description, 'description', 500);
-  let note = normalizeOptionalText(input.note, 'note', 500);
+  let description = normalizeOptionalText(input.description, 'description', 8000);
+  let note = normalizeOptionalText(input.note, 'note', 8000);
   if (description == null && note != null) description = note;
   else if (note == null && description != null) note = description;
 
@@ -603,10 +603,10 @@ export async function updateWishBoardItem(
   let description = existing.description;
   let note = existing.note;
   if (Object.prototype.hasOwnProperty.call(input, 'description')) {
-    description = normalizeOptionalText(input.description, 'description', 500);
+    description = normalizeOptionalText(input.description, 'description', 8000);
   }
   if (Object.prototype.hasOwnProperty.call(input, 'note')) {
-    note = normalizeOptionalText(input.note, 'note', 500);
+    note = normalizeOptionalText(input.note, 'note', 8000);
   }
   if (
     Object.prototype.hasOwnProperty.call(input, 'description') &&

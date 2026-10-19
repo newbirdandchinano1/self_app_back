@@ -30,7 +30,7 @@ router.post('/health-intake', async (req, res, next) => {
 
 /**
  * DELETE /uploads/health-intake
- * body: { uri: /uploads/health-intake/xxx.jpg }
+ * body: { uri: /uploads/images/... 或旧路径 /uploads/health-intake/... }
  */
 router.delete('/health-intake', async (req, res, next) => {
   try {

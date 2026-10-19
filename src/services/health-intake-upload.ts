@@ -1,12 +1,12 @@
-import { randomUUID } from 'crypto';
-import { mkdir, unlink, writeFile } from 'fs/promises';
+import { mkdir, unlink } from 'fs/promises';
 import path from 'path';
+import { HEALTH_INTAKE_UPLOAD_DIR } from '../config/uploads.js';
 import {
-  HEALTH_INTAKE_MAX_BYTES,
-  HEALTH_INTAKE_MIME_EXT,
-  HEALTH_INTAKE_PUBLIC_PREFIX,
-  HEALTH_INTAKE_UPLOAD_DIR,
-} from '../config/uploads.js';
+  StoredImageError,
+  deleteStoredImage,
+  isStoredImageUri,
+  saveStoredImage,
+} from './stored-images.js';
 
 export class UploadError extends Error {
   constructor(
@@ -27,58 +27,31 @@ export async function ensureHealthIntakeUploadDir(): Promise<void> {
   await mkdir(HEALTH_INTAKE_UPLOAD_DIR, { recursive: true });
 }
 
-function sniffImageExt(buf: Buffer): string | null {
-  if (buf.length < 12) return null;
-  if (buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return '.jpg';
-  if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) return '.png';
-  if (buf[0] === 0x47 && buf[1] === 0x49 && buf[2] === 0x46) return '.gif';
-  if (buf.toString('ascii', 0, 4) === 'RIFF' && buf.toString('ascii', 8, 12) === 'WEBP') {
-    return '.webp';
+function rethrowAsUploadError(err: unknown): never {
+  if (err instanceof StoredImageError) {
+    throw new UploadError(err.message, err.status);
   }
-  return null;
+  throw err;
 }
 
-function parseImagePayload(raw: unknown): Buffer {
-  if (typeof raw !== 'string' || !raw.trim()) {
-    throw new UploadError('请选择要上传的图片');
-  }
-  const text = raw.trim();
-  const dataUrl = text.match(/^data:([^;,]+);base64,(.+)$/i);
-  const base64 = dataUrl ? dataUrl[2] : text.replace(/\s/g, '');
-  let buf: Buffer;
-  try {
-    buf = Buffer.from(base64, 'base64');
-  } catch {
-    throw new UploadError('图片数据无效');
-  }
-  if (!buf.length) throw new UploadError('图片数据无效');
-  if (buf.length > HEALTH_INTAKE_MAX_BYTES) {
-    throw new UploadError('图片不能超过 8MB');
-  }
-  return buf;
-}
-
+/**
+ * 健康摄入来源图：走统一图片库保存，purpose 固定为 health-intake。
+ * 返回仍是 `{ uri, filename }`，兼容旧 admin 调用方；uri 为 `/uploads/images/...`。
+ */
 export async function saveHealthIntakeImage(input: {
   data?: unknown;
   mime?: unknown;
 }): Promise<SavedHealthIntakeImage> {
-  const buf = parseImagePayload(input.data);
-  const sniffed = sniffImageExt(buf);
-  const mime = typeof input.mime === 'string' ? input.mime.trim().toLowerCase() : '';
-  const fromMime = HEALTH_INTAKE_MIME_EXT[mime];
-  const ext = sniffed ?? fromMime;
-  if (!ext) {
-    throw new UploadError('仅支持 jpg / png / webp / gif 图片');
+  try {
+    const saved = await saveStoredImage({
+      data: input.data,
+      mime: input.mime,
+      purpose: 'health-intake',
+    });
+    return { uri: saved.uri, filename: saved.filename };
+  } catch (err) {
+    rethrowAsUploadError(err);
   }
-
-  await ensureHealthIntakeUploadDir();
-  const filename = `${randomUUID()}${ext}`;
-  await writeFile(path.join(HEALTH_INTAKE_UPLOAD_DIR, filename), buf);
-
-  return {
-    uri: `${HEALTH_INTAKE_PUBLIC_PREFIX}/${filename}`,
-    filename,
-  };
 }
 
 const HEALTH_INTAKE_URI_RE = /^\/uploads\/health-intake\/([A-Za-z0-9._-]+)$/;
@@ -96,8 +69,23 @@ function resolveHealthIntakeFile(uri: unknown): { filename: string; absPath: str
   return { filename, absPath };
 }
 
-/** 删除系统目录下的健康摄入来源图片；非本目录路径则忽略 */
-export async function deleteHealthIntakeImage(uri: unknown): Promise<{ deleted: boolean; filename: string | null }> {
+/**
+ * 删除健康摄入来源图：
+ * - `/uploads/images/...` → 统一登记表删除
+ * - `/uploads/health-intake/...` → 旧目录按文件名删除（兼容历史文件）
+ */
+export async function deleteHealthIntakeImage(
+  uri: unknown,
+): Promise<{ deleted: boolean; filename: string | null }> {
+  if (isStoredImageUri(uri)) {
+    try {
+      const result = await deleteStoredImage({ uri });
+      return { deleted: result.deleted, filename: result.filename };
+    } catch (err) {
+      rethrowAsUploadError(err);
+    }
+  }
+
   const resolved = resolveHealthIntakeFile(uri);
   if (!resolved) {
     throw new UploadError('只能删除系统上传的来源图片');

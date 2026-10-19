@@ -1,6 +1,8 @@
+import { mkdir } from 'fs/promises';
 import './bootstrap/timezone.js';
 import app from './app.js';
 import { config, syncConfig } from './config/index.js';
+import { IMAGES_UPLOAD_DIR } from './config/uploads.js';
 import { testConnection } from './db/index.js';
 import { runPendingMigrations } from './db/migrations/index.js';
 import { initAdminTable } from './db/init-admin.js';
@@ -30,6 +32,7 @@ async function bootstrap() {
   await initAdminTable();
   await ensureInboxCatalogSeed();
   await ensureHealthIntakeUploadDir();
+  await mkdir(IMAGES_UPLOAD_DIR, { recursive: true });
 
   if (syncConfig.cleanupEnabled) {
     startSyncChangeLogCleanupScheduler({

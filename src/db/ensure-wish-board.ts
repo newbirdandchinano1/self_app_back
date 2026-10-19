@@ -18,9 +18,9 @@ export async function ensureWishBoardTables(): Promise<void> {
       CREATE TABLE wish_board_items (
         id VARCHAR(36) NOT NULL,
         title VARCHAR(80) NOT NULL COMMENT '心愿标题',
-        description VARCHAR(500) NULL COMMENT '描述（可选），对应添加弹层「描述」',
+        description TEXT NULL COMMENT '描述（可选，可含图片 uri 标记）',
         cost_points DECIMAL(12,2) NOT NULL DEFAULT 0 COMMENT '兑换所需积分，>=0，可含小数',
-        note VARCHAR(500) NULL COMMENT '备注（可与 description 对齐）',
+        note TEXT NULL COMMENT '备注（可与 description 对齐）',
         icon_key VARCHAR(64) NULL COMMENT '图标 key，如 card-giftcard / movie',
         wish_type VARCHAR(16) NOT NULL DEFAULT 'once' COMMENT 'once=一次性，repeat=重复性',
         status VARCHAR(16) NOT NULL DEFAULT 'active' COMMENT 'active | redeemed',
@@ -53,7 +53,7 @@ async function ensureWishBoardItemColumns(): Promise<void> {
   await ensureColumn(
     'wish_board_items',
     'description',
-    `VARCHAR(500) NULL COMMENT '描述（可选），对应添加弹层「描述」'`,
+    `TEXT NULL COMMENT '描述（可选，可含图片 uri 标记）'`,
     { after: 'title' },
   );
 

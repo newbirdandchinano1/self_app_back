@@ -20,3 +20,16 @@ export const HEALTH_INTAKE_MIME_EXT: Record<string, string> = {
   'image/webp': '.webp',
   'image/gif': '.gif',
 };
+
+/** 统一图片子目录：uploads/images/{uuid}.ext */
+export const IMAGES_DIR_NAME = 'images';
+
+export const IMAGES_UPLOAD_DIR = path.join(UPLOAD_ROOT, IMAGES_DIR_NAME);
+
+/** 入库与对外访问的 URL 前缀 */
+export const IMAGES_PUBLIC_PREFIX = `/uploads/${IMAGES_DIR_NAME}`;
+
+/** 与健康摄入共用同一上限和 mime 表，不另写一份数字 */
+export const IMAGES_MAX_BYTES = HEALTH_INTAKE_MAX_BYTES;
+
+export const IMAGES_MIME_EXT = HEALTH_INTAKE_MIME_EXT;

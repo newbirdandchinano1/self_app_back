@@ -16,6 +16,7 @@ import profileRouter from './profile.js';
 import crudRouter from './crud.js';
 import syncRouter from './sync.js';
 import inboxRouter from './inbox.js';
+import imagesRouter from './images.js';
 
 /**
  * App-facing API (mobile / client).
@@ -50,6 +51,7 @@ router.use(financeRouter);
 router.use(reviewRouter);
 router.use(profileRouter);
 router.use(inboxRouter);
+router.use(imagesRouter);
 router.use(crudRouter);
 
 export default router;

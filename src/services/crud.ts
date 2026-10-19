@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'crypto';
 import type { ResultSetHeader, RowDataPacket } from 'mysql2';
 import type { PoolConnection } from 'mysql2/promise';
 import { db } from '../db/index.js';
+import { syncMemoStoredImages, readMemoBody } from './memo-stored-images.js';
 import {
   type AllowedTable,
   ADMIN_AUTO_MANAGED_COLUMNS,
@@ -885,6 +886,11 @@ export async function createRecord(
     await db.query(insertSql, values);
   }
 
+  if (table === 'memos') {
+    const body = typeof payload.body === 'string' ? payload.body : '';
+    await syncMemoStoredImages(pk, '', body);
+  }
+
   return getRecord(table, pk);
 }
 
@@ -938,6 +944,19 @@ export async function updateRecord(
   }
 
   await validateForeignKeys(table, payload);
+
+  let memoImageSync: { previous: string; next: string } | null = null;
+  if (table === 'memos') {
+    const deleting = payload.sync_status === 'pending_delete';
+    const bodyChanging = typeof payload.body === 'string';
+    if (deleting || bodyChanging) {
+      const previous = await readMemoBody(pkValue);
+      memoImageSync = {
+        previous,
+        next: deleting ? '' : String(payload.body),
+      };
+    }
+  }
 
   const sets = keys.map((k) => `${quoteIdent(k)} = ?`).join(', ');
   const values = [...keys.map((k) => payload[k]), pkValue];
@@ -1009,6 +1028,10 @@ export async function updateRecord(
     }
   }
 
+  if (memoImageSync) {
+    await syncMemoStoredImages(pkValue, memoImageSync.previous, memoImageSync.next);
+  }
+
   return getRecord(table, pkValue);
 }
 
@@ -1033,10 +1056,12 @@ export async function deleteRecord(
   }
 
   const pk = getPrimaryKey(table);
+  const previousMemoBody = table === 'memos' ? await readMemoBody(pkValue) : '';
   const deleteSql = `DELETE FROM ${quoteIdent(table)} WHERE ${quoteIdent(pk)} = ?`;
 
+  let deleted = false;
   if (shouldAppendChangeLog(table, pkValue)) {
-    return withSyncTransaction(async (conn) => {
+    deleted = await withSyncTransaction(async (conn) => {
       const del = await deleteLiveWithRevision(conn, table, pkValue, {
         mutationId,
         expectedRev,
@@ -1054,10 +1079,15 @@ export async function deleteRecord(
       ]);
       return true;
     });
+  } else {
+    const [result] = await db.query<ResultSetHeader>(deleteSql, [pkValue]);
+    deleted = result.affectedRows > 0;
   }
 
-  const [result] = await db.query<ResultSetHeader>(deleteSql, [pkValue]);
-  return result.affectedRows > 0;
+  if (deleted && table === 'memos') {
+    await syncMemoStoredImages(pkValue, previousMemoBody, '');
+  }
+  return deleted;
 }
 
 export async function listTableNames() {

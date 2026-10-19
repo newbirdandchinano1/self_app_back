@@ -4,3 +4,5 @@ dist/
 *.log
 uploads/health-intake/*
 !uploads/health-intake/.gitkeep
+uploads/images/*
+!uploads/images/.gitkeep

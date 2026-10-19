@@ -14,6 +14,8 @@ import { ensureUsersPersonaPortraitColumn } from '../ensure-users-persona-portra
 import { ensureWishBoardTables } from '../ensure-wish-board.js';
 import { ensureLifeRoadTables } from '../ensure-life-road.js';
 import { ensureAppInboxTable } from '../ensure-app-inbox.js';
+import { ensureStoredImagesTable } from '../ensure-stored-images.js';
+import { ensureWishBoardDescriptionText } from '../ensure-wish-board-description-text.js';
 import type { Migration } from './types.js';
 
 /**
@@ -37,4 +39,6 @@ export const MIGRATIONS: readonly Migration[] = [
   { id: '014_life_road', up: ensureLifeRoadTables },
   { id: '015_memos_body_mediumtext', up: ensureMemosBodyMediumText },
   { id: '016_app_inbox', up: ensureAppInboxTable },
+  { id: '017_stored_images', up: ensureStoredImagesTable },
+  { id: '018_wish_board_description_text', up: ensureWishBoardDescriptionText },
 ];
