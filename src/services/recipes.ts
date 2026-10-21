@@ -45,10 +45,21 @@ type RecipeRow = {
   steps_json: string;
   notes: string | null;
   finished_image_uri: string | null;
+  times_cooked: number;
+  last_cooked_at: string | null;
   created_at: string;
   updated_at: string;
   sync_status: string;
 };
+
+const RECIPE_SELECT_COLS = `id, category_id, title, ingredients_json, steps_json, notes,
+            finished_image_uri, times_cooked, last_cooked_at, created_at, updated_at, sync_status`;
+
+function normalizeTimesCooked(raw: unknown): number {
+  const n = typeof raw === 'number' ? raw : typeof raw === 'string' ? Number(raw) : 0;
+  if (!Number.isFinite(n) || n < 0) return 0;
+  return Math.min(Math.floor(n), 999_999);
+}
 
 function nowUtcMysql(): string {
   return formatUtcMySQLDateTime(new Date());
@@ -115,6 +126,8 @@ function formatRecipe(row: RecipeRow, { parseJson = true }: { parseJson?: boolea
       steps_json: parseJson ? parseJsonField(row.steps_json) : row.steps_json,
       notes: row.notes,
       finished_image_uri: row.finished_image_uri,
+      times_cooked: normalizeTimesCooked(row.times_cooked),
+      last_cooked_at: row.last_cooked_at,
       created_at: row.created_at,
       updated_at: row.updated_at,
       sync_status: row.sync_status,
@@ -138,8 +151,7 @@ async function getActiveCategory(id: string): Promise<CategoryRow | null> {
 
 async function getActiveRecipe(id: string): Promise<RecipeRow | null> {
   const [rows] = await db.query<RowDataPacket[]>(
-    `SELECT id, category_id, title, ingredients_json, steps_json, notes,
-            finished_image_uri, created_at, updated_at, sync_status
+    `SELECT ${RECIPE_SELECT_COLS}
      FROM recipe_items
      WHERE id = ? AND ${ACTIVE_RECIPE_SQL}
      LIMIT 1`,
@@ -184,8 +196,7 @@ export async function listRecipesByCategory(categoryId: string) {
   if (!category) throw new RecipeError('分类不存在', 404);
 
   const [rows] = await db.query<RowDataPacket[]>(
-    `SELECT id, category_id, title, ingredients_json, steps_json, notes,
-            finished_image_uri, created_at, updated_at, sync_status
+    `SELECT ${RECIPE_SELECT_COLS}
      FROM recipe_items
      WHERE category_id = ? AND ${ACTIVE_RECIPE_SQL}
      ORDER BY created_at ASC, id ASC`,
@@ -202,8 +213,7 @@ export async function listRecipesByCategory(categoryId: string) {
 export async function listAllRecipeItems(opts?: { parseJson?: boolean }) {
   const parseJson = opts?.parseJson !== false;
   const [rows] = await db.query<RowDataPacket[]>(
-    `SELECT id, category_id, title, ingredients_json, steps_json, notes,
-            finished_image_uri, created_at, updated_at, sync_status
+    `SELECT ${RECIPE_SELECT_COLS}
      FROM recipe_items
      WHERE ${ACTIVE_RECIPE_SQL}
      ORDER BY created_at ASC, id ASC`,
@@ -426,6 +436,8 @@ export type CreateRecipeInput = {
   steps_json: unknown;
   notes?: unknown;
   finished_image_uri?: unknown;
+  times_cooked?: unknown;
+  last_cooked_at?: unknown;
 };
 
 /** 新建菜谱 */
@@ -448,12 +460,27 @@ export async function createRecipe(input: CreateRecipeInput, options?: SyncWrite
 
   try {
     await withSyncTransaction(async (conn) => {
+      const timesCooked = normalizeTimesCooked(input.times_cooked);
+      const lastCookedAt =
+        input.last_cooked_at == null ? null : asTrimmedString(input.last_cooked_at) || null;
       await conn.query(
         `INSERT INTO recipe_items
            (id, category_id, title, ingredients_json, steps_json, notes,
-            finished_image_uri, created_at, updated_at, sync_status)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced')`,
-        [id, categoryId, title, ingredientsJson, stepsJson, notes, finishedImageUri, now, now],
+            finished_image_uri, times_cooked, last_cooked_at, created_at, updated_at, sync_status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced')`,
+        [
+          id,
+          categoryId,
+          title,
+          ingredientsJson,
+          stepsJson,
+          notes,
+          finishedImageUri,
+          timesCooked,
+          lastCookedAt,
+          now,
+          now,
+        ],
       );
       const stamp = await stampLiveUpsert(conn, 'recipe_items', id, {
         mode: 'insert',
@@ -490,6 +517,8 @@ export type UpdateRecipeInput = {
   steps_json?: unknown;
   notes?: unknown;
   finished_image_uri?: unknown;
+  times_cooked?: unknown;
+  last_cooked_at?: unknown;
 };
 
 /** 编辑菜谱 */
@@ -539,6 +568,16 @@ export async function updateRecipe(
       input.finished_image_uri == null
         ? null
         : asTrimmedString(input.finished_image_uri) || null,
+    );
+  }
+  if (input.times_cooked !== undefined) {
+    updates.push('times_cooked = ?');
+    values.push(normalizeTimesCooked(input.times_cooked));
+  }
+  if (input.last_cooked_at !== undefined) {
+    updates.push('last_cooked_at = ?');
+    values.push(
+      input.last_cooked_at == null ? null : asTrimmedString(input.last_cooked_at) || null,
     );
   }
 
