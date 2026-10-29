@@ -39,11 +39,9 @@ export const syncConfig = {
   cleanupEnabled: process.env.SYNC_CHANGE_LOG_CLEANUP_ENABLED !== 'false',
 };
 
-export const zhipuConfig = {
-  apiKey:
-    process.env.ZHIPU_API_KEY ||
-    process.env.EXPO_PUBLIC_ZHIPU_API_KEY ||
-    'd0ab5a5e402040d291d9b77f58996d32.nL1sXtGfaUMXzW7W',
-  textModel: process.env.ZHIPU_TEXT_MODEL || 'glm-4-flash',
-  visionModel: process.env.ZHIPU_VISION_MODEL || 'glm-4.6v-flash',
+/** 场景 AI 已迁至 selfAPP_AIAgent；后端仅代调 Agent（如备忘落库点评） */
+export const agentConfig = {
+  baseUrl: (process.env.AGENT_BASE_URL || 'http://localhost:8000').replace(/\/+$/, ''),
+  apiKey: process.env.AGENT_API_KEY || 'change-me',
+  timeoutMs: parseInt(process.env.AGENT_TIMEOUT_MS || '120000', 10),
 };

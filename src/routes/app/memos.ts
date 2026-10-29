@@ -92,9 +92,9 @@ router.delete('/memos/:id', async (req, res, next) => {
 });
 
 /**
- * POST /memos/:id/ai-review — AI 分析备忘并存库
- * 复用 analyzeMemoReviewFromText，写入 ai_evaluation / ai_suggestions / ai_review_at
- * 纯分析不存库仍可用 POST /api/app/ai/memo/review
+ * POST /memos/:id/ai-review — 代调 Agent 分析备忘并存库
+ * 写入 ai_evaluation / ai_suggestions / ai_review_at
+ * 纯分析不存库请直连 Agent：POST /api/v1/ai/memo/review
  */
 router.post('/memos/:id/ai-review', async (req, res, next) => {
   try {

@@ -14,7 +14,7 @@ import {
 import { plainTextFromMemoBody } from './memo-plain-text.js';
 import { syncMemoStoredImages } from './memo-stored-images.js';
 import { deleteLiveWithRevision, stampLiveUpsert, throwTombstoneConflict } from './sync-revision.js';
-import { AiScenarioError, analyzeMemoReviewFromText } from './zhipu/scenarios.js';
+import { AgentAiError, agentAnalyzeMemoReview } from './agent-ai-client.js';
 
 export class MemoError extends Error {
   constructor(
@@ -428,11 +428,11 @@ export async function analyzeAndPersistMemoReview(
   let evaluation: string;
   let suggestions: string;
   try {
-    const result = await analyzeMemoReviewFromText(contextText);
+    const result = await agentAnalyzeMemoReview(contextText);
     evaluation = result.evaluation;
     suggestions = result.suggestions;
   } catch (err) {
-    if (err instanceof AiScenarioError) {
+    if (err instanceof AgentAiError) {
       throw new MemoError(err.message, err.httpStatus);
     }
     throw err;

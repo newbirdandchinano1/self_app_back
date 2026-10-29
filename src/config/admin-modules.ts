@@ -112,7 +112,7 @@ export const ADMIN_MODULES: readonly AdminModuleDef[] = [
     id: 'ai',
     title: 'AI模块',
     tables: [],
-    emptyHint: '暂无独立数据表。AI 能力通过 /api/app/ai 等接口提供，点评等字段写在各业务表中。',
+    emptyHint: '暂无独立数据表。场景 AI 由 selfAPP_AIAgent 提供；点评等字段写在各业务表中。',
   },
 ] as const;
 

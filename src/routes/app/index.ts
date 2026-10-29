@@ -2,7 +2,6 @@ import { Router } from 'express';
 import { concurrencyConfig } from '../../config/index.js';
 import { createConcurrencyMiddleware } from '../../middlewares/concurrency.js';
 import authRouter from './auth.js';
-import aiRouter from './ai.js';
 import pagesRouter from './pages.js';
 import calendarRouter from './calendar.js';
 import pointsRouter from './points.js';
@@ -21,6 +20,7 @@ import imagesRouter from './images.js';
 /**
  * App-facing API (mobile / client).
  * Mount prefix: /api/app
+ * 场景 AI 已迁至 selfAPP_AIAgent（/api/v1/ai）；本服务仅保留业务 CRUD / 同步 / 备忘落库点评等。
  */
 const router = Router();
 
@@ -29,14 +29,7 @@ const apiConcurrency = createConcurrencyMiddleware(
   concurrencyConfig.apiMax,
   concurrencyConfig.enabled,
 );
-const aiConcurrency = createConcurrencyMiddleware(
-  'ai',
-  concurrencyConfig.aiMax,
-  concurrencyConfig.enabled,
-);
 
-// AI 走独立限流；其余路由只挂一次 apiConcurrency，避免同一响应重复注册 finish/close
-router.use('/ai', aiConcurrency, aiRouter);
 router.use(apiConcurrency);
 router.use('/auth', authRouter);
 router.use('/sync', syncRouter);
