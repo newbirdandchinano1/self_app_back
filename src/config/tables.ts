@@ -40,6 +40,15 @@ export const ALLOWED_TABLES = [
   'tags',
   'recipe_categories',
   'recipe_items',
+  'wardrobe_closets',
+  'wardrobe_categories',
+  'wardrobe_items',
+  'wardrobe_occasions',
+  'wardrobe_outfits',
+  'wardrobe_outfit_items',
+  'wardrobe_wear_logs',
+  'wardrobe_option_values',
+  'wardrobe_body_profile',
   'review_columns',
   'review_dimensions',
   'savings_plan_deposits',
@@ -75,6 +84,15 @@ export const CLIENT_ID_TABLES: readonly AllowedTable[] = [
   'tag_links',
   'tags',
   'task_categories',
+  'wardrobe_closets',
+  'wardrobe_categories',
+  'wardrobe_items',
+  'wardrobe_occasions',
+  'wardrobe_outfits',
+  'wardrobe_outfit_items',
+  'wardrobe_wear_logs',
+  'wardrobe_option_values',
+  'wardrobe_body_profile',
 ];
 
 /**
@@ -105,6 +123,32 @@ export const TABLE_FOREIGN_KEYS: Partial<
   recipe_items: {
     category_id: 'recipe_categories',
   },
+  wardrobe_categories: {
+    closet_id: 'wardrobe_closets',
+  },
+  wardrobe_items: {
+    closet_id: 'wardrobe_closets',
+    category_id: 'wardrobe_categories',
+  },
+  wardrobe_outfits: {
+    closet_id: 'wardrobe_closets',
+    occasion_id: 'wardrobe_occasions',
+  },
+  wardrobe_outfit_items: {
+    outfit_id: 'wardrobe_outfits',
+    item_id: 'wardrobe_items',
+  },
+  wardrobe_wear_logs: {
+    closet_id: 'wardrobe_closets',
+    item_id: 'wardrobe_items',
+    outfit_id: 'wardrobe_outfits',
+  },
+  wardrobe_option_values: {
+    closet_id: 'wardrobe_closets',
+  },
+  wardrobe_body_profile: {
+    closet_id: 'wardrobe_closets',
+  },
   finance_scheduled_expenses: {
     account_id: 'finance_accounts',
     flow_category_id: 'finance_flow_categories',
@@ -118,6 +162,13 @@ export const TABLE_SYNC_DEPENDS_ON: Partial<Record<AllowedTable, AllowedTable[]>
   projects: ['project_categories', 'life_bets'],
   tag_links: ['tags'],
   recipe_items: ['recipe_categories'],
+  wardrobe_categories: ['wardrobe_closets'],
+  wardrobe_items: ['wardrobe_closets', 'wardrobe_categories'],
+  wardrobe_outfits: ['wardrobe_closets', 'wardrobe_occasions'],
+  wardrobe_outfit_items: ['wardrobe_outfits', 'wardrobe_items'],
+  wardrobe_wear_logs: ['wardrobe_closets', 'wardrobe_items', 'wardrobe_outfits'],
+  wardrobe_option_values: ['wardrobe_closets'],
+  wardrobe_body_profile: ['wardrobe_closets'],
   finance_scheduled_expenses: ['finance_accounts', 'finance_flow_categories'],
   finance_transactions: ['finance_accounts', 'finance_flow_categories'],
 };
@@ -214,6 +265,34 @@ export const TABLE_ENUM_COLUMNS: Partial<
     horizon: LIFE_BET_HORIZON_OPTIONS,
     status: LIFE_BET_STATUS_OPTIONS,
   },
+  wardrobe_items: {
+    status: [
+      { value: 'active', label: '在用' },
+      { value: 'archived', label: '归档' },
+      { value: 'disposed', label: '已处理' },
+    ],
+  },
+  wardrobe_outfits: {
+    status: [
+      { value: 'active', label: '在用' },
+      { value: 'archived', label: '归档' },
+    ],
+  },
+  wardrobe_wear_logs: {
+    source: [
+      { value: 'item', label: '单品' },
+      { value: 'outfit', label: '搭配' },
+      { value: 'manual_day', label: '手动日标记' },
+    ],
+  },
+  wardrobe_option_values: {
+    kind: [
+      { value: 'color', label: '颜色' },
+      { value: 'brand', label: '品牌' },
+      { value: 'season', label: '季节' },
+      { value: 'fit', label: '版型/尺码' },
+    ],
+  },
 };
 
 /** 写入时明文字段 -> 哈希字段 */
@@ -251,6 +330,16 @@ export const GENERIC_WRITE_FORBIDDEN_TABLES = {
   health_records: 'POST/PUT/PATCH/DELETE /api/app/health/intakes',
   recipe_categories: 'POST/PATCH/DELETE /api/app/recipes/categories',
   recipe_items: 'POST/PUT/DELETE /api/app/recipes',
+  wardrobe_closets: 'POST/PATCH/DELETE /api/app/wardrobe/closets',
+  wardrobe_categories: 'POST/PATCH/DELETE /api/app/wardrobe/categories',
+  wardrobe_items: 'POST/PUT/PATCH/DELETE /api/app/wardrobe/items',
+  wardrobe_occasions: 'POST/PATCH/DELETE /api/app/wardrobe/occasions',
+  wardrobe_outfits: 'POST/PUT/PATCH/DELETE /api/app/wardrobe/outfits',
+  wardrobe_outfit_items: 'POST/PUT/PATCH/DELETE /api/app/wardrobe/outfits（关联随搭配重建）',
+  wardrobe_wear_logs:
+    'POST /api/app/wardrobe/wear/item、POST /api/app/wardrobe/wear/outfit、DELETE /api/app/wardrobe/wear/logs/:id',
+  wardrobe_option_values: 'POST/PATCH/DELETE /api/app/wardrobe/options',
+  wardrobe_body_profile: 'GET/PUT /api/app/wardrobe/body-profile',
   /** 课表仅视图/排课层：写入走 frog-schedule 专用接口 */
   schedule_placements: 'POST /api/app/pages/tasks/frog-schedule/placement',
   schedule_week_axis_snapshot:

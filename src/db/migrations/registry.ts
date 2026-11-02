@@ -16,6 +16,7 @@ import { ensureLifeRoadTables } from '../ensure-life-road.js';
 import { ensureAppInboxTable } from '../ensure-app-inbox.js';
 import { ensureStoredImagesTable } from '../ensure-stored-images.js';
 import { ensureWishBoardDescriptionText } from '../ensure-wish-board-description-text.js';
+import { ensureWardrobeTables } from '../ensure-wardrobe.js';
 import type { Migration } from './types.js';
 
 /**
@@ -41,4 +42,7 @@ export const MIGRATIONS: readonly Migration[] = [
   { id: '016_app_inbox', up: ensureAppInboxTable },
   { id: '017_stored_images', up: ensureStoredImagesTable },
   { id: '018_wish_board_description_text', up: ensureWishBoardDescriptionText },
+  { id: '019_wardrobe', up: ensureWardrobeTables },
+  /** 补齐文档 §3.8/3.9；019 已跑过的环境靠本条幂等补表 */
+  { id: '020_wardrobe_option_body', up: ensureWardrobeTables },
 ];

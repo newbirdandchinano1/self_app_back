@@ -78,6 +78,16 @@ export const SYNC_CHANGE_LOG_TABLES = new Set<string>([
   // Phase 4 — 菜谱
   'recipe_categories',
   'recipe_items',
+  // 衣橱
+  'wardrobe_closets',
+  'wardrobe_categories',
+  'wardrobe_items',
+  'wardrobe_occasions',
+  'wardrobe_outfits',
+  'wardrobe_outfit_items',
+  'wardrobe_wear_logs',
+  'wardrobe_option_values',
+  'wardrobe_body_profile',
   // Phase 4 — 健康
   'health_records',
   'health_daily_targets',

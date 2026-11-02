@@ -8,6 +8,7 @@ export type AdminModuleId =
   | 'review'
   | 'profile'
   | 'recipes'
+  | 'wardrobe'
   | 'memos'
   | 'points'
   | 'system'
@@ -92,6 +93,21 @@ export const ADMIN_MODULES: readonly AdminModuleDef[] = [
     id: 'recipes',
     title: '菜谱模块',
     tables: ['recipe_categories', 'recipe_items'],
+  },
+  {
+    id: 'wardrobe',
+    title: '衣橱模块',
+    tables: [
+      'wardrobe_closets',
+      'wardrobe_categories',
+      'wardrobe_items',
+      'wardrobe_occasions',
+      'wardrobe_outfits',
+      'wardrobe_outfit_items',
+      'wardrobe_wear_logs',
+      'wardrobe_option_values',
+      'wardrobe_body_profile',
+    ],
   },
   {
     id: 'memos',
