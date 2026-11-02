@@ -3,6 +3,8 @@
 SelfAPP 业务后端（Express + MySQL）：登录鉴权、业务 CRUD / 页面聚合、增量同步。  
 场景 AI（智谱）已迁至 **selfAPP_AIAgent**；本服务仅在需要落库时代调 Agent（如备忘 AI 点评）。
 
+任务 `status` 枚举（`TASK_STATUS_OPTIONS`）：`todo` / `doing` / `blocked` / `done` / `cancelled` / `shelved`，与 App 编辑页状态芯片一致。
+
 ## 开发
 
 ```bash
@@ -43,7 +45,7 @@ App 对接说明见：`../selfApp/AI_API.md`；Agent 说明见：`../selfAPP_AIA
 | POST | `/api/app/wardrobe/wear/item` | 穿单品（幂等按日） |
 | POST | `/api/app/wardrobe/wear/outfit` | 穿搭配（展开单品日志） |
 | DELETE | `/api/app/wardrobe/wear/logs/:id` | 撤销穿着 |
-| GET | `/api/app/wardrobe/wear/week` | 周历 / 连续天数 |
+| GET | `/api/app/wardrobe/wear/week` | 周历 / 连续天数（App 衣橱首页周条 + 本周穿搭卡） |
 | GET | `/api/app/wardrobe/wear/item/:id/history` | 近 28 天点阵 |
 | GET/POST/PATCH/DELETE | `/api/app/wardrobe/options[/:id]` | 颜色/品牌/季节/版型词条 |
 | GET/PUT | `/api/app/wardrobe/body-profile` | 身材与默认尺码 |

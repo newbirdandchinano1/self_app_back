@@ -195,9 +195,11 @@ export const ADMIN_DEFAULT_SYNC_STATUS = 'synced';
 
 export type EnumOption = { value: string; label: string };
 
-/** 任务 status 固定取值（与 App 日历/列表过滤口径一致） */
+/** 任务 status 固定取值（与 App 编辑页芯片 / 日历 / 列表过滤口径一致） */
 export const TASK_STATUS_OPTIONS: readonly EnumOption[] = [
   { value: 'todo', label: '待办' },
+  { value: 'doing', label: '进行中' },
+  { value: 'blocked', label: '受阻' },
   { value: 'done', label: '已完成' },
   { value: 'cancelled', label: '已取消' },
   { value: 'shelved', label: '已搁置' },
