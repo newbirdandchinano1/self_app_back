@@ -17,6 +17,8 @@ import crudRouter from './crud.js';
 import syncRouter from './sync.js';
 import inboxRouter from './inbox.js';
 import imagesRouter from './images.js';
+import trendradarRouter from './trendradar.js';
+import newsRouter from './news.js';
 
 /**
  * App-facing API (mobile / client).
@@ -34,6 +36,9 @@ const apiConcurrency = createConcurrencyMiddleware(
 router.use(apiConcurrency);
 router.use('/auth', authRouter);
 router.use('/sync', syncRouter);
+// 必须在任何 `router.use(requireAuth)` 的路由之前挂载，保证 webhook 公开可达
+router.use('/trendradar', trendradarRouter);
+router.use(newsRouter);
 router.use(pagesRouter);
 router.use(calendarRouter);
 router.use(pointsRouter);

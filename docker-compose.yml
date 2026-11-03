@@ -34,6 +34,8 @@ services:
       PORT: "3000"
       TZ: Asia/Shanghai
       JWT_SECRET: ${JWT_SECRET:-self_app_dev_secret}
+      TRENDRADAR_WEBHOOK_TOKEN: ${TRENDRADAR_WEBHOOK_TOKEN:-}
+      NEWS_IMPORT_TOKEN: ${NEWS_IMPORT_TOKEN:-}
       ZHIPU_API_KEY: ${ZHIPU_API_KEY:-}
       ZHIPU_TEXT_MODEL: ${ZHIPU_TEXT_MODEL:-glm-4-flash}
       ZHIPU_VISION_MODEL: ${ZHIPU_VISION_MODEL:-glm-4.6v-flash}

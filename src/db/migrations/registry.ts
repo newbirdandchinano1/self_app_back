@@ -14,6 +14,7 @@ import { ensureUsersPersonaPortraitColumn } from '../ensure-users-persona-portra
 import { ensureWishBoardTables } from '../ensure-wish-board.js';
 import { ensureLifeRoadTables } from '../ensure-life-road.js';
 import { ensureLifeRoadNodesTables } from '../ensure-life-road-nodes.js';
+import { ensureTrendRadarSyncColumns, ensureTrendRadarTables } from '../ensure-trendradar.js';
 import { ensureAppInboxTable } from '../ensure-app-inbox.js';
 import { ensureStoredImagesTable } from '../ensure-stored-images.js';
 import { ensureWishBoardDescriptionText } from '../ensure-wish-board-description-text.js';
@@ -47,4 +48,6 @@ export const MIGRATIONS: readonly Migration[] = [
   /** 补齐文档 §3.8/3.9；019 已跑过的环境靠本条幂等补表 */
   { id: '020_wardrobe_option_body', up: ensureWardrobeTables },
   { id: '021_life_road_nodes', up: ensureLifeRoadNodesTables },
+  { id: '022_trendradar', up: ensureTrendRadarTables },
+  { id: '023_trendradar_sync_columns', up: ensureTrendRadarSyncColumns },
 ];

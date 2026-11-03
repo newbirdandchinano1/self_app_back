@@ -45,3 +45,16 @@ export const agentConfig = {
   apiKey: process.env.AGENT_API_KEY || 'zhengjiaxin',
   timeoutMs: parseInt(process.env.AGENT_TIMEOUT_MS || '120000', 10),
 };
+/** TrendRadar 热点推送（通用 Webhook 回调） */
+export const trendRadarConfig = {
+  /**
+   * 回调 URL 上的 ?token= 校验。
+   * 为空表示不校验（仅建议内网/临时使用）；线上请务必配置。
+   */
+  webhookToken: process.env.TRENDRADAR_WEBHOOK_TOKEN || '',
+};
+/** 结构化新闻导入（服务器同步脚本调 /api/news/import） */
+export const newsImportConfig = {
+  /** 脚本侧使用 Authorization: Bearer <token>；同时兼容管理员 JWT */
+  token: process.env.NEWS_IMPORT_TOKEN || '',
+};

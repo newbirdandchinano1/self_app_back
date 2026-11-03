@@ -55,9 +55,29 @@ App 对接说明见：`../selfApp/AI_API.md`；Agent 说明见：`../selfAPP_AIA
 
 同步：9 张 `wardrobe_*` 已进白名单 / Change Log / 禁通用写。
 
+## TrendRadar 热点
+
+两条入库路径（表：`trendradar_report` / `trendradar_report_batch` / `trendradar_news`；migration `022`/`023`）：
+
+1. **通用 Webhook**：TrendRadar → `POST /api/app/trendradar/webhook`（可选 `?token=`，对应 `TRENDRADAR_WEBHOOK_TOKEN`）
+2. **SQLite 同步脚本**：只读 `output/news/YYYY-MM-DD.db` → `POST /api/news/import`（`Authorization: Bearer <NEWS_IMPORT_TOKEN>`）
+
+服务器脚本（勿改 TrendRadar 源码）：`scripts/trendradar-sync-news.py`，建议部署到 `/opt/trendradar-sync/` 并用 cron 定时执行。
+
+| 方法 | 路径 | 鉴权 | 说明 |
+|------|------|------|------|
+| POST | `/api/app/trendradar/webhook` | 可选 token | 官方通用 Webhook |
+| GET | `/api/app/trendradar/reports` | 登录 | 报告列表 |
+| GET | `/api/app/trendradar/news` | 登录 | 报告条目 |
+| POST | `/api/news/import` | Bearer 导入令牌 | 同步脚本导入 |
+| GET | `/api/app/news/dates` | 登录 | 有数据的日期 |
+| GET | `/api/app/news/latest` | 登录 | 最新一天条目 |
+| GET | `/api/app/news/items` | 登录 | 指定日期条目 |
+
 ## 目录要点
 
-- `src/routes/app/` — App API（含 `wardrobe.ts`）
+- `src/routes/app/` — App API（含 `wardrobe.ts`、`trendradar.ts`、`news.ts`）
 - `src/services/agent-ai-client.ts` — 代调 Agent 场景 AI
-- `src/services/` — 业务服务（衣橱：`wardrobe.ts`）
-- `src/db/` — 建表 / 迁移辅助（衣橱 9 表：`ensure-wardrobe.ts` / `019_wardrobe` + `020_wardrobe_option_body`）
+- `src/services/` — 业务服务（衣橱：`wardrobe.ts`；热点：`trendradar.ts` / `news-import.ts`）
+- `src/db/` — 建表 / 迁移辅助（衣橱 9 表：`ensure-wardrobe.ts` / `019_wardrobe` + `020_wardrobe_option_body`；TrendRadar：`ensure-trendradar.ts`）
+- `scripts/trendradar-sync-news.py` — 服务器侧 SQLite → `/api/news/import` 同步脚本
