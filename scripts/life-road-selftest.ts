@@ -1,5 +1,5 @@
 /**
- * 阶段 0：道路表 CRUD + 今年限额自测（连库）
+ * 道路表 CRUD + 年季月节点槽位唯一自测（连库）
  * 运行：npx tsx scripts/life-road-selftest.ts
  */
 import '../src/bootstrap/timezone.js';
@@ -16,7 +16,6 @@ import {
   updateRecord,
 } from '../src/services/crud.js';
 import { isChangeLogTable } from '../src/services/sync-change-log.js';
-import { LIFE_BET_YEAR_ACTIVE_LIMIT } from '../src/services/life-road-validate.js';
 import { pullSnapshotTable, getSnapshotCursor0 } from '../src/services/sync-snapshot.js';
 
 let passed = 0;
@@ -51,12 +50,15 @@ async function main() {
   await runPendingMigrations();
   check('life_directions 在白名单', isAllowedTable('life_directions'));
   check('life_bets 在白名单', isAllowedTable('life_bets'));
+  check('life_road_nodes 在白名单', isAllowedTable('life_road_nodes'));
   check('life_directions 进 change log', isChangeLogTable('life_directions'));
   check('life_bets 进 change log', isChangeLogTable('life_bets'));
+  check('life_road_nodes 进 change log', isChangeLogTable('life_road_nodes'));
 
   const year = new Date().getFullYear();
   const dirId = makeId('ld_st_');
   const betIds: string[] = [];
+  const nodeIds: string[] = [];
 
   console.log('\n=== life_directions CRUD ===\n');
   try {
@@ -122,72 +124,53 @@ async function main() {
     check('snapshot', false, err instanceof Error ? err.message : String(err));
   }
 
-  console.log('\n=== 今年进行中限额 ===\n');
-  // 再造 4 条 on_track，加上已有 paused 共 5；第 6 条应 400
+  console.log('\n=== life_road_nodes 槽位唯一 ===\n');
   try {
-    for (let i = 0; i < LIFE_BET_YEAR_ACTIVE_LIMIT - 1; i += 1) {
-      const id = makeId(`lb_lim_${i}_`);
-      betIds.push(id);
-      await createRecord('life_bets', {
-        id,
-        title: `限额自测${i + 1}`,
-        horizon: 'year',
-        year,
-        status: 'on_track',
-      });
-    }
-    check(`已有 ${LIFE_BET_YEAR_ACTIVE_LIMIT} 条进行中`, true);
+    const monthId = makeId('lrn_m_');
+    nodeIds.push(monthId);
+    const created = await createRecord('life_road_nodes', {
+      id: monthId,
+      kind: 'month',
+      title: '本月焦点自测',
+      calendar_year: year,
+      month: 11,
+      status: 'on_track',
+    });
+    check('创建月节点', created?.id === monthId);
+    check('月节点自动补季度', Number(created?.quarter) === 4);
 
-    const sixthId = makeId('lb_lim_6_');
-    betIds.push(sixthId);
+    const dupId = makeId('lrn_dup_');
+    nodeIds.push(dupId);
     let blocked = false;
-    let status = 0;
     try {
-      await createRecord('life_bets', {
-        id: sixthId,
-        title: '第6条应被拒',
-        horizon: 'year',
-        year,
+      await createRecord('life_road_nodes', {
+        id: dupId,
+        kind: 'month',
+        title: '同月应被拒',
+        calendar_year: year,
+        month: 11,
         status: 'on_track',
       });
     } catch (err) {
       blocked = err instanceof CrudError && err.status >= 400 && err.status < 500;
-      status = err instanceof CrudError ? err.status : 0;
     }
-    check('第6条今年进行中被拒 4xx', blocked, `status=${status}`);
+    check('同月第二条被拒 4xx', blocked);
 
-    // 已抵达不占名额：先改一条为 arrived，再允许新建
-    await updateRecord('life_bets', betId, { status: 'arrived' });
-    const okId = makeId('lb_lim_ok_');
-    betIds.push(okId);
-    const ok = await createRecord('life_bets', {
-      id: okId,
-      title: '抵达后可再开一条',
-      horizon: 'year',
-      year,
+    const multiId = makeId('lrn_multi_');
+    nodeIds.push(multiId);
+    const multi = await createRecord('life_road_nodes', {
+      id: multiId,
+      kind: 'multi',
+      title: '多年方向自测',
       status: 'on_track',
     });
-    check('已抵达腾出名额后可创建', ok?.id === okId);
-
-    let yearMissing = false;
-    try {
-      const badId = makeId('lb_bad_');
-      betIds.push(badId);
-      await createRecord('life_bets', {
-        id: badId,
-        title: '缺年',
-        horizon: 'year',
-        status: 'on_track',
-      });
-    } catch (err) {
-      yearMissing = err instanceof CrudError && err.status === 400;
-    }
-    check('horizon=year 缺 year → 400', yearMissing);
+    check('创建多年节点', multi?.id === multiId);
   } catch (err) {
-    check('限额用例', false, err instanceof Error ? err.message : String(err));
+    check('life_road_nodes 用例', false, err instanceof Error ? err.message : String(err));
   }
 
   console.log('\n=== 清理 ===\n');
+  await cleanupIds('life_road_nodes', nodeIds);
   await cleanupIds('life_bets', betIds);
   await cleanupIds('life_directions', [dirId]);
   check('清理完成', true);

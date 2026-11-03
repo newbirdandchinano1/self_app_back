@@ -56,6 +56,11 @@ import {
   normalizeLifeBetWrite,
   normalizeLifeDirectionWrite,
 } from './life-road-validate.js';
+import {
+  assertLifeRoadNodeSlotUnique,
+  LifeRoadNodesError,
+  normalizeLifeRoadNodeWrite,
+} from './life-road-nodes-validate.js';
 
 /** 白名单表，或日界相关 app_settings 键 */
 function shouldAppendChangeLog(table: string, pk: string): boolean {
@@ -123,6 +128,9 @@ export class CrudError extends Error {
 
 function throwLifeRoadAsCrud(err: unknown): never {
   if (err instanceof LifeRoadError) {
+    throw new CrudError(err.message, err.status);
+  }
+  if (err instanceof LifeRoadNodesError) {
     throw new CrudError(err.message, err.status);
   }
   throw err;
@@ -393,6 +401,14 @@ async function normalizeWriteData(
   if (table === 'life_bets') {
     try {
       normalizeLifeBetWrite(result, isCreate);
+    } catch (err) {
+      throwLifeRoadAsCrud(err);
+    }
+  }
+
+  if (table === 'life_road_nodes') {
+    try {
+      normalizeLifeRoadNodeWrite(result, isCreate);
     } catch (err) {
       throwLifeRoadAsCrud(err);
     }
@@ -850,6 +866,14 @@ export async function createRecord(
     }
   }
 
+  if (table === 'life_road_nodes') {
+    try {
+      await assertLifeRoadNodeSlotUnique(payload, { isCreate: true });
+    } catch (err) {
+      throwLifeRoadAsCrud(err);
+    }
+  }
+
   await validateForeignKeys(table, payload);
 
   const keys = Object.keys(payload);
@@ -938,6 +962,17 @@ export async function updateRecord(
   if (table === 'life_bets') {
     try {
       await assertLifeBetYearRules(payload, { isCreate: false, excludeId: pkValue });
+    } catch (err) {
+      throwLifeRoadAsCrud(err);
+    }
+  }
+
+  if (table === 'life_road_nodes') {
+    try {
+      await assertLifeRoadNodeSlotUnique(payload, {
+        isCreate: false,
+        excludeId: pkValue,
+      });
     } catch (err) {
       throwLifeRoadAsCrud(err);
     }

@@ -27,6 +27,7 @@ export const ALLOWED_TABLES = [
   'health_records',
   'life_bets',
   'life_directions',
+  'life_road_nodes',
   'memo_dimensions',
   'memos',
   'monthly_review_journal',
@@ -78,6 +79,7 @@ export const CLIENT_ID_TABLES: readonly AllowedTable[] = [
   'wish_board_items',
   'life_bets',
   'life_directions',
+  'life_road_nodes',
   'project_categories',
   'projects',
   'schedule_placements',
@@ -113,6 +115,10 @@ export const TABLE_FOREIGN_KEYS: Partial<
   projects: {
     category_id: 'project_categories',
     life_bet_id: 'life_bets',
+    life_month_goal_id: 'life_road_nodes',
+  },
+  life_road_nodes: {
+    parent_id: 'life_road_nodes',
   },
   tag_links: {
     tag_id: 'tags',
@@ -159,7 +165,8 @@ export const TABLE_FOREIGN_KEYS: Partial<
 export const TABLE_SYNC_DEPENDS_ON: Partial<Record<AllowedTable, AllowedTable[]>> = {
   tasks: ['task_categories', 'project_categories', 'projects'],
   task_items: ['tasks'],
-  projects: ['project_categories', 'life_bets'],
+  projects: ['project_categories', 'life_bets', 'life_road_nodes'],
+  life_road_nodes: ['life_road_nodes'],
   tag_links: ['tags'],
   recipe_items: ['recipe_categories'],
   wardrobe_categories: ['wardrobe_closets'],
@@ -265,6 +272,16 @@ export const TABLE_ENUM_COLUMNS: Partial<
   },
   life_bets: {
     horizon: LIFE_BET_HORIZON_OPTIONS,
+    status: LIFE_BET_STATUS_OPTIONS,
+  },
+  life_road_nodes: {
+    kind: [
+      { value: 'multi', label: '多年' },
+      { value: 'farther', label: '更远' },
+      { value: 'year', label: '今年' },
+      { value: 'quarter', label: '季度' },
+      { value: 'month', label: '月' },
+    ],
     status: LIFE_BET_STATUS_OPTIONS,
   },
   wardrobe_items: {

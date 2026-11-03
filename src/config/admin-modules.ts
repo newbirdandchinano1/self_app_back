@@ -87,7 +87,7 @@ export const ADMIN_MODULES: readonly AdminModuleDef[] = [
   {
     id: 'profile',
     title: '个人信息模块',
-    tables: ['users', 'life_directions', 'life_bets'],
+    tables: ['users', 'life_directions', 'life_road_nodes', 'life_bets'],
   },
   {
     id: 'recipes',

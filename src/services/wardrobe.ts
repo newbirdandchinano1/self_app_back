@@ -47,7 +47,7 @@ const ITEM_COLS = `id, closet_id, category_id, name, brand, color, season, price
   purchased_on, status, wear_count, last_worn_on, note, extra_data,
   created_at, updated_at, sync_status, server_rev, mutation_id`;
 const OUTFIT_COLS = `id, closet_id, name, occasion_id, note, cover_item_id, wear_count, last_worn_on,
-  status, created_at, updated_at, sync_status, server_rev, mutation_id`;
+  status, created_at, updated_at, sync_status, extra_data, server_rev, mutation_id`;
 const OUTFIT_ITEM_COLS = `id, outfit_id, item_id, sort_order, created_at, updated_at, sync_status, server_rev, mutation_id`;
 const WEAR_LOG_COLS = `id, closet_id, worn_on, source, item_id, outfit_id, note,
   created_at, updated_at, sync_status, server_rev, mutation_id`;
@@ -139,6 +139,7 @@ type OutfitRow = {
   created_at: string;
   updated_at: string;
   sync_status: string;
+  extra_data: string | null;
   server_rev?: number;
   mutation_id?: string | null;
 };
@@ -360,7 +361,7 @@ function formatItem(row: ItemRow, { parseJson = true }: { parseJson?: boolean } 
   );
 }
 
-function formatOutfit(row: OutfitRow) {
+function formatOutfit(row: OutfitRow, parseJson = true) {
   return formatRecordDateTimesForApi(
     {
       id: row.id,
@@ -375,6 +376,7 @@ function formatOutfit(row: OutfitRow) {
       created_at: row.created_at,
       updated_at: row.updated_at,
       sync_status: row.sync_status,
+      extra_data: parseJson ? parseJsonField(row.extra_data) : row.extra_data,
       server_rev: row.server_rev ?? 1,
       mutation_id: row.mutation_id ?? null,
       version: 1,
@@ -854,6 +856,9 @@ export async function updateCategory(
   if (!id) throw new WardrobeError('id 不能为空');
   const existing = await getActiveCategory(id);
   if (!existing) throw await throwTombstoneConflict(db, 'wardrobe_categories', id);
+  if (id === UNCATEGORIZED_CATEGORY_ID && input.name !== undefined) {
+    throw new WardrobeError('不能重命名「未分类」');
+  }
 
   const updates: string[] = [];
   const values: unknown[] = [];
@@ -1693,7 +1698,14 @@ export type CreateOutfitInput = {
   cover_item_id?: unknown;
   status?: unknown;
   item_ids?: unknown;
+  extra_data?: unknown;
 };
+
+function normalizeOutfitExtraData(raw: unknown): string | null {
+  if (raw == null) return null;
+  if (typeof raw === 'string') return asOptionalString(raw);
+  return JSON.stringify(raw);
+}
 
 export async function createOutfit(input: CreateOutfitInput, options?: SyncWriteOptions) {
   const name = asTrimmedString(input.name);
@@ -1722,6 +1734,7 @@ export async function createOutfit(input: CreateOutfitInput, options?: SyncWrite
 
   const id = asTrimmedString(input.id) || randomUUID();
   const now = nowUtcMysql();
+  const extraData = normalizeOutfitExtraData(input.extra_data);
 
   try {
     await withSyncTransaction(async (conn) => {
@@ -1729,8 +1742,8 @@ export async function createOutfit(input: CreateOutfitInput, options?: SyncWrite
       await conn.query(
         `INSERT INTO wardrobe_outfits
            (id, closet_id, name, occasion_id, note, cover_item_id, wear_count, last_worn_on,
-            status, created_at, updated_at, sync_status)
-         VALUES (?, ?, ?, ?, ?, ?, 0, NULL, ?, ?, ?, 'synced')`,
+            status, created_at, updated_at, sync_status, extra_data)
+         VALUES (?, ?, ?, ?, ?, ?, 0, NULL, ?, ?, ?, 'synced', ?)`,
         [
           id,
           closetId,
@@ -1741,6 +1754,7 @@ export async function createOutfit(input: CreateOutfitInput, options?: SyncWrite
           status,
           now,
           now,
+          extraData,
         ],
       );
       const stamp = await stampLiveUpsert(conn, 'wardrobe_outfits', id, {
@@ -1812,6 +1826,10 @@ export async function updateOutfit(
     if (!OUTFIT_STATUSES.has(status)) throw new WardrobeError('status 无效');
     updates.push('status = ?');
     values.push(status);
+  }
+  if (input.extra_data !== undefined) {
+    updates.push('extra_data = ?');
+    values.push(normalizeOutfitExtraData(input.extra_data));
   }
 
   const replaceItems = input.item_ids !== undefined;

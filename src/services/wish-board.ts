@@ -37,6 +37,10 @@ type WishBoardRedeemConditions = {
   project_ids: string[];
   task_ids: string[];
   todo_ids: string[];
+  /** 养成/戒除周期目标已达成的小习惯；周期配额不纳入 */
+  habit_ids: string[];
+  /** 本地墙上时钟 `YYYY-MM-DD HH:mm:00`；到达后才可兑换 */
+  available_from: string | null;
 };
 
 function parseExtraObject(raw: unknown): Record<string, unknown> {
@@ -68,17 +72,131 @@ function normalizeIdList(raw: unknown): string[] {
   return out;
 }
 
+function normalizeAvailableFrom(raw: unknown): string | null {
+  if (raw == null || raw === '') return null;
+  if (typeof raw !== 'string' && typeof raw !== 'number') return null;
+  const text = String(raw).trim();
+  if (!text) return null;
+  const match = text.match(
+    /^(\d{4})-(\d{2})-(\d{2})(?:[T\s](\d{1,2}):(\d{2})(?::(\d{2}))?)?/,
+  );
+  if (!match) return null;
+  const y = Number(match[1]);
+  const mo = Number(match[2]);
+  const d = Number(match[3]);
+  const hh = match[4] != null ? Number(match[4]) : 0;
+  const mm = match[5] != null ? Number(match[5]) : 0;
+  if (
+    !Number.isFinite(y) ||
+    !Number.isFinite(mo) ||
+    !Number.isFinite(d) ||
+    mo < 1 ||
+    mo > 12 ||
+    d < 1 ||
+    d > 31 ||
+    hh < 0 ||
+    hh > 23 ||
+    mm < 0 ||
+    mm > 59
+  ) {
+    return null;
+  }
+  return `${String(y).padStart(4, '0')}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')} ${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}:00`;
+}
+
+function isAvailableFromMet(availableFrom: string | null, now = new Date()): boolean {
+  if (!availableFrom) return true;
+  const m = availableFrom.match(/^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})$/);
+  if (!m) return false;
+  const date = new Date(
+    Number(m[1]),
+    Number(m[2]) - 1,
+    Number(m[3]),
+    Number(m[4]),
+    Number(m[5]),
+    Number(m[6]),
+  );
+  if (Number.isNaN(date.getTime())) return false;
+  return now.getTime() >= date.getTime();
+}
+
+function formatAvailableFromLabel(availableFrom: string): string {
+  const m = availableFrom.match(/^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):/);
+  if (!m) return availableFrom;
+  return `${m[1]}年${Number(m[2])}月${Number(m[3])}日 ${m[4]}:${m[5]}`;
+}
+
+function parseHabitKind(extraData: unknown): 'build' | 'break' | 'task' {
+  const extra = parseExtraObject(extraData);
+  if (extra.habitKind === 'break') return 'break';
+  if (extra.habitKind === 'task') return 'task';
+  return 'build';
+}
+
+function parseQuantifyRaw(extraData: unknown): Record<string, unknown> | null {
+  const extra = parseExtraObject(extraData);
+  const q = extra.quantify;
+  if (!q || typeof q !== 'object' || Array.isArray(q)) return null;
+  return q as Record<string, unknown>;
+}
+
+/** 养成：quantify.expectedGoal 已设 */
+function hasBuildHabitExpectedGoal(extraData: unknown): boolean {
+  const raw = parseQuantifyRaw(extraData)?.expectedGoal;
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return false;
+  const obj = raw as { type?: unknown; value?: unknown };
+  if (obj.type !== 'days' && obj.type !== 'times' && obj.type !== 'consecutive_days') return false;
+  return typeof obj.value === 'number' && Number.isFinite(obj.value) && Math.round(obj.value) >= 1;
+}
+
+/** 戒除：quantify.consecutiveTargetDays 已设 */
+function hasBreakHabitConsecutiveTarget(extraData: unknown): boolean {
+  const v = parseQuantifyRaw(extraData)?.consecutiveTargetDays;
+  if (typeof v !== 'number' || !Number.isFinite(v)) return false;
+  return Math.round(v) >= 1;
+}
+
+function isHabitEligibleForWishRedeem(extraData: unknown): boolean {
+  const kind = parseHabitKind(extraData);
+  if (kind === 'build') return hasBuildHabitExpectedGoal(extraData);
+  if (kind === 'break') return hasBreakHabitConsecutiveTarget(extraData);
+  return false;
+}
+
+function isBuildHabitSucceeded(extraData: unknown): boolean {
+  const cycle = parseExtraObject(extraData).buildHabitCycle;
+  if (!cycle || typeof cycle !== 'object' || Array.isArray(cycle)) return false;
+  const completedAt = (cycle as Record<string, unknown>).completedAt;
+  return typeof completedAt === 'string' && completedAt.trim().length > 0;
+}
+
+function isBreakHabitSucceeded(extraData: unknown): boolean {
+  const cycle = parseExtraObject(extraData).breakHabitCycle;
+  if (!cycle || typeof cycle !== 'object' || Array.isArray(cycle)) return false;
+  const completedAt = (cycle as Record<string, unknown>).completedAt;
+  return typeof completedAt === 'string' && completedAt.trim().length > 0;
+}
+
+function isHabitWishRedeemConditionMet(extraData: unknown): boolean {
+  const kind = parseHabitKind(extraData);
+  if (kind === 'build') return isBuildHabitSucceeded(extraData);
+  if (kind === 'break') return isBreakHabitSucceeded(extraData);
+  return false;
+}
+
 function parseWishBoardRedeemConditions(extraData: unknown): WishBoardRedeemConditions {
   const base = parseExtraObject(extraData);
   const raw = base[REDEEM_CONDITIONS_KEY];
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
-    return { project_ids: [], task_ids: [], todo_ids: [] };
+    return { project_ids: [], task_ids: [], todo_ids: [], habit_ids: [], available_from: null };
   }
   const obj = raw as Record<string, unknown>;
   return {
     project_ids: normalizeIdList(obj.project_ids),
     task_ids: normalizeIdList(obj.task_ids),
     todo_ids: normalizeIdList(obj.todo_ids),
+    habit_ids: normalizeIdList(obj.habit_ids),
+    available_from: normalizeAvailableFrom(obj.available_from),
   };
 }
 
@@ -105,7 +223,7 @@ function serializeWishBoardExtraData(raw: unknown): string | null {
 }
 
 /**
- * 云端强制：积分之外的绑定项目 / 任务 / 待办须全部完成才可兑换。
+ * 云端强制：积分之外的绑定项目 / 任务 / 待办须全部完成，且已到开放兑换时间才可兑换。
  * 项目：completed | archived；任务与待办：done。缺失绑定目标视为未完成。
  */
 async function assertWishBoardRedeemConditionsMet(
@@ -115,11 +233,72 @@ async function assertWishBoardRedeemConditionsMet(
   const conditions = parseWishBoardRedeemConditions(extraData);
   const pendingTitles: string[] = [];
   const pendingDetails: Array<{
-    kind: 'project' | 'task' | 'todo';
+    kind: 'project' | 'task' | 'todo' | 'habit' | 'available_from';
     id: string;
     title: string;
     missing: boolean;
+    habit_kind?: 'build' | 'break' | null;
   }> = [];
+
+  if (conditions.available_from && !isAvailableFromMet(conditions.available_from)) {
+    const title = formatAvailableFromLabel(conditions.available_from);
+    pendingTitles.push(`开放兑换时间（自 ${title} 起）`);
+    pendingDetails.push({
+      kind: 'available_from',
+      id: 'available_from',
+      title: conditions.available_from,
+      missing: false,
+    });
+  }
+
+  if (conditions.habit_ids.length > 0) {
+    const placeholders = conditions.habit_ids.map(() => '?').join(', ');
+    const [rows] = await conn.query<RowDataPacket[]>(
+      `SELECT id, name, extra_data FROM habits WHERE id IN (${placeholders})`,
+      conditions.habit_ids,
+    );
+    const byId = new Map(rows.map((r) => [String(r.id), r]));
+    for (const habitId of conditions.habit_ids) {
+      const row = byId.get(habitId);
+      if (!row) {
+        pendingTitles.push('已删除的习惯');
+        pendingDetails.push({
+          kind: 'habit',
+          id: habitId,
+          title: '已删除的习惯',
+          missing: true,
+          habit_kind: null,
+        });
+        continue;
+      }
+      const extra = row.extra_data;
+      const kind = parseHabitKind(extra);
+      const habitKind = kind === 'build' || kind === 'break' ? kind : null;
+      const name = row.name != null ? String(row.name).trim() || '未知习惯' : '未知习惯';
+      const eligible = isHabitEligibleForWishRedeem(extra);
+      const done = eligible && isHabitWishRedeemConditionMet(extra);
+      if (!done) {
+        if (!eligible) {
+          pendingTitles.push(
+            habitKind === 'break'
+              ? `${name}（未设连续挑战目标）`
+              : `${name}（未设周期目标）`,
+          );
+        } else if (habitKind === 'break') {
+          pendingTitles.push(`${name}（连续挑战尚未完成）`);
+        } else {
+          pendingTitles.push(`${name}（养成目标尚未达成）`);
+        }
+        pendingDetails.push({
+          kind: 'habit',
+          id: habitId,
+          title: name,
+          missing: false,
+          habit_kind: habitKind,
+        });
+      }
+    }
+  }
 
   if (conditions.project_ids.length > 0) {
     const placeholders = conditions.project_ids.map(() => '?').join(', ');
@@ -177,6 +356,22 @@ async function assertWishBoardRedeemConditionsMet(
   }
 
   if (pendingDetails.length === 0) return;
+
+  if (
+    pendingDetails.length === 1 &&
+    pendingDetails[0]?.kind === 'available_from' &&
+    conditions.available_from
+  ) {
+    throw new WishBoardError(
+      `尚未到开放兑换时间（自 ${formatAvailableFromLabel(conditions.available_from)} 起）`,
+      400,
+      {
+        ok: false,
+        error: '兑换条件未满足',
+        pending: pendingDetails,
+      },
+    );
+  }
 
   const names = pendingTitles.slice(0, 3).map((t) => `「${t}」`);
   const more = pendingTitles.length > 3 ? ` 等 ${pendingTitles.length} 项` : '';

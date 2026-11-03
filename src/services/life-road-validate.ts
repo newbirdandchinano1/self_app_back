@@ -12,8 +12,8 @@ export class LifeRoadError extends Error {
   }
 }
 
-/** 今年进行中赌注上限（horizon=year 且 status ∈ on_track|paused） */
-export const LIFE_BET_YEAR_ACTIVE_LIMIT = 5;
+/** @deprecated 年季月模型已取消硬限额；保留极大值以免旧客户端被拦 */
+export const LIFE_BET_YEAR_ACTIVE_LIMIT = 999;
 
 export const LIFE_BET_HORIZON_VALUES = ['year', 'multi', 'farther'] as const;
 export type LifeBetHorizon = (typeof LIFE_BET_HORIZON_VALUES)[number];
@@ -155,8 +155,8 @@ async function loadLifeBetRow(id: string): Promise<LifeBetRow | null> {
 }
 
 /**
- * 合并补丁后校验：horizon=year 时 year 必填；进行中今年条数 ≤ 5。
- * @param excludeId 更新时排除自身，避免改标题误触限额
+ * 合并补丁后校验：horizon=year 时 year 必填（条数硬限额已取消）。
+ * @param excludeId 更新时用于加载已有行补齐字段
  */
 export async function assertLifeBetYearRules(
   payload: Record<string, unknown>,
@@ -194,35 +194,11 @@ export async function assertLifeBetYearRules(
     }
   }
 
-  const finalStatus = status ?? 'on_track';
-  if (!ACTIVE_STATUSES.has(finalStatus)) {
-    return;
-  }
-  if (horizon !== 'year' || year == null) {
-    return;
-  }
-
-  const params: unknown[] = [year];
-  let excludeSql = '';
-  if (options.excludeId) {
-    excludeSql = ' AND id != ?';
-    params.push(options.excludeId);
-  }
-
-  const [rows] = await db.query<RowDataPacket[]>(
-    `SELECT COUNT(*) AS cnt FROM life_bets
-     WHERE horizon = 'year'
-       AND year = ?
-       AND status IN ('on_track', 'paused')
-       ${excludeSql}`,
-    params,
-  );
-  const cnt = Number(rows[0]?.cnt ?? 0);
-  if (cnt >= LIFE_BET_YEAR_ACTIVE_LIMIT) {
-    throw new LifeRoadError(
-      `今年进行中的道路赌注最多 ${LIFE_BET_YEAR_ACTIVE_LIMIT} 条（在路上/暂搁）；已抵达或放弃不占名额`,
-      400,
-    );
-  }
+  // 年季月模型后取消「今年进行中 ≤5」硬限额；仍校验 year 必填（见上）。
+  void ACTIVE_STATUSES;
+  void LIFE_BET_YEAR_ACTIVE_LIMIT;
+  void year;
+  void status;
+  void options;
 }
 

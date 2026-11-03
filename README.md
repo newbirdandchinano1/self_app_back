@@ -5,6 +5,8 @@ SelfAPP 业务后端（Express + MySQL）：登录鉴权、业务 CRUD / 页面�
 
 任务 `status` 枚举（`TASK_STATUS_OPTIONS`）：`todo` / `doing` / `blocked` / `done` / `cancelled` / `shelved`，与 App 编辑页状态芯片一致。
 
+**我的道路（年季月）**：migration `021_life_road_nodes` 建 `life_road_nodes`，并为 `projects.life_month_goal_id` 建列；对照 SQL 见 `数据库/fix-life-road-nodes.sql`。旧 `life_bets` 仍在白名单以兼容迁移，新写入走节点表。
+
 ## 开发
 
 ```bash
@@ -32,7 +34,7 @@ App 对接说明见：`../selfApp/AI_API.md`；Agent 说明见：`../selfAPP_AIA
 ## 衣橱
 
 表由 `ensure-wardrobe.ts`（migration `019` / `020`）创建；写入走专用接口，禁止 `/api/data` 通用写。  
-图片复用 `/api/app/images`；UI 偏好可用 `app_settings`。
+图片复用 `/api/app/images`（App 单品主图 / 抠图 `purpose: wardrobe-item`）；UI 偏好可用 `app_settings`。
 
 | 方法 | 路径 | 说明 |
 |------|------|------|

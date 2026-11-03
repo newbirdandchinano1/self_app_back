@@ -701,15 +701,16 @@ export function isStandaloneTodoVisibleOnDay(
 
 /**
  * 独立待办列表排序（与客户端 sortStandaloneTodosLocally 对齐）：
- * 1. 已完成 / 取消 → 最底
- * 2. 搁置 → 终态之上
- * 3. 未到执行日的重复待办（waiting）→ 搁置之上（需 logicalTodayYmd）
- * 4. 活跃组内：过期 → 置顶（需 logicalTodayYmd）
- * 5. 标签权重分降序（缺省 0；无 map 时一律 0）
- * 6. priority 降序
- * 7. 有有效截止在前且越早越前；无截止靠后
- * 8. reward_points 降序
- * 9. updated_at 降序 → id 升序
+ * 1. 活跃（组内过期置顶）
+ * 2. 未到执行日的重复待办（waiting）
+ * 3. 搁置
+ * 4. 已完成 / 取消
+ * 5. 明天预览 → 今日已完成之下
+ * 6. 标签权重分降序（缺省 0；无 map 时一律 0）
+ * 7. priority 降序
+ * 8. 有有效截止在前且越早越前；无截止靠后
+ * 9. reward_points 降序
+ * 10. updated_at 降序 → id 升序
  */
 export function sortStandaloneTodos<
   T extends {
@@ -807,15 +808,46 @@ export function sortStandaloneTodos<
     return false;
   };
 
-  const isWaiting = (t: T): boolean => {
+  const isTomorrowPreview = (row: CalendarTaskRow, today: string): boolean => {
+    if (!isStandaloneTodoOpen(row) || isTaskShelvedStatus(row.status)) return false;
+    if (parseTaskRepeatSchedule(row.extra_data)) return false;
+    if (isOverdueForList(row, today)) return false;
+    const tomorrowYmd = addDaysToYmd(today, 1);
+    const schedule = parseScheduleMetaFromExtra(row.extra_data);
+    if (schedule?.mode === 'time' && schedule.range?.start && schedule.range?.end) {
+      const start = formatScheduleDateToYMD(schedule.range.start);
+      const end = formatScheduleDateToYMD(schedule.range.end);
+      if (start && end && (start === end || end === addDaysToYmd(start, 1))) {
+        return start === tomorrowYmd;
+      }
+      return start === tomorrowYmd;
+    }
+    if (schedule?.date) {
+      return formatScheduleDateToYMD(schedule.date) === tomorrowYmd;
+    }
+    const due = dueDateYmd(row.due_date);
+    return due === tomorrowYmd;
+  };
+
+  const isRepeatWaiting = (t: T): boolean => {
     if (!logicalTodayYmd) return false;
     const row = toCalendarLike(t);
     if (!isStandaloneTodoOpen(row) || isTaskShelvedStatus(row.status)) return false;
+    if (isTomorrowPreview(row, logicalTodayYmd)) return false;
     const schedule = parseTaskRepeatSchedule(row.extra_data);
     if (!schedule) return false;
     if (isTaskRepeatDueOnLogicalDay(logicalTodayYmd, schedule)) return false;
     if (isOverdueForList(row, logicalTodayYmd)) return false;
     return true;
+  };
+
+  /** 越小越靠前：活跃 → waiting → 搁置 → 已完成 → 明天预览 */
+  const structureRank = (t: T): number => {
+    if (logicalTodayYmd && isTomorrowPreview(toCalendarLike(t), logicalTodayYmd)) return 4;
+    if (isDoneRow(t)) return 3;
+    if (t.status === 'shelved') return 2;
+    if (isRepeatWaiting(t)) return 1;
+    return 0;
   };
 
   const isOverdue = (t: T): boolean => {
@@ -826,17 +858,9 @@ export function sortStandaloneTodos<
   };
 
   return rows.slice().sort((a, b) => {
-    const da = isDoneRow(a);
-    const db = isDoneRow(b);
-    if (da !== db) return da ? 1 : -1;
-
-    const sa = a.status === 'shelved';
-    const sb = b.status === 'shelved';
-    if (sa !== sb) return sa ? 1 : -1;
-
-    const wa = isWaiting(a);
-    const wb = isWaiting(b);
-    if (wa !== wb) return wa ? 1 : -1;
+    const rankA = structureRank(a);
+    const rankB = structureRank(b);
+    if (rankA !== rankB) return rankA - rankB;
 
     const oa = isOverdue(a);
     const ob = isOverdue(b);

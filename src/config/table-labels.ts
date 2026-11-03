@@ -21,8 +21,9 @@ export const TABLE_LABELS: Record<AllowedTable, string> = {
   habits: '习惯',
   health_daily_targets: '健康日目标',
   health_records: '健康摄入记录',
-  life_bets: '道路赌注',
+  life_bets: '道路赌注（旧）',
   life_directions: '道路总方向',
+  life_road_nodes: '道路年季月节点',
   memo_dimensions: '备忘录维度',
   memos: '备忘录',
   monthly_review_journal: '每月复盘',
@@ -231,7 +232,8 @@ export const COLUMN_LABELS: Record<string, string> = {
   year_theme: '年主题',
   horizon: '时间桶',
   year: '公历年',
-  life_bet_id: '道路赌注ID',
+  life_bet_id: '道路赌注ID（旧）',
+  life_month_goal_id: '月目标ID',
 };
 
 /** 表级字段中文名覆盖 */
@@ -269,17 +271,28 @@ export const TABLE_COLUMN_LABELS: Partial<
   projects: {
     category_id: '项目分类ID',
     status: '状态（进行中/已完成/已归档）',
-    life_bet_id: '归属道路赌注ID（可空）',
+    life_bet_id: '归属道路赌注ID（旧，可空）',
+    life_month_goal_id: '归属月目标ID（可空）',
   },
   life_directions: {
     body: '总方向',
-    year_theme: '年主题（可选）',
+    year_theme: '年主题（可选，兼容旧字段）',
   },
   life_bets: {
     title: '赌注标题',
     horizon: '时间桶（今年/两三年/更远）',
     year: '归属公历年',
     note: '做成了长什么样',
+    status: '状态（在路上/暂搁/已抵达/放弃）',
+  },
+  life_road_nodes: {
+    kind: '节点类型（多年/更远/年/季/月）',
+    title: '方向短句',
+    note: '说明',
+    calendar_year: '公历年',
+    quarter: '季度 1–4',
+    month: '月份 1–12',
+    parent_id: '父节点ID',
     status: '状态（在路上/暂搁/已抵达/放弃）',
   },
   tags: {
