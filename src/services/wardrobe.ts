@@ -1664,7 +1664,7 @@ export async function listOutfits(query: {
      ORDER BY updated_at DESC, created_at DESC, id ASC`,
     values,
   );
-  return (rows as OutfitRow[]).map(formatOutfit);
+  return (rows as OutfitRow[]).map((row) => formatOutfit(row));
 }
 
 export async function getOutfitDetail(outfitId: string) {
