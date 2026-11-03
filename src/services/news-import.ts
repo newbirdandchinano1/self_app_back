@@ -4,6 +4,7 @@ import { db } from '../db/index.js';
 import { nowUtcMysql } from './points-wallet.js';
 import {
   listTrendRadarNews,
+  shanghaiDate,
   type TrendRadarNewsDto,
 } from './trendradar.js';
 
@@ -224,6 +225,51 @@ export async function importNewsSnapshot(payload: {
 }
 
 export type NewsDateDto = { date: string; itemCount: number; newCount: number };
+
+export type TrendRadarPurgeResult = {
+  keepDate: string;
+  deletedNews: number;
+  deletedBatches: number;
+  deletedReports: number;
+};
+
+/**
+ * 删除 keepDate（不含）之前的热点数据，默认只保留「上海时区今天」。
+ * 顺序：news → batch → report，表间无外键约束。
+ */
+export async function purgeTrendRadarOlderThan(
+  keepDateInput?: string | null,
+): Promise<TrendRadarPurgeResult> {
+  const keepDate = (keepDateInput && String(keepDateInput).trim()) || shanghaiDate(Date.now());
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(keepDate)) {
+    throw new NewsImportError('keepDate 必须是 YYYY-MM-DD', 400);
+  }
+
+  const [newsResult] = await db.query<ResultSetHeader>(
+    `DELETE FROM trendradar_news WHERE report_date < ?`,
+    [keepDate],
+  );
+  const [batchResult] = await db.query<ResultSetHeader>(
+    `DELETE b FROM trendradar_report_batch b
+       INNER JOIN trendradar_report r ON r.id = b.report_id
+      WHERE r.report_date < ?
+         OR (r.report_date IS NULL AND DATE(r.report_time) < ?)`,
+    [keepDate, keepDate],
+  );
+  const [reportResult] = await db.query<ResultSetHeader>(
+    `DELETE FROM trendradar_report
+      WHERE report_date < ?
+         OR (report_date IS NULL AND DATE(report_time) < ?)`,
+    [keepDate, keepDate],
+  );
+
+  return {
+    keepDate,
+    deletedNews: Number(newsResult.affectedRows ?? 0),
+    deletedBatches: Number(batchResult.affectedRows ?? 0),
+    deletedReports: Number(reportResult.affectedRows ?? 0),
+  };
+}
 
 export async function listNewsDates(limit = 60): Promise<NewsDateDto[]> {
   const max = Math.min(200, Math.max(1, Math.floor(limit)));

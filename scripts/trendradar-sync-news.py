@@ -32,6 +32,7 @@ except ImportError:  # pragma: no cover
 
 DEFAULT_DB_DIR = "/opt/TrendRadar/output/news"
 DEFAULT_IMPORT_URL = "http://127.0.0.1:3000/api/news/import"
+DEFAULT_PURGE_URL = "http://127.0.0.1:3000/api/news/purge-old"
 DEFAULT_TZ = "Asia/Shanghai"
 MAX_RETRIES = 3
 RETRY_SLEEP_SEC = 2.0
@@ -88,7 +89,7 @@ def load_items(db_path: Path) -> list[dict[str, Any]]:
         con.close()
 
 
-def post_import(
+def post_json(
     url: str,
     token: str,
     payload: dict[str, Any],
@@ -117,7 +118,7 @@ def post_with_retry(url: str, token: str, payload: dict[str, Any]) -> dict[str, 
     last_err: Exception | None = None
     for attempt in range(1, MAX_RETRIES + 1):
         try:
-            return post_import(url, token, payload)
+            return post_json(url, token, payload)
         except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, RuntimeError) as err:
             last_err = err
             if attempt >= MAX_RETRIES:
@@ -131,8 +132,30 @@ def post_with_retry(url: str, token: str, payload: dict[str, Any]) -> dict[str, 
     raise last_err
 
 
+def cleanup_old_sqlite_files(db_dir: Path, keep_date: str, dry_run: bool) -> int:
+    """删除早于 keep_date 的 YYYY-MM-DD.db（不影响 TrendRadar 源码）。"""
+    removed = 0
+    if not db_dir.is_dir():
+        return 0
+    for path in sorted(db_dir.glob("????-??-??.db")):
+        stem = path.stem
+        if len(stem) != 10 or stem[4] != "-" or stem[7] != "-":
+            continue
+        if stem >= keep_date:
+            continue
+        if dry_run:
+            print(f"dry-run would remove sqlite {path}")
+        else:
+            path.unlink(missing_ok=True)
+            print(f"removed sqlite {path.name}")
+        removed += 1
+    return removed
+
+
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Sync TrendRadar news SQLite -> /api/news/import")
+    parser = argparse.ArgumentParser(
+        description="Sync TrendRadar news SQLite -> /api/news/import；也可 --purge-old",
+    )
     parser.add_argument(
         "--date",
         help="报告日期 YYYY-MM-DD；默认 Asia/Shanghai 当天",
@@ -152,6 +175,11 @@ def parse_args() -> argparse.Namespace:
         help=f"导入接口（默认 {DEFAULT_IMPORT_URL}）",
     )
     parser.add_argument(
+        "--purge-url",
+        default=os.environ.get("NEWS_PURGE_URL", DEFAULT_PURGE_URL),
+        help=f"清理接口（默认 {DEFAULT_PURGE_URL}）",
+    )
+    parser.add_argument(
         "--token",
         default=os.environ.get("NEWS_IMPORT_TOKEN", ""),
         help="Authorization Bearer 令牌（或环境变量 NEWS_IMPORT_TOKEN）",
@@ -162,15 +190,56 @@ def parse_args() -> argparse.Namespace:
         help="默认日期时区",
     )
     parser.add_argument(
+        "--purge-old",
+        action="store_true",
+        help="删除 MySQL 中早于 keepDate 的热点；默认 keepDate=当天",
+    )
+    parser.add_argument(
+        "--keep-date",
+        help="清理时保留起始日 YYYY-MM-DD（含当天及以后）；默认上海时区今天",
+    )
+    parser.add_argument(
+        "--also-clean-sqlite",
+        action="store_true",
+        help="同时删除 output/news 下早于 keepDate 的 .db 文件",
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="只读库并打印条数，不发请求",
+        help="只读/预览，不发请求、不删文件",
     )
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
+    keep_date = args.keep_date or args.date or today_in_tz(args.tz)
+
+    if args.purge_old:
+        if args.dry_run:
+            print(f"dry-run purge keepDate={keep_date}")
+            if args.also_clean_sqlite:
+                cleanup_old_sqlite_files(Path(args.db_dir), keep_date, dry_run=True)
+            return 0
+        token = (args.token or "").strip()
+        if not token:
+            print("缺少 NEWS_IMPORT_TOKEN / --token", file=sys.stderr)
+            return 2
+        result = post_with_retry(args.purge_url, token, {"keepDate": keep_date})
+        data = result.get("data") if isinstance(result.get("data"), dict) else result
+        print(
+            "purge ok keep={keep} news={news} batches={batches} reports={reports}".format(
+                keep=data.get("keepDate", keep_date),
+                news=data.get("deletedNews", "?"),
+                batches=data.get("deletedBatches", "?"),
+                reports=data.get("deletedReports", "?"),
+            )
+        )
+        if args.also_clean_sqlite:
+            n = cleanup_old_sqlite_files(Path(args.db_dir), keep_date, dry_run=False)
+            print(f"sqlite removed={n}")
+        return 0
+
     report_date = args.date or today_in_tz(args.tz)
     if args.db_file:
         db_path = Path(args.db_file)

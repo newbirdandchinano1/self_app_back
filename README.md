@@ -70,6 +70,7 @@ App 对接说明见：`../selfApp/AI_API.md`；Agent 说明见：`../selfAPP_AIA
 | GET | `/api/app/trendradar/reports` | 登录 | 报告列表 |
 | GET | `/api/app/trendradar/news` | 登录 | 报告条目 |
 | POST | `/api/news/import` | Bearer 导入令牌 | 同步脚本导入 |
+| POST | `/api/news/purge-old` | Bearer 导入令牌 | 清理 keepDate 之前的热点（默认同天保留） |
 | GET | `/api/app/news/dates` | 登录 | 有数据的日期 |
 | GET | `/api/app/news/latest` | 登录 | 最新一天条目 |
 | GET | `/api/app/news/items` | 登录 | 指定日期条目 |
