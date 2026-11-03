@@ -75,6 +75,20 @@ App 对接说明见：`../selfApp/AI_API.md`；Agent 说明见：`../selfAPP_AIA
 | GET | `/api/app/news/latest` | 登录 | 最新一天条目 |
 | GET | `/api/app/news/items` | 登录 | 指定日期条目 |
 
+## Jenkins 部署注意
+
+流水线把代码同步到宿主机 `/opt/self_app_back`（Jenkins 容器 bind mount），并保留已有 `.env`。  
+该目录须对 Jenkins 容器用户（通常 **uid=1000**）可读写；若曾用 root 写入 `.env`（`600`），同步阶段会 `Permission denied`。
+
+修复示例（宿主机）：
+
+```bash
+chown -R 1000:1000 /opt/self_app_back
+chmod 600 /opt/self_app_back/.env
+```
+
+不要用 root 直接改部署目录里的 `.env` 后不改属主。
+
 ## 目录要点
 
 - `src/routes/app/` — App API（含 `wardrobe.ts`、`trendradar.ts`、`news.ts`）

@@ -47,9 +47,18 @@ pipeline {
                 fi
 
                 # 保留已有 .env，清空旧代码后重新同步
+                # 注意：DEPLOY_DIR 须对 Jenkins 容器用户（通常 uid=1000）可读写。
+                # 若曾用 root 写入 .env（600），会出现 Permission denied。
                 ENV_BAK="/tmp/self_app_back.env.bak.$$"
                 if [ -f "${DEPLOY_DIR}/.env" ]; then
+                  if [ ! -r "${DEPLOY_DIR}/.env" ]; then
+                    echo "错误: 无法读取 ${DEPLOY_DIR}/.env（权限不足）"
+                    echo "请在宿主机执行: chown -R 1000:1000 ${DEPLOY_DIR} && chmod 600 ${DEPLOY_DIR}/.env"
+                    ls -lah "${DEPLOY_DIR}/.env" || true
+                    exit 1
+                  fi
                   cp -a "${DEPLOY_DIR}/.env" "${ENV_BAK}"
+                  chmod 600 "${ENV_BAK}"
                   echo "已备份 ${DEPLOY_DIR}/.env -> ${ENV_BAK}"
                 else
                   rm -f "${ENV_BAK}"
@@ -68,6 +77,7 @@ pipeline {
 
                 if [ -f "${ENV_BAK}" ]; then
                   mv "${ENV_BAK}" "${DEPLOY_DIR}/.env"
+                  chmod 600 "${DEPLOY_DIR}/.env"
                   echo "已还原 .env"
                 fi
 
