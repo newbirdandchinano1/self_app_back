@@ -21,6 +21,7 @@ import {
   upsertFrogSchedulePlacement,
   type FrogSubjectKind,
 } from '../../../services/pages/frog.js';
+import { parsePlacementMinuteFields } from '../../../services/pages/frog-placement-minutes.js';
 import { resolveDeviceIdFromHeader } from '../../../services/sync-change-log.js';
 import { isSyncOccConflictError } from '../../../services/sync-revision.js';
 import { fail, success } from '../../../utils/response.js';
@@ -139,6 +140,7 @@ router.post('/pages/tasks/frog-schedule/placement', async (req, res, next) => {
       return;
     }
     const p = (body.placement ?? body) as Record<string, unknown>;
+    const minuteFields = parsePlacementMinuteFields(p);
     const data = await upsertFrogSchedulePlacement({
       id: String(p.id ?? ''),
       weekStartYmd: String(p.weekStartYmd ?? p.week_start_ymd ?? ''),
@@ -151,6 +153,9 @@ router.post('/pages/tasks/frog-schedule/placement', async (req, res, next) => {
       subjectKind: p.subjectKind === 'project' || p.subject_kind === 'project' ? 'project' : 'task',
       subjectId: String(p.subjectId ?? p.subject_id ?? ''),
       orphaned: Number(p.orphaned ?? 0),
+      startMinutes: minuteFields.startMinutes,
+      endMinutes: minuteFields.endMinutes,
+      allDay: minuteFields.allDay,
       createdAt: typeof p.createdAt === 'string' ? p.createdAt : typeof p.created_at === 'string' ? p.created_at : undefined,
       updatedAt: typeof p.updatedAt === 'string' ? p.updatedAt : typeof p.updated_at === 'string' ? p.updated_at : undefined,
       deviceId: write.deviceId,

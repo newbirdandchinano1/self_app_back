@@ -25,7 +25,8 @@
     "test:sync-bootstrap": "tsx scripts/sync-bootstrap-selftest.ts",
     "test:sync-phase8": "tsx scripts/sync-bootstrap-selftest.ts",
     "test:memo-richdoc-phase1": "tsx scripts/memo-richdoc-phase1-selftest.ts",
-    "test:memo-richdoc-phase5": "tsx scripts/memo-richdoc-phase5-selftest.ts"
+    "test:memo-richdoc-phase5": "tsx scripts/memo-richdoc-phase5-selftest.ts",
+    "test:frog-placement-minutes": "tsx scripts/frog-placement-minutes-selftest.ts"
   },
   "dependencies": {
     "bcrypt": "^6.0.0",

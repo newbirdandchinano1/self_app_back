@@ -15,6 +15,11 @@ import {
   type TasksBootstrapParams,
 } from './tasks-bootstrap.js';
 import { INBOX_PROJECT_CATEGORY_ID } from './tasks-catalog.js';
+import {
+  assertPlacementMinutePair,
+  mapPlacementMinutesFromDbRow,
+  type OptionalNullableInt,
+} from './frog-placement-minutes.js';
 
 const YMD_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -756,6 +761,7 @@ export async function getFrogScheduleWeek(params: {
 
   const [rows] = await db.query<RowDataPacket[]>(
     `SELECT id, week_start_ymd, weekday, start_slot_index, span_slots,
+            start_minutes, end_minutes, all_day,
             subject_kind, subject_id, orphaned, created_at, updated_at, sync_status
      FROM schedule_placements
      WHERE week_start_ymd = ? AND sync_status != 'pending_delete'
@@ -772,16 +778,22 @@ export async function getFrogScheduleWeek(params: {
       breaks: axis.breaks ?? [],
       fromSnapshot,
     },
-    placements: rows.map((r) => ({
-      id: String(r.id),
-      weekStartYmd: String(r.week_start_ymd),
-      weekday: Number(r.weekday),
-      startSlotIndex: r.start_slot_index == null ? null : Number(r.start_slot_index),
-      spanSlots: Number(r.span_slots) || 1,
-      subjectKind: r.subject_kind === 'project' ? 'project' : 'task',
-      subjectId: String(r.subject_id),
-      orphaned: Number(r.orphaned) ? 1 : 0,
-    })),
+    placements: rows.map((r) => {
+      const mins = mapPlacementMinutesFromDbRow(r);
+      return {
+        id: String(r.id),
+        weekStartYmd: String(r.week_start_ymd),
+        weekday: Number(r.weekday),
+        startSlotIndex: r.start_slot_index == null ? null : Number(r.start_slot_index),
+        spanSlots: Number(r.span_slots) || 1,
+        startMinutes: mins.startMinutes,
+        endMinutes: mins.endMinutes,
+        allDay: mins.allDay,
+        subjectKind: r.subject_kind === 'project' ? 'project' : 'task',
+        subjectId: String(r.subject_id),
+        orphaned: Number(r.orphaned) ? 1 : 0,
+      };
+    }),
   };
 }
 
@@ -835,6 +847,10 @@ export async function upsertFrogSchedulePlacement(body: {
   subjectKind: 'task' | 'project';
   subjectId: string;
   orphaned?: number;
+  /** 未传（present=false）→ UPDATE 不覆盖库内分钟；INSERT 写 NULL */
+  startMinutes?: OptionalNullableInt;
+  endMinutes?: OptionalNullableInt;
+  allDay?: OptionalNullableInt;
   createdAt?: string;
   updatedAt?: string;
   deviceId?: string | null;
@@ -844,19 +860,37 @@ export async function upsertFrogSchedulePlacement(body: {
   if (!body.id || !YMD_RE.test(body.weekStartYmd)) {
     throw new FrogScheduleError('placement 参数无效');
   }
+  const startTouch = body.startMinutes?.present === true;
+  const endTouch = body.endMinutes?.present === true;
+  const allDayTouch = body.allDay?.present === true;
+  const startMinutes = startTouch ? (body.startMinutes?.value ?? null) : null;
+  const endMinutes = endTouch ? (body.endMinutes?.value ?? null) : null;
+  const allDay = allDayTouch ? (body.allDay?.value ?? null) : null;
+  try {
+    if (startTouch && endTouch) {
+      assertPlacementMinutePair(startMinutes, endMinutes);
+    }
+  } catch (err) {
+    throw new FrogScheduleError(err instanceof Error ? err.message : '分钟区间无效');
+  }
+
   const now = new Date().toISOString();
   const updatedAt = body.updatedAt || now;
   await withSyncTransaction(async (conn) => {
     await conn.query<ResultSetHeader>(
       `INSERT INTO schedule_placements (
         id, week_start_ymd, weekday, start_slot_index, span_slots,
+        start_minutes, end_minutes, all_day,
         subject_kind, subject_id, orphaned, created_at, updated_at, sync_status
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced')
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced')
       ON DUPLICATE KEY UPDATE
         week_start_ymd = VALUES(week_start_ymd),
         weekday = VALUES(weekday),
         start_slot_index = VALUES(start_slot_index),
         span_slots = VALUES(span_slots),
+        start_minutes = IF(? = 1, VALUES(start_minutes), start_minutes),
+        end_minutes = IF(? = 1, VALUES(end_minutes), end_minutes),
+        all_day = IF(? = 1, VALUES(all_day), all_day),
         subject_kind = VALUES(subject_kind),
         subject_id = VALUES(subject_id),
         orphaned = VALUES(orphaned),
@@ -868,11 +902,17 @@ export async function upsertFrogSchedulePlacement(body: {
         body.weekday,
         body.startSlotIndex,
         Math.max(1, body.spanSlots || 1),
+        startMinutes,
+        endMinutes,
+        allDay,
         body.subjectKind,
         body.subjectId,
         body.orphaned ? 1 : 0,
         body.createdAt || now,
         updatedAt,
+        startTouch ? 1 : 0,
+        endTouch ? 1 : 0,
+        allDayTouch ? 1 : 0,
       ],
     );
     const stamp = await stampLiveUpsert(conn, 'schedule_placements', body.id, {

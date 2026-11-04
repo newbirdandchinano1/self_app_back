@@ -32,6 +32,9 @@ export async function ensureFrogScheduleTables(): Promise<void> {
         weekday INT NOT NULL,
         start_slot_index INT NULL DEFAULT NULL,
         span_slots INT NOT NULL DEFAULT 1,
+        start_minutes INT NULL DEFAULT NULL,
+        end_minutes INT NULL DEFAULT NULL,
+        all_day INT NULL DEFAULT NULL,
         subject_kind VARCHAR(16) NOT NULL,
         subject_id VARCHAR(36) NOT NULL,
         orphaned INT NOT NULL DEFAULT 0,
@@ -44,5 +47,30 @@ export async function ensureFrogScheduleTables(): Promise<void> {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC
     `);
     console.log('[DB] 已创建表 schedule_placements');
+  } else {
+    // 时间线过渡列：可存真实起止分钟；旧客户端不写则保持 NULL
+    await ensureColumn(
+      'schedule_placements',
+      'start_minutes',
+      'INT NULL DEFAULT NULL COMMENT \'逻辑日轴开始分钟\'',
+      { after: 'span_slots' },
+    );
+    await ensureColumn(
+      'schedule_placements',
+      'end_minutes',
+      'INT NULL DEFAULT NULL COMMENT \'逻辑日轴结束分钟（半开）\'',
+      { after: 'start_minutes' },
+    );
+    await ensureColumn(
+      'schedule_placements',
+      'all_day',
+      'INT NULL DEFAULT NULL COMMENT \'1=全天；NULL=未声明\'',
+      { after: 'end_minutes' },
+    );
   }
+
+  // 加列后刷新 CRUD 列缓存（动态 import，避免与 crud → ensure 循环依赖）
+  const { clearTableMetaCache } = await import('../services/crud.js');
+  clearTableMetaCache('schedule_placements');
+  clearTableMetaCache('schedule_week_axis_snapshot');
 }

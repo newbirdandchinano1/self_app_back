@@ -19,6 +19,7 @@ import { ensureAppInboxTable } from '../ensure-app-inbox.js';
 import { ensureStoredImagesTable } from '../ensure-stored-images.js';
 import { ensureWishBoardDescriptionText } from '../ensure-wish-board-description-text.js';
 import { ensureWardrobeTables } from '../ensure-wardrobe.js';
+import { ensureRecipeCookStatsColumns } from '../ensure-recipe-cook-stats.js';
 import type { Migration } from './types.js';
 
 /**
@@ -50,4 +51,5 @@ export const MIGRATIONS: readonly Migration[] = [
   { id: '021_life_road_nodes', up: ensureLifeRoadNodesTables },
   { id: '022_trendradar', up: ensureTrendRadarTables },
   { id: '023_trendradar_sync_columns', up: ensureTrendRadarSyncColumns },
+  { id: '024_recipe_items_cook_stats', up: ensureRecipeCookStatsColumns },
 ];

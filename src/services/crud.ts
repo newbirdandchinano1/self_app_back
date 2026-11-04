@@ -98,6 +98,12 @@ export interface TableMeta {
 
 const tableMetaCache = new Map<AllowedTable, TableMeta>();
 
+/** ensureColumn / 迁移加列后清缓存，避免仍用旧列清单过滤写入 */
+export function clearTableMetaCache(table?: AllowedTable): void {
+  if (table) tableMetaCache.delete(table);
+  else tableMetaCache.clear();
+}
+
 function quoteIdent(name: string): string {
   return `\`${name.replace(/`/g, '``')}\``;
 }
