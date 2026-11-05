@@ -1,6 +1,7 @@
-import { createHash } from 'crypto';
 import type { ResultSetHeader, RowDataPacket } from 'mysql2';
 import { db } from '../db/index.js';
+import { computeNewsUrlHash } from '../utils/trendradar-dedupe.js';
+import { normalizeTrendRadarUrl } from '../utils/trendradar-url.js';
 import { nowUtcMysql } from './points-wallet.js';
 import {
   listTrendRadarNews,
@@ -58,10 +59,6 @@ function asInt(value: unknown): number | null {
   return Number.isFinite(n) ? Math.trunc(n) : null;
 }
 
-function sha1(text: string): string {
-  return createHash('sha1').update(text, 'utf8').digest('hex');
-}
-
 function normalizeItems(raw: unknown): NewsImportItem[] {
   if (!Array.isArray(raw)) throw new NewsImportError('items 必须是数组', 400);
   if (raw.length > MAX_ITEMS) {
@@ -81,8 +78,13 @@ function normalizeItems(raw: unknown): NewsImportItem[] {
     const platformName = asString(row.platformName, 64) || platformId;
     if (!platformName) continue;
 
-    const url = asString(row.url, 1024) || asString(row.mobileUrl, 1024) || null;
-    const dedupeKey = `${platformName}\u0000${sha1(url ?? '')}\u0000${title}`;
+    const rawUrl = asString(row.url, 1024) || asString(row.mobileUrl, 1024) || '';
+    const url = rawUrl ? normalizeTrendRadarUrl(rawUrl, platformId) || rawUrl : null;
+    const urlHash = computeNewsUrlHash(url, platformId);
+    // 对齐官方：有 URL 时按 platform + url_hash 去重；无 URL 时退回 title
+    const dedupeKey = urlHash
+      ? `${platformName}\u0000${urlHash}`
+      : `${platformName}\u0000\u0000${title}`;
     if (seen.has(dedupeKey)) continue;
     seen.add(dedupeKey);
 
@@ -101,24 +103,37 @@ function normalizeItems(raw: unknown): NewsImportItem[] {
   return out;
 }
 
-/** 判断这些条目的 URL 是否在更早日期出现过（用于 is_new） */
-async function loadSeenHashes(
+/** 判断这些条目的 URL 是否在更早日期同平台出现过（用于 is_new） */
+async function loadSeenKeys(
   reportDate: string,
-  hashes: string[],
+  keys: Array<{ platformName: string; urlHash: string }>,
 ): Promise<Set<string>> {
   const seen = new Set<string>();
-  const unique = [...new Set(hashes.filter(Boolean))];
-  const CHUNK = 500;
+  const unique = [
+    ...new Map(
+      keys
+        .filter((k) => k.urlHash)
+        .map((k) => [`${k.platformName}\u0000${k.urlHash}`, k] as const),
+    ).values(),
+  ];
+  const CHUNK = 200;
   for (let i = 0; i < unique.length; i += CHUNK) {
     const chunk = unique.slice(i, i + CHUNK);
+    const placeholders = chunk.map(() => '(?, ?)').join(',');
+    const params: unknown[] = [reportDate];
+    for (const k of chunk) {
+      params.push(k.platformName, k.urlHash);
+    }
     const [rows] = await db.query<RowDataPacket[]>(
-      `SELECT DISTINCT url_hash FROM trendradar_news
-        WHERE report_date < ? AND url_hash IN (${chunk.map(() => '?').join(',')})`,
-      [reportDate, ...chunk],
+      `SELECT DISTINCT platform_name, url_hash FROM trendradar_news
+        WHERE report_date < ?
+          AND (platform_name, url_hash) IN (${placeholders})`,
+      params,
     );
     for (const row of rows) {
-      const h = (row as { url_hash?: string }).url_hash;
-      if (h) seen.add(String(h));
+      const name = String((row as { platform_name?: string }).platform_name ?? '');
+      const h = String((row as { url_hash?: string }).url_hash ?? '');
+      if (h) seen.add(`${name}\u0000${h}`);
     }
   }
   return seen;
@@ -157,26 +172,38 @@ export async function importNewsSnapshot(payload: {
   const reportId = reportResult.insertId;
   if (!reportId) throw new NewsImportError('报告写入失败', 500);
 
-  const hashes = items.map((i) => sha1(i.url ?? ''));
-  const seen = await loadSeenHashes(reportDate, hashes);
-
-  const rows = items.map((item, idx) => [
-    reportId,
+  const hashed = items.map((item) => ({
+    item,
+    urlHash: computeNewsUrlHash(item.url, item.platformId),
+  }));
+  const seen = await loadSeenKeys(
     reportDate,
-    'hotlist',
-    '',
-    item.platformId,
-    item.platformName,
-    item.title,
-    item.url,
-    hashes[idx],
-    item.rank,
-    item.lastCrawlTime,
-    item.firstCrawlTime,
-    item.lastCrawlTime,
-    item.crawlCount,
-    seen.has(hashes[idx]!) ? 0 : 1,
-  ]);
+    hashed
+      .filter((h) => h.urlHash)
+      .map((h) => ({ platformName: h.item.platformName, urlHash: h.urlHash! })),
+  );
+
+  const rows = hashed.map(({ item, urlHash }) => {
+    const seenKey = urlHash ? `${item.platformName}\u0000${urlHash}` : '';
+    const isNew = urlHash ? (seen.has(seenKey) ? 0 : 1) : 1;
+    return [
+      reportId,
+      reportDate,
+      'hotlist',
+      '',
+      item.platformId,
+      item.platformName,
+      item.title,
+      item.url,
+      urlHash,
+      item.rank,
+      item.lastCrawlTime,
+      item.firstCrawlTime,
+      item.lastCrawlTime,
+      item.crawlCount,
+      isNew,
+    ];
+  });
 
   const CHUNK = 200;
   let newItems = 0;
@@ -189,12 +216,16 @@ export async function importNewsSnapshot(payload: {
           crawl_count, is_new)
        VALUES ?
        ON DUPLICATE KEY UPDATE
-         platform_id = VALUES(platform_id),
+         report_id = VALUES(report_id),
+         platform_id = IF(VALUES(platform_id) <> '', VALUES(platform_id), platform_id),
+         title = VALUES(title),
+         url = VALUES(url),
          rank_no = VALUES(rank_no),
          appear_time = VALUES(appear_time),
-         first_crawl_time = VALUES(first_crawl_time),
+         first_crawl_time = COALESCE(first_crawl_time, VALUES(first_crawl_time)),
          last_crawl_time = VALUES(last_crawl_time),
-         crawl_count = VALUES(crawl_count)`,
+         crawl_count = VALUES(crawl_count),
+         is_new = LEAST(is_new, VALUES(is_new))`,
       [chunk],
     );
     newItems += chunk.filter((row) => row[14] === 1).length;

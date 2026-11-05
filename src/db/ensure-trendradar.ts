@@ -1,4 +1,7 @@
+import type { RowDataPacket } from 'mysql2';
 import { db } from './index.js';
+import { computeNewsUrlHash } from '../utils/trendradar-dedupe.js';
+import { normalizeTrendRadarUrl } from '../utils/trendradar-url.js';
 import { ensureColumn, indexExists, tableExists } from './schema-helpers.js';
 
 /**
@@ -83,7 +86,7 @@ export async function ensureTrendRadarTables(): Promise<void> {
         platform_name VARCHAR(64) NOT NULL DEFAULT '' COMMENT '来源平台名称',
         title VARCHAR(512) NOT NULL,
         url VARCHAR(1024) NULL,
-        url_hash CHAR(40) NULL COMMENT 'sha1(url)，用于去重',
+        url_hash CHAR(40) NULL COMMENT 'sha1(normalize_url(url))，日级去重；空 URL 为 NULL',
         rank_no INT NULL COMMENT '排名（区间取起始值）',
         rank_end INT NULL COMMENT '排名区间结束值',
         rank_trend VARCHAR(8) NULL COMMENT 'up|down',
@@ -94,7 +97,8 @@ export async function ensureTrendRadarTables(): Promise<void> {
         is_new TINYINT(1) NOT NULL DEFAULT 0 COMMENT '是否首次入库',
         created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         PRIMARY KEY (id),
-        UNIQUE KEY uk_trendradar_news (report_id, section, platform_name, url_hash, title(191)),
+        -- 对齐官方：同日同平台同规范化 URL 只留一条（不含 title/report_id，避免 webhook 多报告堆重复）
+        UNIQUE KEY uk_trendradar_news_day (report_date, section, platform_name, url_hash),
         KEY ix_trendradar_news_date (report_date),
         KEY ix_trendradar_news_group (keyword_group),
         KEY ix_trendradar_news_platform (platform_name)
@@ -119,7 +123,7 @@ export async function ensureTrendRadarTables(): Promise<void> {
   await ensureTrendRadarSyncColumns();
 }
 
-/** 老库补列：sqlite 同步需要的平台 ID 与抓取时间 */
+/** 老库补列：sqlite 同步需要的平台 ID 与抓取时间；并切换日级去重唯一键 */
 export async function ensureTrendRadarSyncColumns(): Promise<void> {
   await ensureColumn(
     'trendradar_report',
@@ -138,5 +142,86 @@ export async function ensureTrendRadarSyncColumns(): Promise<void> {
       `CREATE INDEX ix_trendradar_news_platform_id ON trendradar_news (platform_id)`,
     );
     console.log('[DB] 已创建索引 ix_trendradar_news_platform_id');
+  }
+
+  await ensureTrendRadarDayDedupeIndex();
+}
+
+/**
+ * 将唯一键从 (report_id, …, title) 迁到日级 (report_date, section, platform_name, url_hash)。
+ * 迁移时：重算规范化 url_hash → 折叠同日重复 → 换唯一键。
+ */
+async function ensureTrendRadarDayDedupeIndex(): Promise<void> {
+  const hasNew = await indexExists('trendradar_news', 'uk_trendradar_news_day');
+  const hasOld = await indexExists('trendradar_news', 'uk_trendradar_news');
+  if (hasNew && !hasOld) return;
+
+  // 1) 按官方规则重算 url_hash（去掉微博 band_rank 等动态参数）
+  const [rows] = await db.query<RowDataPacket[]>(
+    `SELECT id, url, platform_id, url_hash FROM trendradar_news
+      WHERE url IS NOT NULL AND url <> ''`,
+  );
+  let rehashed = 0;
+  for (const row of rows as Array<{
+    id: number;
+    url: string;
+    platform_id: string;
+    url_hash: string | null;
+  }>) {
+    const normalized = normalizeTrendRadarUrl(row.url, row.platform_id || '');
+    const nextHash = computeNewsUrlHash(normalized || row.url, row.platform_id || '');
+    const nextUrl = normalized || row.url;
+    if (nextHash === row.url_hash && nextUrl === row.url) continue;
+    await db.query(
+      `UPDATE trendradar_news SET url = ?, url_hash = ? WHERE id = ?`,
+      [nextUrl, nextHash, row.id],
+    );
+    rehashed += 1;
+  }
+  if (rehashed > 0) {
+    console.log(`[DB] 已按官方规则重算 url_hash ${rehashed} 条`);
+  }
+
+  // 2) 折叠：同日同 section/platform/url_hash 多行 → 留一条
+  //    优先 platform_id 非空（sqlite-sync），再取最大 id
+  const [delResult] = await db.query(
+    `
+    DELETE n FROM trendradar_news n
+    INNER JOIN (
+      SELECT report_date, section, platform_name, url_hash,
+             SUBSTRING_INDEX(
+               GROUP_CONCAT(id ORDER BY (platform_id <> '') DESC, id DESC),
+               ',', 1
+             ) AS keep_id
+        FROM trendradar_news
+       WHERE url_hash IS NOT NULL AND url_hash <> ''
+       GROUP BY report_date, section, platform_name, url_hash
+      HAVING COUNT(*) > 1
+    ) d
+      ON n.report_date = d.report_date
+     AND n.section = d.section
+     AND n.platform_name = d.platform_name
+     AND n.url_hash = d.url_hash
+     AND n.id <> CAST(d.keep_id AS UNSIGNED)
+  `,
+  );
+  const deleted = Number(
+    (delResult as { affectedRows?: number } | undefined)?.affectedRows ?? 0,
+  );
+  if (deleted > 0) {
+    console.log(`[DB] 已折叠日级重复新闻 ${deleted} 条`);
+  }
+
+  // 3) 换唯一键
+  if (!hasNew) {
+    await db.query(`
+      ALTER TABLE trendradar_news
+        ADD UNIQUE KEY uk_trendradar_news_day (report_date, section, platform_name, url_hash)
+    `);
+    console.log('[DB] 已创建唯一键 uk_trendradar_news_day');
+  }
+  if (hasOld) {
+    await db.query(`ALTER TABLE trendradar_news DROP INDEX uk_trendradar_news`);
+    console.log('[DB] 已删除旧唯一键 uk_trendradar_news');
   }
 }

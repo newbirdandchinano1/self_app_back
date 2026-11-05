@@ -1,6 +1,7 @@
-import { createHash } from 'crypto';
 import type { ResultSetHeader, RowDataPacket } from 'mysql2';
 import { db } from '../db/index.js';
+import { computeNewsUrlHash, sha1Hex } from '../utils/trendradar-dedupe.js';
+import { normalizeTrendRadarUrl } from '../utils/trendradar-url.js';
 import { formatUtcMySQLDateTime } from './calendar/logical-day.js';
 import { nowUtcMysql } from './points-wallet.js';
 
@@ -270,7 +271,7 @@ export function parseTrendRadarMarkdown(
 }
 
 function sha1(text: string): string {
-  return createHash('sha1').update(text, 'utf8').digest('hex');
+  return sha1Hex(text);
 }
 
 export type TrendRadarIngestResult = {
@@ -370,26 +371,30 @@ export async function ingestTrendRadarWebhook(
 
   let itemsStored = 0;
   if (parsed.items.length > 0) {
-    const rows = parsed.items.map((item) => [
-      reportId,
-      reportDate,
-      item.section,
-      item.keywordGroup,
-      item.groupSeq,
-      item.groupTotal,
-      item.groupCount,
-      item.seqNo,
-      item.platformName,
-      item.title,
-      item.url,
-      sha1(item.url ?? ''),
-      item.rankNo,
-      item.rankEnd,
-      item.rankTrend,
-      item.appearTime,
-      item.crawlCount,
-      item.isNew ? 1 : 0,
-    ]);
+    const rows = parsed.items.map((item) => {
+      const rawUrl = item.url?.trim() || '';
+      const url = rawUrl ? normalizeTrendRadarUrl(rawUrl) || rawUrl : null;
+      return [
+        reportId,
+        reportDate,
+        item.section,
+        item.keywordGroup,
+        item.groupSeq,
+        item.groupTotal,
+        item.groupCount,
+        item.seqNo,
+        item.platformName,
+        item.title,
+        url,
+        computeNewsUrlHash(url),
+        item.rankNo,
+        item.rankEnd,
+        item.rankTrend,
+        item.appearTime,
+        item.crawlCount,
+        item.isNew ? 1 : 0,
+      ];
+    });
     const CHUNK = 200;
     for (let i = 0; i < rows.length; i += CHUNK) {
       const [res] = await db.query<ResultSetHeader>(
@@ -399,15 +404,20 @@ export async function ingestTrendRadarWebhook(
             appear_time, crawl_count, is_new)
          VALUES ?
          ON DUPLICATE KEY UPDATE
-           group_seq = VALUES(group_seq),
-           group_total = VALUES(group_total),
-           group_count = VALUES(group_count),
-           seq_no = VALUES(seq_no),
-           rank_no = VALUES(rank_no),
-           rank_end = VALUES(rank_end),
-           rank_trend = VALUES(rank_trend),
-           appear_time = VALUES(appear_time),
-           crawl_count = VALUES(crawl_count)`,
+           report_id = VALUES(report_id),
+           keyword_group = IF(VALUES(keyword_group) <> '', VALUES(keyword_group), keyword_group),
+           group_seq = COALESCE(VALUES(group_seq), group_seq),
+           group_total = COALESCE(VALUES(group_total), group_total),
+           group_count = COALESCE(VALUES(group_count), group_count),
+           seq_no = COALESCE(VALUES(seq_no), seq_no),
+           title = VALUES(title),
+           url = COALESCE(VALUES(url), url),
+           rank_no = COALESCE(VALUES(rank_no), rank_no),
+           rank_end = COALESCE(VALUES(rank_end), rank_end),
+           rank_trend = COALESCE(VALUES(rank_trend), rank_trend),
+           appear_time = COALESCE(VALUES(appear_time), appear_time),
+           crawl_count = COALESCE(VALUES(crawl_count), crawl_count),
+           is_new = GREATEST(is_new, VALUES(is_new))`,
         [rows.slice(i, i + CHUNK)],
       );
       itemsStored += res.affectedRows ?? 0;

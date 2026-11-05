@@ -52,4 +52,6 @@ export const MIGRATIONS: readonly Migration[] = [
   { id: '022_trendradar', up: ensureTrendRadarTables },
   { id: '023_trendradar_sync_columns', up: ensureTrendRadarSyncColumns },
   { id: '024_recipe_items_cook_stats', up: ensureRecipeCookStatsColumns },
+  /** 日级去重：规范化 url_hash + uk_trendradar_news_day（幂等，可重复调用） */
+  { id: '025_trendradar_day_dedupe', up: ensureTrendRadarSyncColumns },
 ];
