@@ -57,11 +57,13 @@ export function assertPlacementMinutePair(
 
 /**
  * 映射 GET 行 → API 字段（缺列/NULL → null，旧库热更新前也安全）
+ * 接受普通对象或 mysql2 RowDataPacket（仅含可选字段时会被 TS 判为 weak type 而拒绝 RowDataPacket）
  */
 export function mapPlacementMinutesFromDbRow(row: {
   start_minutes?: unknown;
   end_minutes?: unknown;
   all_day?: unknown;
+  [key: string]: unknown;
 }): {
   startMinutes: number | null;
   endMinutes: number | null;
