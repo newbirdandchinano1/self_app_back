@@ -427,10 +427,22 @@ export async function analyzeAndPersistMemoReview(
 
   let evaluation: string;
   let suggestions: string;
+  let bullets: string[] | undefined;
+  let suggestedAction: string | undefined;
+  let draftTitle: string | undefined;
   try {
     const result = await agentAnalyzeMemoReview(contextText);
     evaluation = result.evaluation;
     suggestions = result.suggestions;
+    if (Array.isArray(result.bullets)) {
+      bullets = result.bullets.filter((x): x is string => typeof x === 'string' && Boolean(x.trim()));
+    }
+    if (typeof result.suggested_action === 'string' && result.suggested_action.trim()) {
+      suggestedAction = result.suggested_action.trim();
+    }
+    if (typeof result.draft_title === 'string' && result.draft_title.trim()) {
+      draftTitle = result.draft_title.trim();
+    }
   } catch (err) {
     if (err instanceof AgentAiError) {
       throw new MemoError(err.message, err.httpStatus);
@@ -469,5 +481,11 @@ export async function analyzeAndPersistMemoReview(
 
   const updated = await getActiveMemo(id);
   if (!updated) throw new MemoError('备忘录不存在', 404);
-  return formatMemo(updated);
+  // 结构化字段仅随本次响应返回（不落库）；旧端忽略即可
+  return {
+    ...formatMemo(updated),
+    ...(bullets?.length ? { bullets } : {}),
+    ...(suggestedAction ? { suggested_action: suggestedAction } : {}),
+    ...(draftTitle ? { draft_title: draftTitle } : {}),
+  };
 }

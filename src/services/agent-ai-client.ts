@@ -76,6 +76,9 @@ async function agentAiPost<T>(path: string, body: unknown): Promise<T> {
 export async function agentAnalyzeMemoReview(memoContextText: string): Promise<{
   evaluation: string;
   suggestions: string;
+  bullets?: string[];
+  suggested_action?: string;
+  draft_title?: string;
 }> {
   return agentAiPost('/api/v1/ai/memo/review', {
     memo_context_text: memoContextText,
