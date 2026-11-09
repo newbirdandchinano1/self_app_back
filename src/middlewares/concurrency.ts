@@ -18,6 +18,8 @@ function shouldSkipConcurrency(req: Request): boolean {
   const path = req.path || '';
   const original = (req as Request & { originalUrl?: string }).originalUrl || '';
   if (path.includes('/sync/stream') || original.includes('/sync/stream')) return true;
+  // Agent 只读快照：工具轮次可能短时并发打多个域，占满槽后会让 App 同步/CRUD 连环 503 弹「服务器繁忙」
+  if (path.includes('/agent/') || original.includes('/agent/')) return true;
   const accept = req.headers.accept;
   if (typeof accept === 'string' && accept.includes('text/event-stream')) return true;
   return false;
