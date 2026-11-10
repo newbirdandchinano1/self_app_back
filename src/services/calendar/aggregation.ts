@@ -637,10 +637,12 @@ function standaloneTodoPassesDayBoundaryFilter(
   logicalTodayYmd: string,
 ): boolean {
   if (task.status !== 'done' && task.status !== 'cancelled') return true;
-  const raw = task.completed_at?.trim() || task.updated_at?.trim();
-  if (!raw) return true;
+  // 只用 completed_at：updated_at 会被同步/任意编辑刷新，会把「昨日已完成」误当成今日。
+  // 无法证明完成落在今日日界内则隐藏。
+  const raw = task.completed_at?.trim();
+  if (!raw) return false;
   const doneLogicalYmd = getLogicalYmdFromCreatedAt(raw, boundary);
-  if (!doneLogicalYmd) return true;
+  if (!doneLogicalYmd) return false;
   return doneLogicalYmd >= logicalTodayYmd;
 }
 
