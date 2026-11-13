@@ -222,14 +222,33 @@ export const TASK_EXECUTION_ACTION_OPTIONS: readonly EnumOption[] = [
 
 export const TASK_EXECUTION_ACTION_VALUES = TASK_EXECUTION_ACTION_OPTIONS.map((o) => o.value);
 
-/** 项目 status 固定取值（与日历/列表 excludeArchived 口径一致） */
+/** 项目 status 固定取值（与任务 TaskStatus / App 列表口径一致） */
 export const PROJECT_STATUS_OPTIONS: readonly EnumOption[] = [
-  { value: 'active', label: '进行中' },
-  { value: 'completed', label: '已完成' },
-  { value: 'archived', label: '已归档' },
+  { value: 'todo', label: '待办' },
+  { value: 'doing', label: '进行中' },
+  { value: 'blocked', label: '受阻' },
+  { value: 'done', label: '已完成' },
+  { value: 'cancelled', label: '已取消' },
+  { value: 'shelved', label: '已搁置' },
 ];
 
 export const PROJECT_STATUS_VALUES = PROJECT_STATUS_OPTIONS.map((o) => o.value);
+
+/** 写入时仍接受的旧值 → 新值 */
+export const LEGACY_PROJECT_STATUS_MAP: Readonly<Record<string, string>> = {
+  active: 'todo',
+  paused: 'shelved',
+  completed: 'done',
+  archived: 'done',
+};
+
+export function normalizeProjectStatusForWrite(raw: unknown, fallback = 'todo'): string {
+  const s = String(raw ?? '').trim();
+  if (PROJECT_STATUS_VALUES.includes(s)) return s;
+  const mapped = LEGACY_PROJECT_STATUS_MAP[s];
+  if (mapped) return mapped;
+  return fallback;
+}
 
 /** 道路赌注时间桶 */
 export const LIFE_BET_HORIZON_OPTIONS: readonly EnumOption[] = [

@@ -17,6 +17,7 @@ import {
   PASSWORD_FIELDS,
   requiresClientId,
   PROJECT_STATUS_VALUES,
+  normalizeProjectStatusForWrite,
   TABLE_ENUM_COLUMNS,
   TABLE_FOREIGN_KEYS,
   TABLE_SYNC_DEPENDS_ON,
@@ -342,8 +343,9 @@ async function normalizeWriteData(
   }
 
   if (table === 'projects' && meta.columns.includes('status') && (isCreate || 'status' in result)) {
-    const status = String(result.status ?? (isCreate ? 'active' : '')).trim();
-    if (!PROJECT_STATUS_VALUES.includes(status)) {
+    const raw = String(result.status ?? (isCreate ? 'todo' : '')).trim();
+    const status = normalizeProjectStatusForWrite(raw, '');
+    if (!status || !PROJECT_STATUS_VALUES.includes(status)) {
       throw new CrudError(`项目状态仅支持 ${PROJECT_STATUS_VALUES.join(' / ')}`, 400);
     }
     result.status = status;

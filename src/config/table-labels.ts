@@ -301,7 +301,7 @@ export const TABLE_COLUMN_LABELS: Partial<
   },
   tag_links: {
     tag_id: '标签ID',
-    entity_type: '实体类型（project|habit|task|memo）',
+    entity_type: '实体类型（现用 memo；历史 project|habit|task 已下线）',
     entity_id: '实体ID',
   },
   memo_dimensions: {

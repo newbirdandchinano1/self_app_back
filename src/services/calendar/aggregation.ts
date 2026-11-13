@@ -1206,7 +1206,12 @@ export function buildTasksCalendarSummaries(params: {
 
     for (const project of projects) {
       const due = dueDateYmd(project.due_date);
-      if (due === ymd && project.status !== 'archived') {
+      if (
+        due === ymd &&
+        project.status !== 'archived' &&
+        project.status !== 'done' &&
+        project.status !== 'cancelled'
+      ) {
         day.projectsDue.push({ id: project.id, name: project.name, status: project.status });
       }
     }

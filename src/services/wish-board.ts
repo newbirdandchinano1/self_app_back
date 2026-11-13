@@ -310,7 +310,11 @@ async function assertWishBoardRedeemConditionsMet(
     for (const projectId of conditions.project_ids) {
       const row = byId.get(projectId);
       const done =
-        row != null && (row.status === 'completed' || row.status === 'archived');
+        row != null &&
+        (row.status === 'done' ||
+          row.status === 'cancelled' ||
+          row.status === 'completed' ||
+          row.status === 'archived');
       if (!done) {
         const title = row?.name != null ? String(row.name).trim() || '未知项目' : '已删除的项目';
         pendingTitles.push(title);

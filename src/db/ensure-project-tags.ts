@@ -7,7 +7,7 @@ import { ensureColumn, tableExists } from './schema-helpers.js';
  * 若库中仍有遗留 project_tags / project_tag_links，启动时一次性拷贝到权威表；
  * 不再为新环境创建旧表，旧表也不再进入 API/后台白名单。
  *
- * tags.domain：task（项目/习惯/待办）与 memo（备忘录）分域，互不混选。
+ * tags.domain：历史 task（项目/习惯/待办，已下线）与 memo（备忘录）分域；新贴标仅 memo。
  */
 export async function ensureProjectTagsTables(): Promise<void> {
   if (!(await tableExists('tags'))) {

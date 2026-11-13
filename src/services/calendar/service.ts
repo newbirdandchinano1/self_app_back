@@ -67,7 +67,7 @@ async function loadHabits(): Promise<CalendarHabitRow[]> {
 async function loadProjectsForCalendar(startYmd: string, endYmd: string): Promise<CalendarProjectRow[]> {
   const [rows] = await db.query<RowDataPacket[]>(
     `SELECT id, name, status, due_date FROM ${quoteIdent('projects')}
-     WHERE status != 'archived'
+     WHERE status NOT IN ('archived', 'done', 'cancelled')
        AND LEFT(COALESCE(due_date, ''), 10) BETWEEN ? AND ?`,
     [startYmd, endYmd],
   );

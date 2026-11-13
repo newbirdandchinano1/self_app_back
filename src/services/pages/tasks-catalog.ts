@@ -104,8 +104,17 @@ function sortProjects(rows: Record<string, unknown>[]): Record<string, unknown>[
     const aStatus = String(a.status ?? '');
     const bStatus = String(b.status ?? '');
     if (aStatus !== bStatus) {
-      if (aStatus === 'active') return -1;
-      if (bStatus === 'active') return 1;
+      const aActive =
+        aStatus === 'todo' ||
+        aStatus === 'doing' ||
+        aStatus === 'blocked' ||
+        aStatus === 'active';
+      const bActive =
+        bStatus === 'todo' ||
+        bStatus === 'doing' ||
+        bStatus === 'blocked' ||
+        bStatus === 'active';
+      if (aActive !== bActive) return aActive ? -1 : 1;
     }
     const aPri = Number(a.priority ?? 0);
     const bPri = Number(b.priority ?? 0);

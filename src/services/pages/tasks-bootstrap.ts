@@ -917,68 +917,25 @@ function buildTodayCheckIns(
   return map;
 }
 
-/** 习惯标签权重：取已贴标签的最大 weight（对齐项目/独立待办） */
-async function loadHabitTagWeightById(habitIds: string[]): Promise<Map<string, number>> {
-  const weightById = new Map<string, number>();
-  const unique = [...new Set(habitIds.map((id) => id.trim()).filter(Boolean))];
-  if (unique.length === 0) return weightById;
-  try {
-    const [rows] = await db.query<RowDataPacket[]>(
-      `SELECT tl.entity_id AS habit_id, MAX(tg.weight) AS max_weight
-       FROM tag_links tl
-       INNER JOIN tags tg ON tg.id = tl.tag_id
-       WHERE tl.entity_type = 'habit'
-         AND tl.entity_id IN (${unique.map(() => '?').join(',')})
-         AND (tl.sync_status IS NULL OR tl.sync_status != 'pending_delete')
-         AND (tg.sync_status IS NULL OR tg.sync_status != 'pending_delete')
-       GROUP BY tl.entity_id`,
-      unique,
-    );
-    for (const row of rows) {
-      const id = String(row.habit_id ?? '').trim();
-      if (!id) continue;
-      const w = Number(row.max_weight);
-      weightById.set(id, Number.isFinite(w) ? w : 0);
-    }
-  } catch {
-    // tags / tag_links 未迁移时忽略
-  }
-  return weightById;
-}
-
-function habitTagWeightOf(weightByHabitId: Map<string, number>, habitId: string): number {
-  const w = weightByHabitId.get(habitId);
-  return typeof w === 'number' && Number.isFinite(w) ? w : 0;
-}
-
 /**
- * 情境内：未完成按标签权重降序，已完成沉底且不参与权重比较；
- * 情境间：仅累加未完成习惯的权重总和（全完成 → 总和 0 → 沉底）。
+ * 情境内：未完成在前、已完成沉底；组内稳定按 id。
+ * 情境间：按 contextSortOrder / 标题（不再使用标签权重）。
  */
-function sortHabitsGridSectionsByTagWeight(
+function sortHabitsGridSections(
   sections: HabitsGridSection[],
-  weightByHabitId: Map<string, number>,
   contextSortOrderById: Map<string, number>,
 ): HabitsGridSection[] {
-  const w = (id: string) => habitTagWeightOf(weightByHabitId, id);
   const done = (item: HabitsGridItem) => Boolean(item.displayCompleted);
-  const activeWeight = (item: HabitsGridItem) => (done(item) ? 0 : w(item.id));
   const sorted = sections.map((sec) => ({
     ...sec,
     items: [...sec.items].sort((a, b) => {
       const da = done(a);
       const db = done(b);
       if (da !== db) return da ? 1 : -1;
-      if (da && db) return a.id.localeCompare(b.id);
-      const diff = w(b.id) - w(a.id);
-      if (diff !== 0) return diff;
       return a.id.localeCompare(b.id);
     }),
   }));
   sorted.sort((a, b) => {
-    const sumA = a.items.reduce((s, it) => s + activeWeight(it), 0);
-    const sumB = b.items.reduce((s, it) => s + activeWeight(it), 0);
-    if (sumA !== sumB) return sumB - sumA;
     const orderA = contextSortOrderById.get(a.id) ?? 1_000_000;
     const orderB = contextSortOrderById.get(b.id) ?? 1_000_000;
     if (orderA !== orderB) return orderA - orderB;
@@ -1080,12 +1037,7 @@ export async function getHabitsGrid(params: TasksBootstrapParams): Promise<Habit
     });
   }
 
-  const weightByHabitId = await loadHabitTagWeightById(allItems.map((it) => it.id));
-  const sortedSections = sortHabitsGridSectionsByTagWeight(
-    sections,
-    weightByHabitId,
-    contextSortOrderById,
-  );
+  const sortedSections = sortHabitsGridSections(sections, contextSortOrderById);
 
   return {
     logicalToday,

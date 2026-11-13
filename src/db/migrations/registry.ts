@@ -7,6 +7,7 @@ import { ensureMemosBodyMediumText } from '../ensure-memos-body-mediumtext.js';
 import { ensureMemosPinnedColumn } from '../ensure-memos-pinned.js';
 import { ensurePointsTables } from '../ensure-points.js';
 import { ensureProjectTagsTables } from '../ensure-project-tags.js';
+import { ensureRetireTaskSideTags } from '../ensure-retire-task-side-tags.js';
 import { ensureProjectsPriorityColumn } from '../ensure-projects-priority.js';
 import { ensureSyncChangeLogTable } from '../ensure-sync-change-log.js';
 import { ensureSyncRevisionSchema } from '../ensure-sync-revision.js';
@@ -54,4 +55,6 @@ export const MIGRATIONS: readonly Migration[] = [
   { id: '024_recipe_items_cook_stats', up: ensureRecipeCookStatsColumns },
   /** 日级去重：规范化 url_hash + uk_trendradar_news_day（幂等，可重复调用） */
   { id: '025_trendradar_day_dedupe', up: ensureTrendRadarSyncColumns },
+  /** 下线项目/习惯/待办标签关联；保留 memo 域 */
+  { id: '026_retire_task_side_tags', up: ensureRetireTaskSideTags },
 ];

@@ -159,8 +159,13 @@ async function assertTaskAssignable(row: RowDataPacket, _assignYmd: string): Pro
 
 async function assertProjectAssignable(row: RowDataPacket, _assignYmd: string): Promise<void> {
   const status = String(row.status ?? '');
-  if (status !== 'active') {
-    throw new FrogAssignError('仅活跃且无子任务的项目可指派为青蛙');
+  if (
+    status !== 'todo' &&
+    status !== 'doing' &&
+    status !== 'blocked' &&
+    status !== 'active'
+  ) {
+    throw new FrogAssignError('仅待办/进行中/受阻且无子任务的项目可指派为青蛙');
   }
   const categoryId = row.category_id == null ? '' : String(row.category_id);
   if (!categoryId || categoryId === INBOX_PROJECT_CATEGORY_ID) {
@@ -285,8 +290,9 @@ export type FrogCandidateItem = {
   rewardPoints: number;
   projectId: string | null;
   projectName: string | null;
-  /** @deprecated 兼容旧客户端；优先用 tags */
+  /** @deprecated 任务侧标签已下线；恒为空，兼容旧客户端 */
   tagNames: string[];
+  /** @deprecated 任务侧标签已下线；恒为空，兼容旧客户端 */
   tags: { name: string; color: string }[];
   /** 相对逻辑今日是否已过期（截止/日程结束日） */
   isOverdue: boolean;
@@ -336,14 +342,6 @@ function dueYmd(value: unknown): string | null {
   const s = String(value).trim();
   if (YMD_RE.test(s.slice(0, 10))) return s.slice(0, 10);
   return null;
-}
-
-const DEFAULT_TAG_COLOR = '#64748B';
-
-function normalizeTagColor(color: unknown): string {
-  const raw = String(color ?? '').trim();
-  if (/^#[0-9A-Fa-f]{6}$/.test(raw)) return raw.toUpperCase();
-  return DEFAULT_TAG_COLOR;
 }
 
 /** 项目/任务日程结束日：优先 schedule.range.end / schedule.date，再回退 due_date */
@@ -406,7 +404,7 @@ export async function getFrogCandidates(
   const [projectRows] = await db.query<RowDataPacket[]>(
     `SELECT id, category_id, name, status, priority, note, due_date, extra_data${projectFrogSelect}
      FROM projects
-     WHERE status = 'active'
+     WHERE status IN ('todo', 'doing', 'blocked', 'active')
      ORDER BY priority DESC, updated_at DESC
      LIMIT 300`,
   );
@@ -433,39 +431,6 @@ export async function getFrogCandidates(
     taskCountByProject.set(String(row.id), Number(row.cnt ?? 0));
   }
 
-  const projectIds = [
-    ...new Set([
-      ...taskRows.map((r) => (r.project_id == null ? '' : String(r.project_id))).filter(Boolean),
-      ...projectRows.map((r) => String(r.id)),
-    ]),
-  ];
-  const tagMetaByProject = new Map<string, { name: string; color: string }[]>();
-  if (projectIds.length > 0) {
-    try {
-      const [tagRows] = await db.query<RowDataPacket[]>(
-        `SELECT tl.entity_id AS project_id, tg.name, tg.color, tg.weight
-         FROM tag_links tl
-         INNER JOIN tags tg ON tg.id = tl.tag_id
-         WHERE tl.entity_type = 'project'
-           AND tl.entity_id IN (${projectIds.map(() => '?').join(',')})
-           AND (tl.sync_status IS NULL OR tl.sync_status != 'pending_delete')
-           AND (tg.sync_status IS NULL OR tg.sync_status != 'pending_delete')
-         ORDER BY tg.weight DESC, tg.name ASC`,
-        projectIds,
-      );
-      for (const row of tagRows) {
-        const pid = String(row.project_id);
-        const name = String(row.name ?? '').trim();
-        if (!name) continue;
-        const list = tagMetaByProject.get(pid) ?? [];
-        list.push({ name, color: normalizeTagColor(row.color) });
-        tagMetaByProject.set(pid, list);
-      }
-    } catch {
-      // 标签表可能尚未迁移：忽略
-    }
-  }
-
   const items: FrogCandidateItem[] = [];
   const logicalToday = context.logicalToday;
 
@@ -478,7 +443,6 @@ export async function getFrogCandidates(
       ? '存在未完成子任务'
       : null;
     const projectId = row.project_id == null ? null : String(row.project_id);
-    const tags = projectId ? tagMetaByProject.get(projectId) ?? [] : [];
     const dueDate = dueYmd(row.due_date);
     const endYmd = scheduleEndYmd(row.due_date, row.extra_data) ?? dueDate;
     items.push({
@@ -491,8 +455,8 @@ export async function getFrogCandidates(
       rewardPoints: rewardPointsFromExtra(row.extra_data),
       projectId,
       projectName: row.project_name == null ? null : String(row.project_name),
-      tagNames: tags.map((t) => t.name),
-      tags,
+      tagNames: [],
+      tags: [],
       isOverdue: isYmdBefore(endYmd, logicalToday),
       alreadyAssigned: assigned,
       blockedReason: blocked,
@@ -507,7 +471,6 @@ export async function getFrogCandidates(
     const assigned = collectFrogAssignedDates(row.extra_data, row.frog_assigned_on).includes(
       assignYmd,
     );
-    const tags = tagMetaByProject.get(id) ?? [];
     const dueDate = dueYmd(row.due_date);
     const endYmd = scheduleEndYmd(row.due_date, row.extra_data) ?? dueDate;
     items.push({
@@ -520,8 +483,8 @@ export async function getFrogCandidates(
       rewardPoints: rewardPointsFromExtra(row.extra_data),
       projectId: id,
       projectName: String(row.name ?? ''),
-      tagNames: tags.map((t) => t.name),
-      tags,
+      tagNames: [],
+      tags: [],
       isOverdue: isYmdBefore(endYmd, logicalToday),
       alreadyAssigned: assigned,
       blockedReason: null,
