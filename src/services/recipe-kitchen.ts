@@ -305,8 +305,198 @@ function asShopStatus(raw: unknown): ShopStatus | null {
   return null;
 }
 
+/** 与 App `recipe-shop.shopItemKey` 对齐：去空白后小写 */
 function shopItemKey(name: string): string {
-  return name.trim().toLowerCase();
+  return name.trim().replace(/\s+/g, '').toLowerCase();
+}
+
+/** 常见调料 / 常备料：默认归入「已有库存」，不进待采购（与 App 一致） */
+const COMMON_SEASONING_NAMES = [
+  '盐',
+  '食盐',
+  '糖',
+  '白糖',
+  '冰糖',
+  '红糖',
+  '酱油',
+  '生抽',
+  '老抽',
+  '醋',
+  '香醋',
+  '米醋',
+  '陈醋',
+  '料酒',
+  '黄酒',
+  '胡椒',
+  '胡椒粉',
+  '白胡椒',
+  '黑胡椒',
+  '花椒',
+  '八角',
+  '大料',
+  '桂皮',
+  '香叶',
+  '干辣椒',
+  '辣椒粉',
+  '辣椒面',
+  '花椒粉',
+  '五香粉',
+  '十三香',
+  '味精',
+  '鸡精',
+  '蚝油',
+  '香油',
+  '芝麻油',
+  '麻油',
+  '淀粉',
+  '生粉',
+  '玉米淀粉',
+  '食用油',
+  '油',
+  '植物油',
+  '菜籽油',
+  '花生油',
+  '大豆油',
+  '橄榄油',
+  '色拉油',
+  '水',
+  '开水',
+  '温水',
+  '冷水',
+];
+
+function isCommonSeasoning(name: string): boolean {
+  const n = shopItemKey(name);
+  if (!n) return false;
+  return COMMON_SEASONING_NAMES.some((s) => shopItemKey(s) === n);
+}
+
+function mergeAmounts(amounts: string[]): string {
+  const cleaned = amounts.map((a) => a.trim()).filter(Boolean);
+  if (cleaned.length === 0) return '适量';
+  const uniq = [...new Set(cleaned)];
+  if (uniq.length === 1) return uniq[0]!;
+  return uniq.join('、');
+}
+
+type RecipeIngredient = { name: string; amount: string };
+
+function parseIngredients(raw: unknown): RecipeIngredient[] {
+  if (!Array.isArray(raw)) return [];
+  const out: RecipeIngredient[] = [];
+  for (const row of raw) {
+    if (typeof row === 'string') {
+      const name = row.trim();
+      if (name) out.push({ name, amount: '' });
+      continue;
+    }
+    if (!row || typeof row !== 'object') continue;
+    const o = row as Record<string, unknown>;
+    const name = asTrimmed(o.name ?? o.title);
+    if (!name) continue;
+    out.push({ name, amount: asTrimmed(o.amount ?? o.qty ?? o.quantity) });
+  }
+  return out;
+}
+
+function recipePreviewTitle(title: string, ingredients: RecipeIngredient[]): string {
+  const t = title.trim();
+  if (t) return t;
+  const first = ingredients[0]?.name.trim() ?? '';
+  if (first) return first.length > 48 ? `${first.slice(0, 48)}…` : first;
+  return '未命名菜谱';
+}
+
+type ShopListItem = {
+  key: string;
+  name: string;
+  amount: string;
+  recipe_ids: string[];
+  recipe_titles: string[];
+  is_common_seasoning: boolean;
+  status: ShopStatus;
+};
+
+type IngredientAcc = {
+  name: string;
+  amounts: string[];
+  recipeIds: Set<string>;
+  recipeTitles: Set<string>;
+};
+
+function absorbRecipeIngredients(
+  byKey: Map<string, IngredientAcc>,
+  recipeId: string,
+  title: string,
+  ingredients: RecipeIngredient[],
+) {
+  for (const ing of ingredients) {
+    const name = ing.name.trim();
+    if (!name) continue;
+    const key = shopItemKey(name);
+    let acc = byKey.get(key);
+    if (!acc) {
+      acc = { name, amounts: [], recipeIds: new Set(), recipeTitles: new Set() };
+      byKey.set(key, acc);
+    }
+    if (ing.amount.trim()) acc.amounts.push(ing.amount.trim());
+    acc.recipeIds.add(recipeId);
+    acc.recipeTitles.add(title);
+  }
+}
+
+/**
+ * 从用餐计划 +「加入采购」菜谱 + 菜谱库汇总采购清单（与 App buildShopList 对齐）。
+ */
+function buildShopList(
+  plan: PlanStore,
+  recipes: Array<Record<string, unknown>>,
+  state: ShopState,
+): ShopListItem[] {
+  const recipeById = new Map<string, { title: string; ingredients: RecipeIngredient[] }>();
+  for (const r of recipes) {
+    const id = asTrimmed(r.id);
+    if (!id) continue;
+    const ingredients = parseIngredients(r.ingredients_json);
+    recipeById.set(id, {
+      title: recipePreviewTitle(asTrimmed(r.title), ingredients),
+      ingredients,
+    });
+  }
+
+  const byKey = new Map<string, IngredientAcc>();
+
+  for (const entry of plan.entries) {
+    const recipe = recipeById.get(entry.recipeId);
+    const title = recipe?.title || entry.recipeTitle;
+    absorbRecipeIngredients(byKey, entry.recipeId, title, recipe?.ingredients ?? []);
+  }
+
+  for (const added of state.addedRecipes) {
+    const recipe = recipeById.get(added.recipeId);
+    const title = recipe?.title || added.recipeTitle;
+    absorbRecipeIngredients(byKey, added.recipeId, title, recipe?.ingredients ?? []);
+  }
+
+  const dismissed = new Set(state.dismissedKeys.map((k) => shopItemKey(k)));
+  const items: ShopListItem[] = [];
+  for (const [key, acc] of byKey) {
+    if (dismissed.has(key)) continue;
+    const common = isCommonSeasoning(acc.name);
+    const override = state.overrides[key];
+    const status: ShopStatus = override ?? (common ? 'stock' : 'todo');
+    items.push({
+      key,
+      name: acc.name,
+      amount: mergeAmounts(acc.amounts),
+      recipe_ids: [...acc.recipeIds],
+      recipe_titles: [...acc.recipeTitles],
+      is_common_seasoning: common,
+      status,
+    });
+  }
+
+  return items.sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'));
 }
 
 // —— 厨房统计 ——
@@ -590,12 +780,30 @@ export async function removePlanEntry(idRaw: unknown) {
 // —— 采购清单 ——
 
 export async function getShopState() {
-  const state = parseShop(await readSetting(KEYS.shopList));
+  const [shopRaw, planRaw, recipes] = await Promise.all([
+    readSetting(KEYS.shopList),
+    readSetting(KEYS.mealPlan),
+    listAllRecipeItems({ parseJson: true }),
+  ]);
+  const state = parseShop(shopRaw);
+  const plan = parsePlan(planRaw);
+  const items = buildShopList(plan, recipes as Array<Record<string, unknown>>, state);
+  const todo_items = items.filter((i) => i.status === 'todo');
+  const stock_items = items.filter((i) => i.status === 'stock');
+  const bought_items = items.filter((i) => i.status === 'bought');
   return {
     added_recipes: state.addedRecipes,
     overrides: state.overrides,
     dismissed_keys: state.dismissedKeys,
     added_count: state.addedRecipes.length,
+    items,
+    todo_items,
+    stock_items,
+    bought_items,
+    todo_count: todo_items.length,
+    stock_count: stock_items.length,
+    bought_count: bought_items.length,
+    item_count: items.length,
   };
 }
 

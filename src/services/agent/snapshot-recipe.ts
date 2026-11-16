@@ -152,6 +152,25 @@ export async function getAgentRecipeSnapshot(params: AgentRecipeSnapshotParams =
       })),
       override_count: Object.keys(shop.overrides).length,
       dismissed_count: shop.dismissed_keys.length,
+      item_count: shop.item_count,
+      todo_count: shop.todo_count,
+      stock_count: shop.stock_count,
+      bought_count: shop.bought_count,
+      /** 完整可见采购项（含待购/库存/已购）；Agent 可直接回答「还要买什么」 */
+      items: shop.items.slice(0, 120).map((i) => ({
+        key: i.key,
+        name: i.name,
+        amount: i.amount,
+        status: i.status,
+        is_common_seasoning: i.is_common_seasoning,
+        recipe_titles: i.recipe_titles.slice(0, 4),
+      })),
+      todo_items: shop.todo_items.slice(0, 80).map((i) => ({
+        key: i.key,
+        name: i.name,
+        amount: i.amount,
+        recipe_titles: i.recipe_titles.slice(0, 4),
+      })),
     },
     cook_logs: {
       count: cookLogs.count,
