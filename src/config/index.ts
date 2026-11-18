@@ -39,12 +39,6 @@ export const syncConfig = {
   cleanupEnabled: process.env.SYNC_CHANGE_LOG_CLEANUP_ENABLED !== 'false',
 };
 
-/** 场景 AI 已迁至 selfAPP_AIAgent；后端仅代调 Agent（如备忘落库点评） */
-export const agentConfig = {
-  baseUrl: (process.env.AGENT_BASE_URL || 'http://localhost:8000').replace(/\/+$/, ''),
-  apiKey: process.env.AGENT_API_KEY || 'zhengjiaxin',
-  timeoutMs: parseInt(process.env.AGENT_TIMEOUT_MS || '120000', 10),
-};
 /** TrendRadar 热点推送（通用 Webhook 回调） */
 export const trendRadarConfig = {
   /**
