@@ -52,3 +52,12 @@ export const newsImportConfig = {
   /** 脚本侧使用 Authorization: Bearer <token>；同时兼容管理员 JWT */
   token: process.env.NEWS_IMPORT_TOKEN || '',
 };
+
+/** 业务后端代调 selfAPP_AIAgent（备忘点评等需落库前的场景 AI） */
+export const agentConfig = {
+  /** Agent 根地址，如 http://host:8000；容器内勿用 localhost */
+  baseUrl: process.env.AGENT_BASE_URL || 'http://127.0.0.1:8000',
+  /** 与 Agent `.env` 的 API_KEY 一致，请求头 X-API-Key */
+  apiKey: process.env.AGENT_API_KEY || '',
+  timeoutMs: parseInt(process.env.AGENT_TIMEOUT_MS || '120000', 10),
+};
