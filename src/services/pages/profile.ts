@@ -21,9 +21,13 @@ function serverNowIso(): string {
   return new Date().toISOString();
 }
 
-/** 备忘列表拼盘：memos + tags + tag_links 均走源 service */
+/** 备忘列表拼盘：memos + memo 域 tags + tag_links 均走源 service */
 export async function getProfileMemoList() {
-  const [memos, tags, tagLinks] = await Promise.all([listMemos(), listTags(), listTagLinks()]);
+  const [memos, tags, tagLinks] = await Promise.all([
+    listMemos(),
+    listTags({ domain: 'memo' }),
+    listTagLinks(),
+  ]);
   return {
     memos,
     tags,

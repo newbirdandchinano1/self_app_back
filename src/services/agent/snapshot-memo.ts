@@ -30,7 +30,7 @@ export async function getAgentMemoSnapshot(params: AgentMemoSnapshotParams = {})
   const lim = Math.max(1, Math.min(Number(params.limit) || RECENT_LIMIT, 20));
   const [memos, tags] = await Promise.all([
     listMemos(),
-    listTags().catch(() => [] as Array<Record<string, unknown>>),
+    listTags({ domain: 'memo' }).catch(() => [] as Array<Record<string, unknown>>),
   ]);
 
   const recent = (Array.isArray(memos) ? memos : []).slice(0, lim).map((row) => {
@@ -51,6 +51,9 @@ export async function getAgentMemoSnapshot(params: AgentMemoSnapshotParams = {})
     id: row.id == null ? null : String(row.id),
     name: String(row.name ?? '').trim() || '标签',
     color: row.color == null ? null : String(row.color),
+    weight: typeof row.weight === 'number' ? row.weight : Number(row.weight) || 0,
+    description: row.description == null ? null : String(row.description),
+    domain: 'memo',
   }));
 
   return {
@@ -58,6 +61,6 @@ export async function getAgentMemoSnapshot(params: AgentMemoSnapshotParams = {})
     recent_count: recent.length,
     recent_memos: recent,
     tags: tagRows,
-    note: '备忘只读摘要（标题+id+短预览）；改写/落库需用户确认，助手不写库。',
+    note: '备忘只读摘要（标题+id+短预览+memo 域标签）；改写/落库需用户确认，助手不写库。',
   };
 }

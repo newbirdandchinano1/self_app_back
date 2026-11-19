@@ -171,15 +171,20 @@ export async function listMemos() {
   return (rows as MemoRow[]).map(formatMemo);
 }
 
-/** 标签列表（备忘 / 项目共用权威表；profile 聚合与通用 List 同源） */
-export async function listTags() {
+/** 标签列表（权威表；可按 domain 过滤。备忘拼盘 / Agent 快照默认 memo） */
+export async function listTags(opts?: { domain?: 'memo' | 'task' }) {
   await ensureTagsTablesOnce();
-  const [rows] = await db.query<RowDataPacket[]>(
-    `SELECT id, name, color, description, weight, domain, created_at, updated_at, sync_status, extra_data
+  const domain = opts?.domain;
+  const params: unknown[] = [];
+  let sql = `SELECT id, name, color, description, weight, domain, created_at, updated_at, sync_status, extra_data
      FROM tags
-     WHERE sync_status IS NULL OR sync_status != 'pending_delete'
-     ORDER BY name ASC, id ASC`,
-  );
+     WHERE sync_status IS NULL OR sync_status != 'pending_delete'`;
+  if (domain === 'memo' || domain === 'task') {
+    sql += ` AND domain = ?`;
+    params.push(domain);
+  }
+  sql += ` ORDER BY weight DESC, name ASC, id ASC`;
+  const [rows] = await db.query<RowDataPacket[]>(sql, params);
   return (rows as Record<string, unknown>[]).map((row) =>
     formatRecordDateTimesForApi({ ...row }, 'tags'),
   );
