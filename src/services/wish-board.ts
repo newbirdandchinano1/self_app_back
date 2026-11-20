@@ -32,15 +32,29 @@ export class WishBoardError extends Error {
 }
 
 const REDEEM_CONDITIONS_KEY = 'redeem_conditions';
+const NET_WORTH_CHECK_ID = 'min_net_worth';
+const AVAILABLE_FROM_CHECK_ID = 'available_from';
 
-type WishBoardRedeemConditions = {
+export type WishBoardRedeemConditions = {
   project_ids: string[];
   task_ids: string[];
   todo_ids: string[];
   /** 养成/戒除周期目标已达成的小习惯；周期配额不纳入 */
   habit_ids: string[];
+  /** 当前净资产须 ≥ 该值；null 表示不限制 */
+  min_net_worth: number | null;
   /** 本地墙上时钟 `YYYY-MM-DD HH:mm:00`；到达后才可兑换 */
   available_from: string | null;
+};
+
+/** Agent / API 写入兑换条件（字段均可选；null 表示清除该项） */
+export type WishBoardRedeemConditionsInput = {
+  project_ids?: string[] | null;
+  task_ids?: string[] | null;
+  todo_ids?: string[] | null;
+  habit_ids?: string[] | null;
+  min_net_worth?: number | null;
+  available_from?: string | null;
 };
 
 function parseExtraObject(raw: unknown): Record<string, unknown> {
@@ -70,6 +84,32 @@ function normalizeIdList(raw: unknown): string[] {
     if (trimmed && !out.includes(trimmed)) out.push(trimmed);
   }
   return out;
+}
+
+function normalizeMinNetWorth(raw: unknown): number | null {
+  if (raw == null || raw === '') return null;
+  const n = typeof raw === 'number' ? raw : Number(String(raw).trim().replace(/,/g, ''));
+  if (!Number.isFinite(n)) return null;
+  return Math.round(n * 100) / 100;
+}
+
+function truncMoneyToFen(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  const factor = 100;
+  return value >= 0
+    ? Math.floor(value * factor + 1e-9) / factor
+    : Math.ceil(value * factor - 1e-9) / factor;
+}
+
+function isNetWorthAtLeast(current: number, min: number): boolean {
+  return truncMoneyToFen(current) >= truncMoneyToFen(min);
+}
+
+function formatMoneyLabel(value: number): string {
+  const truncated = truncMoneyToFen(value);
+  const abs = Math.abs(truncated);
+  const prefix = truncated < 0 ? '-¥' : '¥';
+  return `${prefix}${abs.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 function normalizeAvailableFrom(raw: unknown): string | null {
@@ -102,6 +142,73 @@ function normalizeAvailableFrom(raw: unknown): string | null {
     return null;
   }
   return `${String(y).padStart(4, '0')}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')} ${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}:00`;
+}
+
+function emptyWishBoardRedeemConditions(): WishBoardRedeemConditions {
+  return {
+    project_ids: [],
+    task_ids: [],
+    todo_ids: [],
+    habit_ids: [],
+    min_net_worth: null,
+    available_from: null,
+  };
+}
+
+export function normalizeWishBoardRedeemConditionsInput(
+  raw: unknown,
+): WishBoardRedeemConditions {
+  if (raw == null || raw === '') return emptyWishBoardRedeemConditions();
+  if (typeof raw !== 'object' || Array.isArray(raw)) {
+    throw new WishBoardError('redeem_conditions 无效', 400, {
+      ok: false,
+      error: 'redeem_conditions 无效',
+    });
+  }
+  const obj = raw as Record<string, unknown>;
+  return {
+    project_ids: normalizeIdList(obj.project_ids),
+    task_ids: normalizeIdList(obj.task_ids),
+    todo_ids: normalizeIdList(obj.todo_ids),
+    habit_ids: normalizeIdList(obj.habit_ids),
+    min_net_worth: normalizeMinNetWorth(obj.min_net_worth),
+    available_from: normalizeAvailableFrom(obj.available_from),
+  };
+}
+
+/** 将 redeem_conditions 合并进 extra_data（空条件则删除该键） */
+export function mergeWishBoardRedeemConditions(
+  extraData: unknown,
+  conditions: WishBoardRedeemConditions | WishBoardRedeemConditionsInput | null | undefined,
+): Record<string, unknown> | null {
+  const base = parseExtraObject(extraData);
+  const next = conditions
+    ? normalizeWishBoardRedeemConditionsInput(conditions)
+    : emptyWishBoardRedeemConditions();
+
+  const empty =
+    next.project_ids.length === 0 &&
+    next.task_ids.length === 0 &&
+    next.todo_ids.length === 0 &&
+    next.habit_ids.length === 0 &&
+    next.min_net_worth == null &&
+    next.available_from == null;
+
+  if (empty) {
+    delete base[REDEEM_CONDITIONS_KEY];
+  } else {
+    const payload: Record<string, unknown> = {
+      project_ids: next.project_ids,
+      task_ids: next.task_ids,
+      todo_ids: next.todo_ids,
+      habit_ids: next.habit_ids,
+    };
+    if (next.min_net_worth != null) payload.min_net_worth = next.min_net_worth;
+    if (next.available_from != null) payload.available_from = next.available_from;
+    base[REDEEM_CONDITIONS_KEY] = payload;
+  }
+
+  return Object.keys(base).length === 0 ? null : base;
 }
 
 function isAvailableFromMet(availableFrom: string | null, now = new Date()): boolean {
@@ -184,20 +291,13 @@ function isHabitWishRedeemConditionMet(extraData: unknown): boolean {
   return false;
 }
 
-function parseWishBoardRedeemConditions(extraData: unknown): WishBoardRedeemConditions {
+export function parseWishBoardRedeemConditions(extraData: unknown): WishBoardRedeemConditions {
   const base = parseExtraObject(extraData);
   const raw = base[REDEEM_CONDITIONS_KEY];
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
-    return { project_ids: [], task_ids: [], todo_ids: [], habit_ids: [], available_from: null };
+    return emptyWishBoardRedeemConditions();
   }
-  const obj = raw as Record<string, unknown>;
-  return {
-    project_ids: normalizeIdList(obj.project_ids),
-    task_ids: normalizeIdList(obj.task_ids),
-    todo_ids: normalizeIdList(obj.todo_ids),
-    habit_ids: normalizeIdList(obj.habit_ids),
-    available_from: normalizeAvailableFrom(obj.available_from),
-  };
+  return normalizeWishBoardRedeemConditionsInput(raw);
 }
 
 function serializeWishBoardExtraData(raw: unknown): string | null {
@@ -223,8 +323,8 @@ function serializeWishBoardExtraData(raw: unknown): string | null {
 }
 
 /**
- * 云端强制：积分之外的绑定项目 / 任务 / 待办须全部完成，且已到开放兑换时间才可兑换。
- * 项目：completed | archived；任务与待办：done。缺失绑定目标视为未完成。
+ * 云端强制：积分之外的绑定项目 / 任务 / 待办 / 习惯 / 净资产 / 开放时间须全部满足才可兑换。
+ * 项目：completed | archived | done | cancelled；任务与待办：done。缺失绑定目标视为未完成。
  */
 async function assertWishBoardRedeemConditionsMet(
   conn: PoolConnection,
@@ -233,7 +333,7 @@ async function assertWishBoardRedeemConditionsMet(
   const conditions = parseWishBoardRedeemConditions(extraData);
   const pendingTitles: string[] = [];
   const pendingDetails: Array<{
-    kind: 'project' | 'task' | 'todo' | 'habit' | 'available_from';
+    kind: 'project' | 'task' | 'todo' | 'habit' | 'available_from' | 'net_worth';
     id: string;
     title: string;
     missing: boolean;
@@ -245,10 +345,26 @@ async function assertWishBoardRedeemConditionsMet(
     pendingTitles.push(`开放兑换时间（自 ${title} 起）`);
     pendingDetails.push({
       kind: 'available_from',
-      id: 'available_from',
+      id: AVAILABLE_FROM_CHECK_ID,
       title: conditions.available_from,
       missing: false,
     });
+  }
+
+  if (conditions.min_net_worth != null) {
+    const { getFinanceNetWorth } = await import('./pages/finance.js');
+    const current = await getFinanceNetWorth();
+    if (!isNetWorthAtLeast(current, conditions.min_net_worth)) {
+      const needLabel = formatMoneyLabel(conditions.min_net_worth);
+      const currentLabel = formatMoneyLabel(current);
+      pendingTitles.push(`净资产达到 ${needLabel}（当前 ${currentLabel}）`);
+      pendingDetails.push({
+        kind: 'net_worth',
+        id: NET_WORTH_CHECK_ID,
+        title: `净资产达到 ${needLabel}（当前 ${currentLabel}）`,
+        missing: false,
+      });
+    }
   }
 
   if (conditions.habit_ids.length > 0) {
@@ -576,6 +692,8 @@ export interface CreateWishBoardItemInput {
   sort_order?: number | null;
   /** 含 redeem_conditions 等扩展字段 */
   extra_data?: unknown;
+  /** 写入 extra_data.redeem_conditions（优先于 extra_data 内同名字段） */
+  redeem_conditions?: WishBoardRedeemConditionsInput | null;
 }
 
 export interface UpdateWishBoardItemInput {
@@ -587,6 +705,8 @@ export interface UpdateWishBoardItemInput {
   wish_type?: string | null;
   sort_order?: number | null;
   extra_data?: unknown;
+  /** 写入 extra_data.redeem_conditions；传 null 清除全部附加条件 */
+  redeem_conditions?: WishBoardRedeemConditionsInput | null;
 }
 
 export interface RedeemedWishRecord {
@@ -705,9 +825,13 @@ export async function createWishBoardItem(
     throw new WishBoardError('id 最多 36 字', 400, { ok: false, error: 'id 最多 36 字' });
   }
 
-  const extraData = serializeWishBoardExtraData(
-    Object.prototype.hasOwnProperty.call(input, 'extra_data') ? input.extra_data : null,
-  );
+  let extraPayload: unknown = Object.prototype.hasOwnProperty.call(input, 'extra_data')
+    ? input.extra_data
+    : null;
+  if (Object.prototype.hasOwnProperty.call(input, 'redeem_conditions')) {
+    extraPayload = mergeWishBoardRedeemConditions(extraPayload, input.redeem_conditions);
+  }
+  const extraData = serializeWishBoardExtraData(extraPayload);
 
   const now = nowUtcMysql();
   try {
@@ -784,7 +908,8 @@ export async function updateWishBoardItem(
   const patchingCore =
     input.title != null ||
     input.cost_points != null ||
-    Object.prototype.hasOwnProperty.call(input, 'extra_data');
+    Object.prototype.hasOwnProperty.call(input, 'extra_data') ||
+    Object.prototype.hasOwnProperty.call(input, 'redeem_conditions');
   if (existing.status === 'redeemed' && patchingCore) {
     throw new WishBoardError('已兑换的心愿不可再改名称、积分或兑换条件', 400, {
       ok: false,
@@ -849,15 +974,22 @@ export async function updateWishBoardItem(
     sortOrder = n;
   }
 
-  let extraData: string | null =
-    existing.extra_data == null
-      ? null
-      : typeof existing.extra_data === 'string'
-        ? existing.extra_data
-        : JSON.stringify(existing.extra_data);
+  let extraPayload: unknown = existing.extra_data;
   if (Object.prototype.hasOwnProperty.call(input, 'extra_data')) {
-    extraData = serializeWishBoardExtraData(input.extra_data);
+    extraPayload = input.extra_data;
   }
+  if (Object.prototype.hasOwnProperty.call(input, 'redeem_conditions')) {
+    extraPayload = mergeWishBoardRedeemConditions(extraPayload, input.redeem_conditions);
+  }
+  const extraData =
+    Object.prototype.hasOwnProperty.call(input, 'extra_data') ||
+    Object.prototype.hasOwnProperty.call(input, 'redeem_conditions')
+      ? serializeWishBoardExtraData(extraPayload)
+      : existing.extra_data == null
+        ? null
+        : typeof existing.extra_data === 'string'
+          ? existing.extra_data
+          : JSON.stringify(existing.extra_data);
 
   const now = nowUtcMysql();
   await withSyncTransaction(async (conn) => {
@@ -1077,4 +1209,393 @@ export async function deleteRedeemedWishBoardItems(
     if (events.length > 0) await appendChangeLog(conn, events);
   });
   return { deleted: ids.length, ids };
+}
+
+export type WishBoardEligibilityCheckKind =
+  | 'project'
+  | 'task'
+  | 'todo'
+  | 'habit'
+  | 'net_worth'
+  | 'available_from';
+
+export type WishBoardEligibilityCheck = {
+  kind: WishBoardEligibilityCheckKind;
+  id: string;
+  title: string;
+  done: boolean;
+  missing: boolean;
+  habit_kind?: 'build' | 'break' | null;
+  ineligible?: boolean;
+};
+
+export type WishBoardGapGuide = {
+  kind: WishBoardEligibilityCheckKind | 'points';
+  id: string;
+  title: string;
+  hint: string;
+  action_label: string;
+  module_id: string;
+  route: string;
+};
+
+export type WishBoardEligibilityResult = {
+  wish_id: string;
+  title: string;
+  wish_type: 'once' | 'repeat';
+  status: 'active' | 'redeemed';
+  ok: boolean;
+  points_ok: boolean;
+  conditions_ok: boolean;
+  cost_points: number;
+  balance: number;
+  points_gap: number;
+  current_net_worth: number | null;
+  conditions: WishBoardRedeemConditions;
+  checks: WishBoardEligibilityCheck[];
+  pending: WishBoardEligibilityCheck[];
+  message: string | null;
+  /** 引导补齐缺口：跳转任务 / 习惯 / 资产 / 赚积分（不自动兑） */
+  guides: WishBoardGapGuide[];
+};
+
+function kindLabelZh(kind: WishBoardEligibilityCheckKind): string {
+  if (kind === 'project') return '项目';
+  if (kind === 'todo') return '待办';
+  if (kind === 'habit') return '小习惯';
+  if (kind === 'net_worth') return '净资产';
+  if (kind === 'available_from') return '开放时间';
+  return '任务';
+}
+
+function buildEligibilityMessage(input: {
+  pointsOk: boolean;
+  costPoints: number;
+  balance: number;
+  pending: WishBoardEligibilityCheck[];
+}): string | null {
+  const { pointsOk, costPoints, balance, pending } = input;
+  if (pointsOk && pending.length === 0) return null;
+
+  if (pending.length === 1) {
+    const only = pending[0]!;
+    let single: string | null = null;
+    if (only.kind === 'net_worth') single = `净资产不足（${only.title}）`;
+    else if (only.kind === 'available_from') {
+      single = `尚未到开放兑换时间（自 ${formatAvailableFromLabel(only.title)} 起）`;
+    } else if (only.kind === 'habit') {
+      if (only.missing) single = `绑定的小习惯「${only.title}」已删除`;
+      else if (only.ineligible) single = `小习惯「${only.title}」未设周期目标`;
+      else if (only.habit_kind === 'break') {
+        single = `戒除习惯「${only.title}」连续挑战尚未完成`;
+      } else {
+        single = `养成习惯「${only.title}」周期目标尚未达成`;
+      }
+    }
+    if (!pointsOk && single) {
+      return `积分不足（需要 ${costPoints}，当前 ${balance}），且${single}`;
+    }
+    if (!pointsOk) {
+      return `积分不足（需要 ${costPoints}，当前 ${balance}），且仍有未完成的绑定项`;
+    }
+    if (single) return single;
+  }
+
+  if (!pointsOk && pending.length > 0) {
+    return `积分不足（需要 ${costPoints}，当前 ${balance}），且仍有未完成的绑定项`;
+  }
+  if (!pointsOk) {
+    return `积分不足（需要 ${costPoints}，当前 ${balance}）`;
+  }
+  const names = pending.slice(0, 3).map((p) => {
+    if (p.kind === 'available_from') return '「开放兑换时间」';
+    const title = p.missing ? `已删除的${kindLabelZh(p.kind)}` : p.title;
+    return `「${title}」`;
+  });
+  const more = pending.length > 3 ? ` 等 ${pending.length} 项` : '';
+  return `尚有绑定项未完成：${names.join('、')}${more}`;
+}
+
+function guideForCheck(check: WishBoardEligibilityCheck): WishBoardGapGuide {
+  if (check.kind === 'net_worth') {
+    return {
+      kind: 'net_worth',
+      id: check.id,
+      title: check.title,
+      hint: '去资产页攒净资产',
+      action_label: '去攒钱',
+      module_id: 'finance.assets',
+      route: '/assets',
+    };
+  }
+  if (check.kind === 'available_from') {
+    return {
+      kind: 'available_from',
+      id: check.id,
+      title: check.title,
+      hint: '等到开放兑换时间后再来',
+      action_label: '稍后再来',
+      module_id: 'wish.home',
+      route: '/wish-board',
+    };
+  }
+  if (check.kind === 'habit') {
+    return {
+      kind: 'habit',
+      id: check.id,
+      title: check.title,
+      hint: check.habit_kind === 'break' ? '去完成连续挑战' : '去打卡达成周期目标',
+      action_label: '去打卡',
+      module_id: 'habit.detail',
+      route: `/habit-detail?habitId=${encodeURIComponent(check.id)}`,
+    };
+  }
+  if (check.kind === 'project') {
+    return {
+      kind: 'project',
+      id: check.id,
+      title: check.title,
+      hint: '去完成绑定项目',
+      action_label: '去完成',
+      module_id: 'project.edit',
+      route: `/edit-project?id=${encodeURIComponent(check.id)}`,
+    };
+  }
+  if (check.kind === 'todo') {
+    return {
+      kind: 'todo',
+      id: check.id,
+      title: check.title,
+      hint: '去完成绑定待办',
+      action_label: '去完成',
+      module_id: 'task.detail',
+      route: `/add-task?standalone=1&id=${encodeURIComponent(check.id)}`,
+    };
+  }
+  return {
+    kind: 'task',
+    id: check.id,
+    title: check.title,
+    hint: '去完成绑定任务',
+    action_label: '去完成',
+    module_id: 'task.detail',
+    route: `/task/${encodeURIComponent(check.id)}`,
+  };
+}
+
+function pointsGapGuide(pointsGap: number): WishBoardGapGuide {
+  return {
+    kind: 'points',
+    id: 'points',
+    title: `再攒 ${pointsGap} 分`,
+    hint: '去完成任务 / 习惯赚积分',
+    action_label: '去赚积分',
+    module_id: 'wish.home',
+    route: '/wish-board',
+  };
+}
+
+export type EvaluateWishBoardEligibilityOptions = {
+  /** 已取到的心愿行，避免重复查库 */
+  item?: WishBoardItemRecord;
+  /** 已取到的积分余额 */
+  balance?: number;
+  /** 已取到的当前净资产 */
+  currentNetWorth?: number;
+};
+
+/**
+ * 只读评估兑换资格与缺口（含净资产门槛；不执行兑换）。
+ * Agent「查看兑换资格 / 查看兑换缺口 / 引导补齐缺口」共用此结果。
+ */
+export async function evaluateWishBoardEligibility(
+  wishId: string,
+  options: EvaluateWishBoardEligibilityOptions = {},
+): Promise<WishBoardEligibilityResult> {
+  const id = String(wishId ?? '').trim();
+  if (!id) {
+    throw new WishBoardError('参数缺失', 400, { ok: false, error: '参数缺失' });
+  }
+
+  const item = options.item ?? (await getWishBoardItem(id));
+  if (!item) {
+    throw new WishBoardError('心愿不存在', 404, { ok: false, error: '心愿不存在' });
+  }
+
+  let balance: number;
+  let currentNetWorth: number;
+  if (options.balance != null && options.currentNetWorth != null) {
+    balance = asPoints(options.balance);
+    currentNetWorth = options.currentNetWorth;
+  } else {
+    const { getPointsBalance } = await import('./points.js');
+    const { getFinanceNetWorth } = await import('./pages/finance.js');
+    const [balanceRes, netWorth] = await Promise.all([
+      options.balance != null ? Promise.resolve(null) : getPointsBalance(),
+      options.currentNetWorth != null ? Promise.resolve(null) : getFinanceNetWorth(),
+    ]);
+    balance = options.balance != null ? asPoints(options.balance) : asPoints(balanceRes!.balance);
+    currentNetWorth =
+      options.currentNetWorth != null ? options.currentNetWorth : (netWorth as number);
+  }
+  const costPoints = asPoints(item.cost_points);
+  const pointsOk = costPoints <= 0 || balance >= costPoints;
+  const pointsGap = Math.max(0, costPoints - balance);
+  const conditions = parseWishBoardRedeemConditions(item.extra_data);
+  const checks: WishBoardEligibilityCheck[] = [];
+
+  if (conditions.project_ids.length > 0) {
+    const placeholders = conditions.project_ids.map(() => '?').join(', ');
+    const [rows] = await db.query<RowDataPacket[]>(
+      `SELECT id, name, status FROM projects WHERE id IN (${placeholders})`,
+      conditions.project_ids,
+    );
+    const byId = new Map(rows.map((r) => [String(r.id), r]));
+    for (const projectId of conditions.project_ids) {
+      const row = byId.get(projectId);
+      const done =
+        row != null &&
+        (row.status === 'done' ||
+          row.status === 'cancelled' ||
+          row.status === 'completed' ||
+          row.status === 'archived');
+      checks.push({
+        kind: 'project',
+        id: projectId,
+        title: row?.name != null ? String(row.name).trim() || '未知项目' : '已删除的项目',
+        done,
+        missing: !row,
+      });
+    }
+  }
+
+  const taskLike: Array<{ kind: 'task' | 'todo'; id: string }> = [
+    ...conditions.task_ids.map((tid) => ({ kind: 'task' as const, id: tid })),
+    ...conditions.todo_ids.map((tid) => ({ kind: 'todo' as const, id: tid })),
+  ];
+  if (taskLike.length > 0) {
+    const uniqueIds = [...new Set(taskLike.map((t) => t.id))];
+    const placeholders = uniqueIds.map(() => '?').join(', ');
+    const [rows] = await db.query<RowDataPacket[]>(
+      `SELECT id, title, status FROM tasks WHERE id IN (${placeholders})`,
+      uniqueIds,
+    );
+    const byId = new Map(rows.map((r) => [String(r.id), r]));
+    for (const entry of taskLike) {
+      const row = byId.get(entry.id);
+      const done = row != null && row.status === 'done';
+      const fallback = entry.kind === 'todo' ? '已删除的待办' : '已删除的任务';
+      const unknown = entry.kind === 'todo' ? '未知待办' : '未知任务';
+      checks.push({
+        kind: entry.kind,
+        id: entry.id,
+        title: row?.title != null ? String(row.title).trim() || unknown : fallback,
+        done,
+        missing: !row,
+      });
+    }
+  }
+
+  if (conditions.habit_ids.length > 0) {
+    const placeholders = conditions.habit_ids.map(() => '?').join(', ');
+    const [rows] = await db.query<RowDataPacket[]>(
+      `SELECT id, name, extra_data FROM habits WHERE id IN (${placeholders})`,
+      conditions.habit_ids,
+    );
+    const byId = new Map(rows.map((r) => [String(r.id), r]));
+    for (const habitId of conditions.habit_ids) {
+      const row = byId.get(habitId);
+      if (!row) {
+        checks.push({
+          kind: 'habit',
+          id: habitId,
+          title: '已删除的习惯',
+          done: false,
+          missing: true,
+          habit_kind: null,
+        });
+        continue;
+      }
+      const extra = row.extra_data;
+      const kind = parseHabitKind(extra);
+      const habitKind = kind === 'build' || kind === 'break' ? kind : null;
+      const name = row.name != null ? String(row.name).trim() || '未知习惯' : '未知习惯';
+      const eligible = isHabitEligibleForWishRedeem(extra);
+      const done = eligible && isHabitWishRedeemConditionMet(extra);
+      checks.push({
+        kind: 'habit',
+        id: habitId,
+        title: name,
+        done,
+        missing: false,
+        habit_kind: habitKind,
+        ineligible: !eligible,
+      });
+    }
+  }
+
+  if (conditions.min_net_worth != null) {
+    const done = isNetWorthAtLeast(currentNetWorth, conditions.min_net_worth);
+    const needLabel = formatMoneyLabel(conditions.min_net_worth);
+    const currentLabel = formatMoneyLabel(currentNetWorth);
+    checks.push({
+      kind: 'net_worth',
+      id: NET_WORTH_CHECK_ID,
+      title: `净资产达到 ${needLabel}（当前 ${currentLabel}）`,
+      done,
+      missing: false,
+    });
+  }
+
+  if (conditions.available_from != null) {
+    checks.push({
+      kind: 'available_from',
+      id: AVAILABLE_FROM_CHECK_ID,
+      title: conditions.available_from,
+      done: isAvailableFromMet(conditions.available_from),
+      missing: !isAvailableFromMet(conditions.available_from) && !conditions.available_from,
+    });
+  }
+
+  const pending = checks.filter((c) => !c.done);
+  const conditionsOk = pending.length === 0;
+  const ok = pointsOk && conditionsOk;
+  const guides: WishBoardGapGuide[] = [
+    ...pending.map(guideForCheck),
+    ...(pointsOk ? [] : [pointsGapGuide(pointsGap)]),
+  ];
+
+  return {
+    wish_id: item.id,
+    title: item.title,
+    wish_type: item.wish_type,
+    status: item.status,
+    ok,
+    points_ok: pointsOk,
+    conditions_ok: conditionsOk,
+    cost_points: costPoints,
+    balance,
+    points_gap: pointsGap,
+    current_net_worth: currentNetWorth,
+    conditions,
+    checks,
+    pending,
+    message: ok
+      ? null
+      : buildEligibilityMessage({ pointsOk, costPoints, balance, pending }),
+    guides,
+  };
+}
+
+/** 仅设置 / 清除兑换条件（写入 extra_data.redeem_conditions） */
+export async function updateWishBoardRedeemConditions(
+  wishId: string,
+  conditions: WishBoardRedeemConditionsInput | null,
+  options?: SyncWriteOptions,
+): Promise<WishBoardItemRecord> {
+  return updateWishBoardItem(
+    wishId,
+    { redeem_conditions: conditions },
+    options,
+  );
 }

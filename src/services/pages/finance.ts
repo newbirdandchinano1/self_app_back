@@ -605,6 +605,12 @@ async function loadAccountsWithBalance(): Promise<{
   return { accounts, netWorth: roundMoney(netWorth) };
 }
 
+/** 当前净资产（与财务首页 / 心愿兑换门槛同一口径） */
+export async function getFinanceNetWorth(): Promise<number> {
+  const { netWorth } = await loadAccountsWithBalance();
+  return netWorth;
+}
+
 async function loadSortedRows(table: AllowedTable, orderSql: string): Promise<Record<string, unknown>[]> {
   const { meta, columns } = await loadMeta(table);
   const [rows] = await db.query<RowDataPacket[]>(
