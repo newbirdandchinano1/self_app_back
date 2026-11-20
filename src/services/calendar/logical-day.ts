@@ -3,6 +3,8 @@ import { DEFAULT_TASKS_DAY_BOUNDARY } from './types.js';
 import { APP_MYSQL_TIMEZONE, APP_TIME_ZONE } from '../../config/timezone.js';
 
 export { APP_TIME_ZONE };
+export { DEFAULT_TASKS_DAY_BOUNDARY };
+export type { TasksDayBoundary };
 
 export type WallClockParts = {
   year: number;

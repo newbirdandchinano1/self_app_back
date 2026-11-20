@@ -7,7 +7,12 @@ import type { ResultSetHeader, RowDataPacket } from 'mysql2';
 import { db } from '../../db/index.js';
 import { formatUtcMySQLDateTime } from '../calendar/logical-day.js';
 import { getTableMeta } from '../crud.js';
-import { appendChangeLog, withSyncTransaction, type SyncWriteOptions } from '../sync-change-log.js';
+import {
+  appendChangeLog,
+  withSyncTransaction,
+  type ChangeLogEvent,
+  type SyncWriteOptions,
+} from '../sync-change-log.js';
 import { stampLiveUpsert } from '../sync-revision.js';
 
 export class PromoteTodoError extends Error {
@@ -208,7 +213,7 @@ export async function promoteStandaloneTodoToProject(
       [projectId, now, ...subtreeIds],
     );
 
-    const changeEvents = [
+    const changeEvents: ChangeLogEvent[] = [
       {
         tableName: 'projects',
         recordPk: projectId,
