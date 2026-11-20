@@ -25,6 +25,7 @@ export const ALLOWED_TABLES = [
   'habits',
   'health_daily_targets',
   'health_records',
+  'weight_logs',
   'life_bets',
   'life_directions',
   'life_road_nodes',
@@ -366,6 +367,7 @@ export const GENERIC_WRITE_FORBIDDEN_TABLES = {
   /** 维度已下线，仅保留读；写入应走 tags */
   memo_dimensions: '（已下线）分类请用 tags / tag_links',
   health_records: 'POST/PUT/PATCH/DELETE /api/app/health/intakes',
+  weight_logs: 'GET/POST /api/app/health/weight-logs',
   recipe_categories: 'POST/PATCH/DELETE /api/app/recipes/categories',
   recipe_items: 'POST/PUT/DELETE /api/app/recipes',
   wardrobe_closets: 'POST/PATCH/DELETE /api/app/wardrobe/closets',

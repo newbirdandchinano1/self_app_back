@@ -7,6 +7,12 @@ import {
   ReviewPageError,
   type ReviewHomeParams,
 } from '../pages/review.js';
+import { getReviewSettings } from '../review-settings.js';
+import {
+  loadReviewDayFacts,
+  reviewDayFactsIsEmpty,
+  reviewDayFactsPreviewLines,
+} from '../review-facts.js';
 
 export type AgentReviewSnapshotParams = ReviewHomeParams;
 
@@ -93,6 +99,38 @@ export async function getAgentReviewSnapshot(params: AgentReviewSnapshotParams =
         hint: '今日日复盘尚未填写',
       }));
 
+  let day_facts_preview: string[] = [];
+  let day_facts_empty = true;
+  if (today) {
+    try {
+      const facts = await loadReviewDayFacts(today);
+      day_facts_empty = reviewDayFactsIsEmpty(facts);
+      day_facts_preview = reviewDayFactsPreviewLines(facts);
+    } catch {
+      // 事实聚合失败不阻断 snapshot
+    }
+  }
+
+  let settings_summary: {
+    weekly_review_weekday: number | null;
+    weekly_review_weekday_label: string | null;
+    daily_reminder_enabled: boolean;
+    weekly_reminder_enabled: boolean;
+    points_enabled: boolean;
+  } | null = null;
+  try {
+    const settings = await getReviewSettings();
+    settings_summary = {
+      weekly_review_weekday: settings.weekly_review_weekday,
+      weekly_review_weekday_label: settings.weekly_review_weekday_label,
+      daily_reminder_enabled: settings.daily_reminder.enabled,
+      weekly_reminder_enabled: settings.weekly_reminder.enabled,
+      points_enabled: settings.points.enabled,
+    };
+  } catch {
+    settings_summary = null;
+  }
+
   return {
     domain: 'review',
     today_ymd: today || null,
@@ -116,6 +154,11 @@ export async function getAgentReviewSnapshot(params: AgentReviewSnapshotParams =
       dimensions: dimensions.slice(0, 24),
       columns: columns.slice(0, 48),
     },
-    note: '复盘状态只读；起草/改写请用户提供栏目内容或打开复盘页，助手不从库偷正文写库。',
+    day_facts: {
+      empty: day_facts_empty,
+      preview_lines: day_facts_preview,
+    },
+    settings: settings_summary,
+    note: '复盘状态只读；事实详情 GET /review/day-facts；空栏写入 POST /review/fill-empty；设置 GET/PUT /review/settings。',
   };
 }

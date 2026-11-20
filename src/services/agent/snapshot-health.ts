@@ -8,6 +8,7 @@ import {
   listIntakesByDay,
   listRecentIntakes,
 } from '../health.js';
+import { listWeightLogs } from '../weight-logs.js';
 import { formatLocalYmdFromDate } from '../calendar/logical-day.js';
 import { isValidYmd } from '../../utils/ymd.js';
 
@@ -29,10 +30,11 @@ export async function getAgentHealthSnapshot(params: AgentHealthSnapshotParams =
   const dayYmd =
     rawDate && isValidYmd(rawDate) ? rawDate : formatLocalYmdFromDate(new Date());
 
-  const [metrics, dayIntakes, weekIntakes] = await Promise.all([
+  const [metrics, dayIntakes, weekIntakes, weightLogs] = await Promise.all([
     getDayHealthMetrics({ date: dayYmd }),
     listIntakesByDay({ date: dayYmd }).catch(() => ({ items: [] as Array<Record<string, unknown>> })),
     listRecentIntakes({ days: 7 }).catch(() => null),
+    listWeightLogs({ days: 30, end_ymd: dayYmd }).catch(() => null),
   ]);
 
   const intake = metrics.intake;
@@ -92,7 +94,15 @@ export async function getAgentHealthSnapshot(params: AgentHealthSnapshotParams =
       weekIntakes && weekIntakes.start_ymd && weekIntakes.end_ymd
         ? { start_ymd: weekIntakes.start_ymd, end_ymd: weekIntakes.end_ymd }
         : null,
-    note: '健康只读摘要；记摄入需用户确认，助手不写库。体重短评依赖请求附带的 context。',
+    weight_trend: weightLogs
+      ? {
+          latest_kg: weightLogs.latest_kg,
+          last_record_ymd: weightLogs.last_record_ymd,
+          delta_kg: weightLogs.delta_kg,
+          points: weightLogs.points,
+        }
+      : null,
+    note: '健康只读摘要；记摄入/记体重需用户确认，助手不写库。',
     meta: {
       serverTime: new Date().toISOString(),
       logicalToday: dayYmd,

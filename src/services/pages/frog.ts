@@ -801,6 +801,21 @@ export async function saveFrogScheduleAxis(body: {
   return { startMinutes, endMinutes, slotHours, breaks, updatedAt: now };
 }
 
+/**
+ * 周一起算 + weekday(1=周一…7=周日) → YYYY-MM-DD
+ */
+export function ymdForWeekday(weekStartYmd: string, weekday: number): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(weekStartYmd).trim());
+  if (!m) return weekStartYmd;
+  const base = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  const wd = Math.max(1, Math.min(7, Math.round(Number(weekday) || 1)));
+  base.setDate(base.getDate() + (wd - 1));
+  const yyyy = base.getFullYear();
+  const mm = String(base.getMonth() + 1).padStart(2, '0');
+  const dd = String(base.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
+
 export async function upsertFrogSchedulePlacement(body: {
   id: string;
   weekStartYmd: string;
@@ -819,6 +834,13 @@ export async function upsertFrogSchedulePlacement(body: {
   deviceId?: string | null;
   mutationId?: string | null;
   expectedRev?: number | null;
+  /**
+   * Agent / 一键入格：写入占用后同步指派青蛙（对齐 App placeFrogOnSchedule）。
+   * 缺省 false，保持纯 placement CRUD 语义。
+   */
+  alsoAssignFrog?: boolean;
+  /** 指派逻辑日；缺省由 weekStartYmd + weekday 推导 */
+  assignYmd?: string | null;
 }) {
   if (!body.id || !YMD_RE.test(body.weekStartYmd)) {
     throw new FrogScheduleError('placement 参数无效');
@@ -895,7 +917,22 @@ export async function upsertFrogSchedulePlacement(body: {
       },
     ]);
   });
-  return { id: body.id };
+
+  let frogAssign: FrogAssignResult | null = null;
+  if (body.alsoAssignFrog && body.subjectId && !(body.orphaned ? 1 : 0)) {
+    const assignYmd =
+      String(body.assignYmd ?? '').trim() || ymdForWeekday(body.weekStartYmd, body.weekday);
+    frogAssign = await assignOrUnassignFrog({
+      kind: body.subjectKind,
+      id: body.subjectId,
+      assignYmd,
+      action: 'assign',
+      deviceId: body.deviceId,
+      mutationId: body.mutationId,
+    });
+  }
+
+  return { id: body.id, frogAssign };
 }
 
 export async function deleteFrogSchedulePlacement(

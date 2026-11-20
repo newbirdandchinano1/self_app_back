@@ -22,10 +22,19 @@ import {
   type FrogSubjectKind,
 } from '../../../services/pages/frog.js';
 import { parsePlacementMinuteFields } from '../../../services/pages/frog-placement-minutes.js';
-import { resolveDeviceIdFromHeader } from '../../../services/sync-change-log.js';
+import {
+  DayBoundaryError,
+  getDayBoundarySettings,
+  updateDayBoundarySettings,
+} from '../../../services/pages/day-boundary-settings.js';
+import {
+  PromoteTodoError,
+  promoteStandaloneTodoToProject,
+} from '../../../services/pages/promote-todo.js';
 import { isSyncOccConflictError } from '../../../services/sync-revision.js';
 import { fail, success } from '../../../utils/response.js';
 import { syncWriteOptionsFromReq } from '../../../utils/device-id-from-req.js';
+import { createDomainErrorHandler } from '../../../utils/domain-error-handler.js';
 import {
   parseBoolQuery,
   parseIntQuery,
@@ -33,6 +42,9 @@ import {
   parseStringQuery,
   parseTasksBootstrapParams,
 } from './query.js';
+
+const handlePromoteError = createDomainErrorHandler(PromoteTodoError);
+const handleDayBoundaryError = createDomainErrorHandler(DayBoundaryError);
 
 const router = Router();
 
@@ -141,6 +153,12 @@ router.post('/pages/tasks/frog-schedule/placement', async (req, res, next) => {
     }
     const p = (body.placement ?? body) as Record<string, unknown>;
     const minuteFields = parsePlacementMinuteFields(p);
+    const alsoAssignFrog =
+      body.alsoAssignFrog === true ||
+      body.also_assign_frog === true ||
+      p.alsoAssignFrog === true ||
+      p.also_assign_frog === true;
+    const assignYmdRaw = body.assignYmd ?? body.assign_ymd ?? p.assignYmd ?? p.assign_ymd;
     const data = await upsertFrogSchedulePlacement({
       id: String(p.id ?? ''),
       weekStartYmd: String(p.weekStartYmd ?? p.week_start_ymd ?? ''),
@@ -161,6 +179,8 @@ router.post('/pages/tasks/frog-schedule/placement', async (req, res, next) => {
       deviceId: write.deviceId,
       mutationId: write.mutationId,
       expectedRev: write.expectedRev,
+      alsoAssignFrog,
+      assignYmd: typeof assignYmdRaw === 'string' ? assignYmdRaw : null,
     });
     success(res, data);
   } catch (err) {
@@ -236,6 +256,84 @@ router.get('/pages/tasks/list', async (req, res, next) => {
     success(res, data);
   } catch (err) {
     next(err);
+  }
+});
+
+/**
+ * POST /pages/tasks/promote-to-project — 独立待办升为项目（原子）
+ * Agent：升为项目（确认卡 → App commit 或桌面直调）
+ */
+router.post('/pages/tasks/promote-to-project', async (req, res, next) => {
+  try {
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const taskId = String(body.taskId ?? body.task_id ?? body.id ?? '');
+    const data = await promoteStandaloneTodoToProject(
+      {
+        taskId,
+        projectId:
+          typeof body.projectId === 'string'
+            ? body.projectId
+            : typeof body.project_id === 'string'
+              ? body.project_id
+              : null,
+        categoryId:
+          typeof body.categoryId === 'string'
+            ? body.categoryId
+            : typeof body.category_id === 'string'
+              ? body.category_id
+              : null,
+        projectName:
+          typeof body.projectName === 'string'
+            ? body.projectName
+            : typeof body.project_name === 'string'
+              ? body.project_name
+              : typeof body.name === 'string'
+                ? body.name
+                : null,
+      },
+      syncWriteOptionsFromReq(req),
+    );
+    success(res, data, '已升为项目');
+  } catch (err) {
+    if (isSyncOccConflictError(err)) {
+      return fail(res, err.message, -1, 409, err.payload);
+    }
+    handlePromoteError(err, res, next);
+  }
+});
+
+/** GET /pages/tasks/day-boundary — 逻辑日界（配置时刻 + 生效页 + 任务域有效值） */
+router.get('/pages/tasks/day-boundary', async (_req, res, next) => {
+  try {
+    const data = await getDayBoundarySettings();
+    success(res, data);
+  } catch (err) {
+    handleDayBoundaryError(err, res, next);
+  }
+});
+
+/**
+ * PUT /pages/tasks/day-boundary — 设置逻辑日界
+ * Agent：日界改成凌晨 N 点（确认后写入；影响全模块日界）
+ */
+router.put('/pages/tasks/day-boundary', async (req, res, next) => {
+  try {
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const data = await updateDayBoundarySettings(
+      {
+        hour: body.hour,
+        minute: body.minute,
+        pages: body.pages,
+        boundaryOnly: body.boundaryOnly === true || body.boundary_only === true,
+      },
+      syncWriteOptionsFromReq(req),
+    );
+    success(res, data, '日界已更新');
+  } catch (err) {
+    if (isSyncOccConflictError(err)) {
+      return fail(res, err.message, -1, 409, err.payload);
+    }
+    handleDayBoundaryError(err, res, next);
   }
 });
 

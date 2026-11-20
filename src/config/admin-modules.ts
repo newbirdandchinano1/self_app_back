@@ -34,7 +34,7 @@ export const ADMIN_MODULES: readonly AdminModuleDef[] = [
   {
     id: 'health',
     title: '健康模块',
-    tables: ['health_daily_targets', 'health_records'],
+    tables: ['health_daily_targets', 'health_records', 'weight_logs'],
   },
   {
     id: 'tasks',

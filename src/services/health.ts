@@ -134,8 +134,140 @@ async function getDailyTarget(dayYmd: string): Promise<HealthDailyTargetRow | nu
   return (rows[0] as HealthDailyTargetRow | undefined) ?? null;
 }
 
+/** 与 App `AppSettingKey.globalIntakeTargets` / `global-intake-targets.ts` 对齐 */
+const GLOBAL_INTAKE_TARGETS_KEY = '@global_intake_targets_v1';
+
+const DEFAULT_INTAKE_TARGETS = {
+  hydrationMl: 2500,
+  proteinG: 80,
+  carbohydrateG: 260,
+  caloriesKcal: 2000,
+} as const;
+
+type ResolvedIntakeTargets = {
+  target_hydration: number;
+  target_protein: number;
+  target_sodium: number;
+  target_carbohydrate: number;
+  target_calories: number;
+  source: string;
+  rationale_zh: string | null;
+};
+
+function parseJsonValue(raw: unknown): unknown {
+  if (raw == null) return null;
+  if (typeof raw !== 'string') return raw;
+  const text = raw.trim();
+  if (!text) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+function coerceTargetNum(value: unknown, fallback: number): number {
+  if (typeof value === 'number' && Number.isFinite(value) && value >= 0) {
+    return Math.round(value);
+  }
+  if (typeof value === 'string' && value.trim()) {
+    const n = Number(value);
+    if (Number.isFinite(n) && n >= 0) return Math.round(n);
+  }
+  return fallback;
+}
+
+async function readGlobalIntakeTargetsSetting(): Promise<{
+  hydrationMl: number;
+  proteinG: number;
+  carbohydrateG: number;
+  caloriesKcal: number;
+} | null> {
+  const [rows] = await db.query<RowDataPacket[]>(
+    'SELECT value_json FROM app_settings WHERE `key` = ? LIMIT 1',
+    [GLOBAL_INTAKE_TARGETS_KEY],
+  );
+  const parsed = parseJsonValue(rows[0]?.value_json);
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+  const o = parsed as Record<string, unknown>;
+  return {
+    hydrationMl: coerceTargetNum(o.hydrationMl, DEFAULT_INTAKE_TARGETS.hydrationMl),
+    proteinG: coerceTargetNum(o.proteinG, DEFAULT_INTAKE_TARGETS.proteinG),
+    carbohydrateG: coerceTargetNum(o.carbohydrateG, DEFAULT_INTAKE_TARGETS.carbohydrateG),
+    caloriesKcal: coerceTargetNum(
+      o.caloriesKcal !== undefined ? o.caloriesKcal : o.sodiumMg,
+      DEFAULT_INTAKE_TARGETS.caloriesKcal,
+    ),
+  };
+}
+
+async function writeGlobalIntakeTargetsSetting(value: {
+  hydrationMl: number;
+  proteinG: number;
+  carbohydrateG: number;
+  caloriesKcal: number;
+}): Promise<void> {
+  const payload = JSON.stringify(value);
+  const now = nowShanghaiMysql();
+  await db.query<ResultSetHeader>(
+    `INSERT INTO app_settings (\`key\`, value_json, updated_at, sync_status)
+     VALUES (?, ?, ?, 'synced')
+     ON DUPLICATE KEY UPDATE
+       value_json = VALUES(value_json),
+       updated_at = VALUES(updated_at),
+       sync_status = 'synced'`,
+    [GLOBAL_INTAKE_TARGETS_KEY, payload, now],
+  );
+}
+
 /**
- * 某日健康指标：当日摄入合计 + 日目标（若有）。
+ * 日目标优先；否则回退 App 全局键 `@global_intake_targets_v1`；再否则默认值。
+ * 保证 Agent snapshot / metrics 的 gaps 始终可算。
+ */
+async function resolveTargetsForDay(dayYmd: string): Promise<ResolvedIntakeTargets> {
+  const day = await getDailyTarget(dayYmd);
+  if (day) {
+    return {
+      target_hydration: Number(day.target_hydration ?? 0),
+      target_protein: Number(day.target_protein ?? 0),
+      target_sodium: Number(day.target_sodium ?? 0),
+      target_carbohydrate: Number(day.target_carbohydrate ?? 0),
+      target_calories: Number(day.target_calories ?? 0),
+      source: day.source || 'manual',
+      rationale_zh: day.rationale_zh,
+    };
+  }
+
+  const global = await readGlobalIntakeTargetsSetting();
+  if (global) {
+    return {
+      target_hydration: global.hydrationMl,
+      target_protein: global.proteinG,
+      target_sodium: 0,
+      target_carbohydrate: global.carbohydrateG,
+      target_calories: global.caloriesKcal,
+      source: 'global_settings',
+      rationale_zh: null,
+    };
+  }
+
+  return {
+    target_hydration: DEFAULT_INTAKE_TARGETS.hydrationMl,
+    target_protein: DEFAULT_INTAKE_TARGETS.proteinG,
+    target_sodium: 0,
+    target_carbohydrate: DEFAULT_INTAKE_TARGETS.carbohydrateG,
+    target_calories: DEFAULT_INTAKE_TARGETS.caloriesKcal,
+    source: 'default',
+    rationale_zh: null,
+  };
+}
+
+function dayTargetId(dayYmd: string): string {
+  return `hdt_${dayYmd.replace(/-/g, '')}`;
+}
+
+/**
+ * 某日健康指标：当日摄入合计 + 日目标（日表 → 全局设置 → 默认）。
  * 指标含水分、蛋白质、热量、碳水（并附带钠）。
  */
 export async function getDayHealthMetrics(params: { date: unknown }) {
@@ -154,7 +286,7 @@ export async function getDayHealthMetrics(params: { date: unknown }) {
     [dayYmd],
   );
   const sum = sumRows[0] ?? {};
-  const target = await getDailyTarget(dayYmd);
+  const target = await resolveTargetsForDay(dayYmd);
 
   const intake = {
     hydration: Number(sum.hydration ?? 0),
@@ -168,34 +300,32 @@ export async function getDayHealthMetrics(params: { date: unknown }) {
     day_ymd: dayYmd,
     intake_count: Number(sum.intake_count ?? 0),
     intake,
-    targets: target
-      ? {
-          target_hydration: Number(target.target_hydration ?? 0),
-          target_protein: Number(target.target_protein ?? 0),
-          target_sodium: Number(target.target_sodium ?? 0),
-          target_carbohydrate: Number(target.target_carbohydrate ?? 0),
-          target_calories: Number(target.target_calories ?? 0),
-          source: target.source,
-          rationale_zh: target.rationale_zh,
-        }
-      : null,
+    targets: {
+      target_hydration: target.target_hydration,
+      target_protein: target.target_protein,
+      target_sodium: target.target_sodium,
+      target_carbohydrate: target.target_carbohydrate,
+      target_calories: target.target_calories,
+      source: target.source,
+      rationale_zh: target.rationale_zh,
+    },
     /** 便于 APP 直接渲染进度条 */
     progress: {
       hydration: {
         current: intake.hydration,
-        target: target ? Number(target.target_hydration ?? 0) : null,
+        target: target.target_hydration,
       },
       protein: {
         current: intake.protein,
-        target: target ? Number(target.target_protein ?? 0) : null,
+        target: target.target_protein,
       },
       carbohydrate: {
         current: intake.carbohydrate,
-        target: target ? Number(target.target_carbohydrate ?? 0) : null,
+        target: target.target_carbohydrate,
       },
       calories: {
         current: intake.calories,
-        target: target ? Number(target.target_calories ?? 0) : null,
+        target: target.target_calories,
       },
     },
   };
@@ -497,12 +627,191 @@ export async function deleteIntake(id: string, options?: SyncWriteOptions) {
   return { deleted: true as const, id: trimmed };
 }
 
-/** 可选：读取某日目标（供文档/扩展，当前路由未单独暴露也可内部复用） */
-export async function getDayTargets(params: { date: unknown }) {
-  const dayYmd = requireDayYmd(params.date);
-  const target = await getDailyTarget(dayYmd);
+/** 读取某日目标（日表 → 全局设置 → 默认）；缺省 date 为今日 */
+export async function getDayTargets(params: { date?: unknown } = {}) {
+  const dayYmd =
+    params.date != null && asTrimmedString(params.date)
+      ? requireDayYmd(params.date)
+      : formatLocalYmdFromDate(new Date());
+  const resolved = await resolveTargetsForDay(dayYmd);
+  const dayRow = await getDailyTarget(dayYmd);
+  const global = await readGlobalIntakeTargetsSetting();
   return {
     day_ymd: dayYmd,
-    targets: target ? formatTarget(target) : null,
+    targets: {
+      target_hydration: resolved.target_hydration,
+      target_protein: resolved.target_protein,
+      target_sodium: resolved.target_sodium,
+      target_carbohydrate: resolved.target_carbohydrate,
+      target_calories: resolved.target_calories,
+      source: resolved.source,
+      rationale_zh: resolved.rationale_zh,
+    },
+    day_row: dayRow ? formatTarget(dayRow) : null,
+    global: global ?? {
+      hydrationMl: DEFAULT_INTAKE_TARGETS.hydrationMl,
+      proteinG: DEFAULT_INTAKE_TARGETS.proteinG,
+      carbohydrateG: DEFAULT_INTAKE_TARGETS.carbohydrateG,
+      caloriesKcal: DEFAULT_INTAKE_TARGETS.caloriesKcal,
+    },
+  };
+}
+
+export type UpsertIntakeTargetsInput = {
+  date?: unknown;
+  hydration?: unknown;
+  hydration_ml?: unknown;
+  hydrationMl?: unknown;
+  protein?: unknown;
+  protein_g?: unknown;
+  proteinG?: unknown;
+  carbohydrate?: unknown;
+  carbohydrate_g?: unknown;
+  carbohydrateG?: unknown;
+  calories?: unknown;
+  calories_kcal?: unknown;
+  caloriesKcal?: unknown;
+  rationale_zh?: unknown;
+  source?: unknown;
+};
+
+/**
+ * 写入全局四项目标（app_settings）并 upsert 指定日（默认今日）的 health_daily_targets。
+ * 对齐 App `commit_intake_targets` / Agent snapshot。
+ */
+export async function upsertIntakeTargets(
+  input: UpsertIntakeTargetsInput,
+  options?: SyncWriteOptions,
+) {
+  const dayYmd = input.date != null && asTrimmedString(input.date)
+    ? requireDayYmd(input.date)
+    : formatLocalYmdFromDate(new Date());
+
+  const current =
+    (await readGlobalIntakeTargetsSetting()) ?? {
+      hydrationMl: DEFAULT_INTAKE_TARGETS.hydrationMl,
+      proteinG: DEFAULT_INTAKE_TARGETS.proteinG,
+      carbohydrateG: DEFAULT_INTAKE_TARGETS.carbohydrateG,
+      caloriesKcal: DEFAULT_INTAKE_TARGETS.caloriesKcal,
+    };
+
+  const pick = (...keys: unknown[]): number | null => {
+    for (const k of keys) {
+      if (k == null || k === '') continue;
+      return parseNonNegNumber(k, 'target');
+    }
+    return null;
+  };
+
+  const hydration =
+    pick(input.hydration_ml, input.hydrationMl, input.hydration) ?? current.hydrationMl;
+  const protein = pick(input.protein_g, input.proteinG, input.protein) ?? current.proteinG;
+  const carbohydrate =
+    pick(input.carbohydrate_g, input.carbohydrateG, input.carbohydrate) ??
+    current.carbohydrateG;
+  const calories =
+    pick(input.calories_kcal, input.caloriesKcal, input.calories) ?? current.caloriesKcal;
+
+  const sourceRaw = asTrimmedString(input.source) || 'manual';
+  const source = sourceRaw.slice(0, 32);
+  const rationale =
+    input.rationale_zh == null || input.rationale_zh === ''
+      ? null
+      : asTrimmedString(input.rationale_zh) || null;
+
+  const globalPayload = {
+    hydrationMl: hydration,
+    proteinG: protein,
+    carbohydrateG: carbohydrate,
+    caloriesKcal: calories,
+  };
+  await writeGlobalIntakeTargetsSetting(globalPayload);
+
+  const now = nowShanghaiMysql();
+  const id = dayTargetId(dayYmd);
+
+  await withSyncTransaction(async (conn) => {
+    const [existing] = await conn.query<RowDataPacket[]>(
+      `SELECT id FROM health_daily_targets WHERE day_ymd = ? LIMIT 1`,
+      [dayYmd],
+    );
+    const prev = existing[0];
+    const rowId = prev ? String(prev.id) : id;
+
+    if (prev) {
+      await conn.query<ResultSetHeader>(
+        `UPDATE health_daily_targets
+         SET target_hydration = ?, target_protein = ?, target_sodium = 0,
+             target_carbohydrate = ?, target_calories = ?,
+             rationale_zh = ?, source = ?, updated_at = ?, sync_status = 'synced'
+         WHERE day_ymd = ?`,
+        [hydration, protein, carbohydrate, calories, rationale, source, now, dayYmd],
+      );
+      const stamp = await stampLiveUpsert(conn, 'health_daily_targets', rowId, {
+        mode: 'update',
+        mutationId: options?.mutationId,
+        skipOcc: true,
+      });
+      await appendChangeLog(conn, [
+        {
+          tableName: 'health_daily_targets',
+          recordPk: rowId,
+          op: 'upsert',
+          updatedAt: now,
+          deviceId: options?.deviceId,
+          serverRev: stamp.serverRev,
+          mutationId: stamp.mutationId,
+        },
+      ]);
+    } else {
+      await conn.query<ResultSetHeader>(
+        `INSERT INTO health_daily_targets (
+           id, day_ymd, target_hydration, target_protein, target_sodium,
+           target_carbohydrate, target_calories, rationale_zh, source,
+           created_at, updated_at, sync_status
+         ) VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, 'synced')`,
+        [
+          rowId,
+          dayYmd,
+          hydration,
+          protein,
+          carbohydrate,
+          calories,
+          rationale,
+          source,
+          now,
+          now,
+        ],
+      );
+      const stamp = await stampLiveUpsert(conn, 'health_daily_targets', rowId, {
+        mode: 'insert',
+        mutationId: options?.mutationId,
+      });
+      await appendChangeLog(conn, [
+        {
+          tableName: 'health_daily_targets',
+          recordPk: rowId,
+          op: 'upsert',
+          updatedAt: now,
+          deviceId: options?.deviceId,
+          serverRev: stamp.serverRev,
+          mutationId: stamp.mutationId,
+        },
+      ]);
+    }
+  });
+
+  return {
+    day_ymd: dayYmd,
+    global: globalPayload,
+    targets: {
+      target_hydration: hydration,
+      target_protein: protein,
+      target_sodium: 0,
+      target_carbohydrate: carbohydrate,
+      target_calories: calories,
+      source,
+      rationale_zh: rationale,
+    },
   };
 }

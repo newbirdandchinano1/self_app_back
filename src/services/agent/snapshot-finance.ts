@@ -8,6 +8,10 @@ import {
   getFinanceInsights,
   type FinanceDayBoundaryParams,
 } from '../pages/finance.js';
+import {
+  getFinanceBudgetSummary,
+  getFinanceSavingsGoalSummary,
+} from '../finance-budget.js';
 
 const RECENT_TXN_LIMIT = 12;
 const SCHEDULED_LIMIT = 8;
@@ -66,21 +70,24 @@ function trimAccount(row: Record<string, unknown>) {
 }
 
 export async function getAgentFinanceSnapshot(params: AgentFinanceSnapshotParams = {}) {
-  const [home, insights] = await Promise.all([
+  const dayBoundary = {
+    dayBoundaryHour: params.dayBoundaryHour,
+    dayBoundaryMinute: params.dayBoundaryMinute,
+    logicalToday: params.logicalToday,
+  };
+  const [home, insights, budget, savingsGoal] = await Promise.all([
     getFinanceHome({
-      dayBoundaryHour: params.dayBoundaryHour,
-      dayBoundaryMinute: params.dayBoundaryMinute,
-      logicalToday: params.logicalToday,
+      ...dayBoundary,
       historyDays: 3,
       daysBack: 40,
       budgetRefreshDay: params.budgetRefreshDay,
     }),
     getFinanceInsights({
-      dayBoundaryHour: params.dayBoundaryHour,
-      dayBoundaryMinute: params.dayBoundaryMinute,
-      logicalToday: params.logicalToday,
+      ...dayBoundary,
       months: 1,
     }).catch(() => null),
+    getFinanceBudgetSummary(dayBoundary).catch(() => null),
+    getFinanceSavingsGoalSummary(dayBoundary).catch(() => null),
   ]);
 
   const meta = asRecord(home.meta) ?? {};
@@ -137,7 +144,34 @@ export async function getAgentFinanceSnapshot(params: AgentFinanceSnapshotParams
     upcoming_scheduled: upcoming,
     accounts,
     category_top: categoryTop,
-    note: '权威账本只读摘要；预算剩余若需本地设置口径请结合 App brief_context。',
+    budget: budget
+      ? {
+          configured: budget.configured,
+          month_key: budget.month_key,
+          refresh_day: budget.refresh_day,
+          base_amount: budget.base_amount,
+          include_last_balance: budget.include_last_balance,
+          period_total: budget.period_total,
+          period_expense: budget.period_expense,
+          period_remaining: budget.period_remaining,
+          today_available: budget.today_available,
+          daily_budget: budget.daily_budget,
+          scheduled_deduction: budget.scheduled_deduction,
+          days_left: budget.days_left,
+        }
+      : null,
+    savings_goal: savingsGoal
+      ? {
+          goal: savingsGoal.goal,
+          net_worth: savingsGoal.net_worth,
+          gap: savingsGoal.gap,
+          days_left: savingsGoal.days_left,
+          daily_target: savingsGoal.daily_target,
+          achieved: savingsGoal.achieved,
+          overdue: savingsGoal.overdue,
+        }
+      : null,
+    note: '权威账本只读摘要；含服务端预算结余/今日可用与首页储蓄目标。',
     meta: {
       serverTime: meta.serverTime ?? null,
       logicalToday: today,

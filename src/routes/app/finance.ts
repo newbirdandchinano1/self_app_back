@@ -23,11 +23,21 @@ import {
   deleteFinanceTransaction,
   updateFinanceTransaction,
 } from '../../services/finance-transactions.js';
+import {
+  clearFinanceSavingsGoal,
+  clearMonthBudgetSetting,
+  getFinanceBudgetSummary,
+  getFinanceSavingsGoalSummary,
+  setBudgetRefreshDay,
+  upsertFinanceSavingsGoal,
+  upsertMonthBudgetSetting,
+} from '../../services/finance-budget.js';
 
 /**
  * 财务 Tab / 财务子页专用接口。
  * 挂载前缀：/api/app
  * APP 只打 /api/app/pages/finance/* ，不要再为读路径降级到 /api/app/data/* List。
+ * 预算 / 储蓄目标另有 /api/app/finance/budget|savings-goal（Agent + 设置读写）。
  */
 const router = Router();
 
@@ -247,6 +257,122 @@ router.get('/pages/finance/predicted-savings', async (req, res, next) => {
       lookbackDays: parseIntQuery(req.query.lookbackDays),
     });
     success(res, data);
+  } catch (err) {
+    handleFinanceError(err, res, next);
+  }
+});
+
+/** GET /finance/budget — 预算结余 / 今日可用 / 周期设置摘要 */
+router.get('/finance/budget', async (req, res, next) => {
+  try {
+    const data = await getFinanceBudgetSummary({
+      ...parseDayBoundary(req),
+      logicalToday: parseStringQuery(req.query.logicalToday),
+    });
+    success(res, data);
+  } catch (err) {
+    handleFinanceError(err, res, next);
+  }
+});
+
+/** PUT /finance/budget — 设置/调整某月预算（基数、含上周期结余、结余校正） */
+router.put('/finance/budget', async (req, res, next) => {
+  try {
+    const body = req.body ?? {};
+    const data = await upsertMonthBudgetSetting({
+      monthKey: typeof body.month_key === 'string' ? body.month_key : body.monthKey,
+      baseAmount:
+        body.base_amount != null
+          ? Number(body.base_amount)
+          : body.baseAmount != null
+            ? Number(body.baseAmount)
+            : undefined,
+      includeLastBalance:
+        typeof body.include_last_balance === 'boolean'
+          ? body.include_last_balance
+          : typeof body.includeLastBalance === 'boolean'
+            ? body.includeLastBalance
+            : undefined,
+      periodSurplusOverride:
+        body.period_surplus_override === null || body.periodSurplusOverride === null
+          ? null
+          : body.period_surplus_override != null
+            ? Number(body.period_surplus_override)
+            : body.periodSurplusOverride != null
+              ? Number(body.periodSurplusOverride)
+              : undefined,
+      clearSurplusOverride: Boolean(body.clear_surplus_override ?? body.clearSurplusOverride),
+      logicalToday: parseStringQuery(req.query.logicalToday) ??
+        (typeof body.logical_today === 'string' ? body.logical_today : undefined),
+      ...parseDayBoundary(req),
+    });
+    success(res, data, '预算已保存');
+  } catch (err) {
+    handleFinanceError(err, res, next);
+  }
+});
+
+/** DELETE /finance/budget — 撤销某月预算设置 */
+router.delete('/finance/budget', async (req, res, next) => {
+  try {
+    const data = await clearMonthBudgetSetting({
+      monthKey: parseStringQuery(req.query.month_key) ?? parseStringQuery(req.query.monthKey),
+      logicalToday: parseStringQuery(req.query.logicalToday),
+      ...parseDayBoundary(req),
+    });
+    success(res, data, data.cleared ? '已清除本月预算' : '本月无预算配置');
+  } catch (err) {
+    handleFinanceError(err, res, next);
+  }
+});
+
+/** PUT /finance/budget/refresh-day — 设置预算刷新日（每月几日） */
+router.put('/finance/budget/refresh-day', async (req, res, next) => {
+  try {
+    const body = req.body ?? {};
+    const day = Number(body.refresh_day ?? body.refreshDay ?? body.day);
+    const data = await setBudgetRefreshDay(day);
+    success(res, data, '预算刷新日已更新');
+  } catch (err) {
+    handleFinanceError(err, res, next);
+  }
+});
+
+/** GET /finance/savings-goal — 首页储蓄目标（净资产目标日） */
+router.get('/finance/savings-goal', async (req, res, next) => {
+  try {
+    const data = await getFinanceSavingsGoalSummary({
+      ...parseDayBoundary(req),
+      logicalToday: parseStringQuery(req.query.logicalToday),
+    });
+    success(res, data);
+  } catch (err) {
+    handleFinanceError(err, res, next);
+  }
+});
+
+/** PUT /finance/savings-goal — 设置/编辑储蓄目标 */
+router.put('/finance/savings-goal', async (req, res, next) => {
+  try {
+    const body = req.body ?? {};
+    const data = await upsertFinanceSavingsGoal({
+      targetAmount: Number(body.target_amount ?? body.targetAmount),
+      targetDate: String(body.target_date ?? body.targetDate ?? ''),
+      logicalToday: parseStringQuery(req.query.logicalToday) ??
+        (typeof body.logical_today === 'string' ? body.logical_today : undefined),
+      ...parseDayBoundary(req),
+    });
+    success(res, data, '储蓄目标已保存');
+  } catch (err) {
+    handleFinanceError(err, res, next);
+  }
+});
+
+/** DELETE /finance/savings-goal — 清除储蓄目标 */
+router.delete('/finance/savings-goal', async (req, res, next) => {
+  try {
+    const data = await clearFinanceSavingsGoal();
+    success(res, data, '已清除储蓄目标');
   } catch (err) {
     handleFinanceError(err, res, next);
   }

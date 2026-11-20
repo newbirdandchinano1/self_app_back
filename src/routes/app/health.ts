@@ -8,16 +8,23 @@ import {
   createIntake,
   deleteIntake,
   getDayHealthMetrics,
+  getDayTargets,
   listIntakesByDay,
   listRecentIntakes,
   updateIntake,
+  upsertIntakeTargets,
 } from '../../services/health.js';
+import {
+  WeightLogError,
+  listWeightLogs,
+  upsertWeightLog,
+} from '../../services/weight-logs.js';
 
 const router = Router();
 
 router.use(requireAuth);
 
-const handleHealthError = createDomainErrorHandler(HealthError);
+const handleHealthError = createDomainErrorHandler([HealthError, WeightLogError]);
 
 /**
  * GET /health/metrics?date=YYYY-MM-DD
@@ -144,6 +151,92 @@ router.delete('/health/intakes/:id', async (req, res, next) => {
       ...syncWriteOptionsFromReq(req),
     });
     success(res, data, '删除成功');
+  } catch (err) {
+    handleHealthError(err, res, next);
+  }
+});
+
+/**
+ * GET /health/targets?date=YYYY-MM-DD
+ * 查询摄入目标（日表 → 全局设置 → 默认）
+ */
+router.get('/health/targets', async (req, res, next) => {
+  try {
+    const data = await getDayTargets({
+      date: req.query.date ?? undefined,
+    });
+    success(res, data);
+  } catch (err) {
+    handleHealthError(err, res, next);
+  }
+});
+
+/**
+ * PUT /health/targets
+ * 写入全局四项目标 + upsert 指定日（默认今日）health_daily_targets
+ */
+router.put('/health/targets', async (req, res, next) => {
+  try {
+    const body = req.body ?? {};
+    const data = await upsertIntakeTargets(
+      {
+        date: body.date ?? body.day_ymd ?? body.dayYmd,
+        hydration: body.hydration,
+        hydration_ml: body.hydration_ml ?? body.hydrationMl,
+        hydrationMl: body.hydrationMl,
+        protein: body.protein,
+        protein_g: body.protein_g ?? body.proteinG,
+        proteinG: body.proteinG,
+        carbohydrate: body.carbohydrate,
+        carbohydrate_g: body.carbohydrate_g ?? body.carbohydrateG,
+        carbohydrateG: body.carbohydrateG,
+        calories: body.calories,
+        calories_kcal: body.calories_kcal ?? body.caloriesKcal,
+        caloriesKcal: body.caloriesKcal,
+        rationale_zh: body.rationale_zh,
+        source: body.source,
+      },
+      syncWriteOptionsFromReq(req),
+    );
+    success(res, data, '已更新摄入目标');
+  } catch (err) {
+    handleHealthError(err, res, next);
+  }
+});
+
+/**
+ * GET /health/weight-logs?days=30 | start_ymd=&end_ymd=
+ * 近 N 天体重点（含趋势 delta）
+ */
+router.get('/health/weight-logs', async (req, res, next) => {
+  try {
+    const data = await listWeightLogs({
+      days: req.query.days,
+      start_ymd: req.query.start_ymd ?? req.query.startYmd,
+      end_ymd: req.query.end_ymd ?? req.query.endYmd,
+    });
+    success(res, data);
+  } catch (err) {
+    handleHealthError(err, res, next);
+  }
+});
+
+/**
+ * POST /health/weight-logs
+ * 同日覆盖；若为最新日则同步 users.weight
+ */
+router.post('/health/weight-logs', async (req, res, next) => {
+  try {
+    const body = req.body ?? {};
+    const data = await upsertWeightLog(
+      {
+        id: body.id,
+        recorded_ymd: body.recorded_ymd ?? body.ymd ?? body.record_date,
+        weight_kg: body.weight_kg ?? body.weight,
+      },
+      syncWriteOptionsFromReq(req),
+    );
+    success(res, data, '已记录体重');
   } catch (err) {
     handleHealthError(err, res, next);
   }

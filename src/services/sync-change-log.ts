@@ -92,6 +92,7 @@ export const SYNC_CHANGE_LOG_TABLES = new Set<string>([
   // Phase 4 — 健康
   'health_records',
   'health_daily_targets',
+  'weight_logs',
   // Phase 4 — 复盘
   'daily_review_journal',
   'weekly_review_journal',
