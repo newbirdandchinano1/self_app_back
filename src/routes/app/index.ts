@@ -20,6 +20,7 @@ import inboxRouter from './inbox.js';
 import imagesRouter from './images.js';
 import trendradarRouter from './trendradar.js';
 import newsRouter from './news.js';
+import externalRouter from './external.js';
 
 /**
  * App-facing API (mobile / client).
@@ -54,6 +55,7 @@ router.use(reviewRouter);
 router.use(profileRouter);
 router.use(inboxRouter);
 router.use(imagesRouter);
+router.use(externalRouter);
 router.use(crudRouter);
 
 export default router;

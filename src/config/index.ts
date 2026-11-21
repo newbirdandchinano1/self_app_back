@@ -61,3 +61,16 @@ export const agentConfig = {
   apiKey: process.env.AGENT_API_KEY || '',
   timeoutMs: parseInt(process.env.AGENT_TIMEOUT_MS || '120000', 10),
 };
+
+/** 外部 API 网关：和风天气（QWeather） */
+export const qweatherConfig = {
+  /** 控制台分配的 API Host，勿带协议 */
+  apiHost: (process.env.QWEATHER_API_HOST || '').replace(/^https?:\/\//, '').replace(/\/+$/, ''),
+  /** 控制台 API KEY；请求头 X-QW-Api-Key */
+  apiKey: process.env.QWEATHER_API_KEY || '',
+  timeoutMs: parseInt(process.env.QWEATHER_TIMEOUT_MS || '15000', 10),
+  /** 未传 lat/lng 时的默认位置（成都） */
+  defaultLat: parseFloat(process.env.QWEATHER_DEFAULT_LAT || '30.57'),
+  defaultLng: parseFloat(process.env.QWEATHER_DEFAULT_LNG || '104.07'),
+  defaultLabel: process.env.QWEATHER_DEFAULT_LABEL || '成都',
+};

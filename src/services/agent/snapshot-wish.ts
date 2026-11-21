@@ -13,7 +13,11 @@ import {
   listRedeemedWishBoardItems,
   parseWishBoardRedeemConditions,
 } from '../wish-board.js';
-import { formatLocalYmdFromDate } from '../calendar/logical-day.js';
+import {
+  addDaysToYmd,
+  formatLocalYmdFromDate,
+  startOfWeekMonday,
+} from '../calendar/logical-day.js';
 
 const ACTIVE_LIMIT = 40;
 const REDEEMED_LIMIT = 12;
@@ -42,16 +46,44 @@ async function monthEarnedPoints(monthKey: string): Promise<number> {
   return asPoints(rows[0]?.earned);
 }
 
+function weekRangeFromToday(todayYmd: string): { startYmd: string; endYmd: string } {
+  const [y, m, d] = todayYmd.split('-').map(Number);
+  const anchor = new Date(y, (m ?? 1) - 1, d ?? 1, 12, 0, 0);
+  const monday = startOfWeekMonday(anchor);
+  const startYmd = formatLocalYmdFromDate(monday);
+  return { startYmd, endYmd: addDaysToYmd(startYmd, 6) };
+}
+
+/** 本周一至日积分进出（与 App 我的页 hub 口径一致） */
+async function weekPointsFlow(todayYmd: string): Promise<{ earned: number; spent: number }> {
+  const { startYmd, endYmd } = weekRangeFromToday(todayYmd);
+  const [rows] = await db.query<RowDataPacket[]>(
+    `SELECT
+        COALESCE(SUM(CASE WHEN delta > 0 THEN delta ELSE 0 END), 0) AS earned,
+        COALESCE(SUM(CASE WHEN delta < 0 THEN -delta ELSE 0 END), 0) AS spent
+     FROM points_ledger
+     WHERE (sync_status IS NULL OR sync_status != 'pending_delete')
+       AND DATE(created_at) >= ?
+       AND DATE(created_at) <= ?`,
+    [startYmd, endYmd],
+  );
+  return {
+    earned: asPoints(rows[0]?.earned),
+    spent: asPoints(rows[0]?.spent),
+  };
+}
+
 export async function getAgentWishSnapshot(params: AgentWishSnapshotParams = {}) {
   const lim = Math.max(1, Math.min(Number(params.limit) || ACTIVE_LIMIT, 60));
   const today = formatLocalYmdFromDate(new Date());
   const monthKey = today.slice(0, 7);
 
-  const [balanceRes, active, redeemed, monthEarned, currentNetWorth] = await Promise.all([
+  const [balanceRes, active, redeemed, monthEarned, weekFlow, currentNetWorth] = await Promise.all([
     getPointsBalance(),
     listActiveWishBoardItems(),
     listRedeemedWishBoardItems(),
     monthEarnedPoints(monthKey),
+    weekPointsFlow(today),
     getFinanceNetWorth(),
   ]);
 
@@ -131,6 +163,8 @@ export async function getAgentWishSnapshot(params: AgentWishSnapshotParams = {})
     month_key: monthKey,
     balance,
     month_earned: monthEarned,
+    week_earned: weekFlow.earned,
+    week_spent: weekFlow.spent,
     current_net_worth: currentNetWorth,
     active_count: active.length,
     redeemable_count: redeemable.length,
