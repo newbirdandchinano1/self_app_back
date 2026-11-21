@@ -10,12 +10,18 @@ import {
   getWeatherNow,
   getWeatherSummary,
 } from '../../services/external/qweather.js';
+import {
+  getHoroscope,
+  listHoroscopeSigns,
+  parseHoroscopeScopes,
+} from '../../services/external/horoscope.js';
 
 /**
  * 外部 API 网关（第三方能力统一出口）。
  * 挂载前缀：/api/app
  *
- * 第一版：和风天气（经纬度；未传则默认成都）
+ * - 和风天气（经纬度；未传则默认成都）
+ * - 星座运势 ShowAPI 872-1
  */
 const router = Router();
 
@@ -101,6 +107,34 @@ router.get('/external/weather/hourly', async (req, res, next) => {
 router.get('/external/weather/air', async (req, res, next) => {
   try {
     const data = await getWeatherAir(locationFromQuery(req.query as Record<string, unknown>));
+    success(res, data);
+  } catch (err) {
+    handleExternalError(err, res, next);
+  }
+});
+
+/** GET /external/horoscope/signs — 十二星座码表 */
+router.get('/external/horoscope/signs', async (_req, res, next) => {
+  try {
+    success(res, { items: listHoroscopeSigns() });
+  } catch (err) {
+    handleExternalError(err, res, next);
+  }
+});
+
+/**
+ * GET /external/horoscope?star=shuiping|水瓶座&scopes=all|day,week…
+ * day 始终有；scopes 控制是否拉取明日/周/月/年（默认 all）
+ */
+router.get('/external/horoscope', async (req, res, next) => {
+  try {
+    const starRaw = typeof req.query.star === 'string' ? req.query.star : '';
+    const dateRaw = typeof req.query.date === 'string' ? req.query.date : undefined;
+    const data = await getHoroscope({
+      star: starRaw,
+      scopes: parseHoroscopeScopes(req.query.scopes),
+      date: dateRaw,
+    });
     success(res, data);
   } catch (err) {
     handleExternalError(err, res, next);

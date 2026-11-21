@@ -74,3 +74,13 @@ export const qweatherConfig = {
   defaultLng: parseFloat(process.env.QWEATHER_DEFAULT_LNG || '104.07'),
   defaultLabel: process.env.QWEATHER_DEFAULT_LABEL || '成都',
 };
+
+/** 外部 API 网关：万维易源 ShowAPI 星座运势（872-1） */
+export const showapiConfig = {
+  baseUrl: (process.env.SHOWAPI_BASE_URL || 'https://route.showapi.com').replace(/\/+$/, ''),
+  /** 完整 appKey；请求 query appKey= */
+  appKey: process.env.SHOWAPI_APP_KEY || '',
+  timeoutMs: parseInt(process.env.SHOWAPI_TIMEOUT_MS || '15000', 10),
+  /** 星座运势接入点路径 */
+  horoscopePath: process.env.SHOWAPI_HOROSCOPE_PATH || '/872-1',
+};
