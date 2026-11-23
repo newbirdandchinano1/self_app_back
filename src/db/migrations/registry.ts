@@ -22,6 +22,7 @@ import { ensureWishBoardDescriptionText } from '../ensure-wish-board-description
 import { ensureWardrobeTables } from '../ensure-wardrobe.js';
 import { ensureRecipeCookStatsColumns } from '../ensure-recipe-cook-stats.js';
 import { ensureWeightLogsTable } from '../ensure-weight-logs.js';
+import { ensureReminderTables } from '../ensure-reminder-tables.js';
 import type { Migration } from './types.js';
 
 /**
@@ -60,4 +61,6 @@ export const MIGRATIONS: readonly Migration[] = [
   { id: '026_retire_task_side_tags', up: ensureRetireTaskSideTags },
   /** 体重日志云端表（健康 / 我的页 / Agent） */
   { id: '027_weight_logs', up: ensureWeightLogsTable },
+  /** 服务端提醒：push token / jobs / inbox */
+  { id: '028_reminder_tables', up: ensureReminderTables },
 ];

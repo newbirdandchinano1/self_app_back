@@ -9,6 +9,7 @@ import { initAdminTable } from './db/init-admin.js';
 import { ensureInboxCatalogSeed } from './services/pages/tasks-catalog.js';
 import { ensureHealthIntakeUploadDir } from './services/health-intake-upload.js';
 import { startSyncChangeLogCleanupScheduler } from './services/sync-change-log-cleanup.js';
+import { startReminderDispatchScheduler } from './services/reminder-dispatch.js';
 
 async function waitForDb(maxAttempts = 30, intervalMs = 2000): Promise<void> {
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -42,6 +43,8 @@ async function bootstrap() {
   } else {
     console.log('[sync-cleanup] 已禁用（SYNC_CHANGE_LOG_CLEANUP_ENABLED=false）');
   }
+
+  startReminderDispatchScheduler();
 }
 
 bootstrap()
