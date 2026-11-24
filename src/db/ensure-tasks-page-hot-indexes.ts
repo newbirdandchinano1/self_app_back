@@ -5,6 +5,9 @@ import { columnExists, indexExists, tableExists } from './schema-helpers.js';
  * 阶段 B0：任务页热点查询索引（幂等）。
  * 无 user_id 列，禁止照抄带 user_id 的模板。
  * 谓词对齐：project_id / parent_task_id / status / category_id / created_at / assigned_ymd。
+ *
+ * 列多为 varchar(255)+utf8mb4（单列索引占 1020B）。InnoDB 复合索引上限 3072B，
+ * 故对超长 varchar 使用前缀：id/外键 191、status/action 32、时间戳 64。
  */
 async function ensureIndex(
   table: string,
@@ -29,7 +32,7 @@ export async function ensureTasksPageHotIndexes(): Promise<void> {
       'tasks',
       'idx_tasks_project_status_updated',
       `CREATE INDEX idx_tasks_project_status_updated
-       ON tasks (project_id, status, updated_at, id)`,
+       ON tasks (project_id(191), status(32), updated_at(64), id(191))`,
     );
     // parent_task_id 在部分环境为 TEXT，前缀索引足够支撑 BFS IN (...)
     if (await columnExists('tasks', 'parent_task_id')) {
@@ -42,7 +45,8 @@ export async function ensureTasksPageHotIndexes(): Promise<void> {
     await ensureIndex(
       'tasks',
       'idx_tasks_status_updated',
-      `CREATE INDEX idx_tasks_status_updated ON tasks (status, updated_at, id)`,
+      `CREATE INDEX idx_tasks_status_updated
+       ON tasks (status(32), updated_at(64), id(191))`,
     );
   }
 
@@ -51,12 +55,12 @@ export async function ensureTasksPageHotIndexes(): Promise<void> {
       'projects',
       'idx_projects_category_updated',
       `CREATE INDEX idx_projects_category_updated
-       ON projects (category_id, updated_at, id)`,
+       ON projects (category_id(191), updated_at(64), id(191))`,
     );
     await ensureIndex(
       'projects',
       'idx_projects_updated_at',
-      `CREATE INDEX idx_projects_updated_at ON projects (updated_at, id)`,
+      `CREATE INDEX idx_projects_updated_at ON projects (updated_at(64), id(191))`,
     );
   }
 
@@ -65,13 +69,13 @@ export async function ensureTasksPageHotIndexes(): Promise<void> {
       'task_execution_events',
       'idx_tevt_task_created',
       `CREATE INDEX idx_tevt_task_created
-       ON task_execution_events (task_id, created_at)`,
+       ON task_execution_events (task_id(191), created_at(64))`,
     );
     await ensureIndex(
       'task_execution_events',
       'idx_tevt_action_created',
       `CREATE INDEX idx_tevt_action_created
-       ON task_execution_events (action, created_at)`,
+       ON task_execution_events (action(32), created_at(64))`,
     );
   }
 
@@ -80,7 +84,7 @@ export async function ensureTasksPageHotIndexes(): Promise<void> {
       'frog_completion_events',
       'idx_frog_assigned_created',
       `CREATE INDEX idx_frog_assigned_created
-       ON frog_completion_events (assigned_ymd, created_at)`,
+       ON frog_completion_events (assigned_ymd(32), created_at(64))`,
     );
   }
 }
