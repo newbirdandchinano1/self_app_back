@@ -27,7 +27,7 @@ pipeline {
 
         stage('1. 同步到部署目录') {
             steps {
-                echo "👉 将 WORKSPACE 同步到 ${DEPLOY_DIR}（保留已有 .env）..."
+                echo "👉 将 WORKSPACE 同步到 ${DEPLOY_DIR}（保留已有 .env 与 uploads）..."
                 sh '''
                 set -e
 
@@ -46,7 +46,7 @@ pipeline {
                   exit 1
                 fi
 
-                # 保留已有 .env，清空旧代码后重新同步
+                # 保留已有 .env / uploads，清空旧代码后重新同步
                 # 注意：DEPLOY_DIR 须对 Jenkins 容器用户（通常 uid=1000）可读写。
                 # 若曾用 root 写入 .env（600），会出现 Permission denied。
                 ENV_BAK="/tmp/self_app_back.env.bak.$$"
@@ -65,6 +65,16 @@ pipeline {
                   echo "目标目录尚无 .env，跳过备份"
                 fi
 
+                # 用户上传图片在宿主机 uploads；若随目录清空会丢文件（库里 uri 还在，页面 404）
+                UPLOADS_BAK="/tmp/self_app_back.uploads.bak.$$"
+                rm -rf "${UPLOADS_BAK}"
+                if [ -d "${DEPLOY_DIR}/uploads" ]; then
+                  mv "${DEPLOY_DIR}/uploads" "${UPLOADS_BAK}"
+                  echo "已暂存 ${DEPLOY_DIR}/uploads -> ${UPLOADS_BAK}"
+                else
+                  echo "目标目录尚无 uploads，跳过暂存"
+                fi
+
                 find "${DEPLOY_DIR}" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
 
                 # 明确从 WORKSPACE 打包，不依赖当前 shell 的 .
@@ -79,6 +89,12 @@ pipeline {
                   mv "${ENV_BAK}" "${DEPLOY_DIR}/.env"
                   chmod 600 "${DEPLOY_DIR}/.env"
                   echo "已还原 .env"
+                fi
+
+                if [ -d "${UPLOADS_BAK}" ]; then
+                  rm -rf "${DEPLOY_DIR}/uploads"
+                  mv "${UPLOADS_BAK}" "${DEPLOY_DIR}/uploads"
+                  echo "已还原 uploads"
                 fi
 
                 echo "----- 目标目录同步后 -----"
