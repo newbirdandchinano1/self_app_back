@@ -34,8 +34,13 @@ async function main() {
     assert.ok(cacheConfig.catalogTtlMs >= 30_000 && cacheConfig.catalogTtlMs <= 120_000);
     assert.ok(cacheConfig.heatmapTtlMs >= 30_000 && cacheConfig.heatmapTtlMs <= 120_000);
     assert.equal(cacheConfig.dayBoundaryTtlMs, 300_000);
-    assert.equal(tasksPageConfig.bootstrapV2Enabled, false, '默认关，可灰度开启');
-    console.log('ok cache + bootstrap-v2 flags');
+    const v2FromEnv = process.env.TASKS_BOOTSTRAP_V2_ENABLED === 'true';
+    assert.equal(
+      tasksPageConfig.bootstrapV2Enabled,
+      v2FromEnv,
+      'bootstrap-v2 跟随 TASKS_BOOTSTRAP_V2_ENABLED（未设则为 false）',
+    );
+    console.log('ok cache + bootstrap-v2 flags', { enabled: v2FromEnv });
   }
 
   section('MemoryCache TTL / hit / miss');
@@ -190,10 +195,14 @@ async function main() {
   section('bootstrap-v2 gate + fingerprint');
   {
     assert.equal(TASKS_BOOTSTRAP_V2_VERSION, 'tasks-bootstrap-v2');
-    assert.throws(
-      () => assertBootstrapV2Enabled(),
-      (err: unknown) => err instanceof TasksBootstrapError && err.status === 404,
-    );
+    if (tasksPageConfig.bootstrapV2Enabled) {
+      assert.doesNotThrow(() => assertBootstrapV2Enabled());
+    } else {
+      assert.throws(
+        () => assertBootstrapV2Enabled(),
+        (err: unknown) => err instanceof TasksBootstrapError && err.status === 404,
+      );
+    }
 
     const fp1 = fingerprintBootstrapV2Query({
       dayBoundaryHour: 4,

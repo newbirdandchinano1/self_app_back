@@ -1,13 +1,13 @@
 import type { RowDataPacket } from 'mysql2';
 import { db } from '../db/index.js';
 import {
+  STORED_IMAGE_URI_RE,
   bindStoredImage,
   deleteStoredImage,
   listStoredImages,
+  storedImageIdFromUri,
   StoredImageError,
 } from './stored-images.js';
-
-const STORED_IMAGE_URI_RE = /^\/uploads\/images\/([0-9a-f-]{36})\.[a-z0-9]+$/i;
 
 /** 正文里的统一库路径。RichDoc 图片块和旧 markup `![img](uri)` 都认。 */
 export function collectMemoStoredImageUris(body: string): string[] {
@@ -79,7 +79,7 @@ export async function syncMemoStoredImages(
   }
 
   for (const uri of next) {
-    const imageId = uri.match(STORED_IMAGE_URI_RE)?.[1];
+    const imageId = storedImageIdFromUri(uri);
     if (!imageId) continue;
     try {
       await bindStoredImage({

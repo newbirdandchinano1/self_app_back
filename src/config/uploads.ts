@@ -21,13 +21,35 @@ export const HEALTH_INTAKE_MIME_EXT: Record<string, string> = {
   'image/gif': '.gif',
 };
 
-/** 统一图片子目录：uploads/images/{uuid}.ext */
+/**
+ * 统一图片子目录：uploads/images/{module}/{uuid}.ext
+ * module 与 stored_images.purpose 对齐；无 purpose 时用 misc。
+ */
 export const IMAGES_DIR_NAME = 'images';
 
 export const IMAGES_UPLOAD_DIR = path.join(UPLOAD_ROOT, IMAGES_DIR_NAME);
 
 /** 入库与对外访问的 URL 前缀 */
 export const IMAGES_PUBLIC_PREFIX = `/uploads/${IMAGES_DIR_NAME}`;
+
+/** purpose 缺失时的兜底模块目录 */
+export const IMAGES_MISC_MODULE = 'misc';
+
+/**
+ * 已知业务模块目录（与 APP purpose 一致）。
+ * 启动时可预建空目录；未列出的合法 purpose 仍按同名目录动态创建。
+ */
+export const IMAGES_KNOWN_MODULES = [
+  'memo',
+  'wish-board',
+  'recipe',
+  'wardrobe-item',
+  'wardrobe-collage',
+  'task-note',
+  'project-note',
+  'health-intake',
+  IMAGES_MISC_MODULE,
+] as const;
 
 /** 与健康摄入共用同一上限和 mime 表，不另写一份数字 */
 export const IMAGES_MAX_BYTES = HEALTH_INTAKE_MAX_BYTES;

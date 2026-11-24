@@ -17,7 +17,7 @@ import {
  * 统一图片登记 API。
  * 挂载前缀：/api/app
  *
- * 文件字节不走本接口；APP 拿返回的 uri 后走静态 `/uploads/images/...`。
+ * 文件字节不走本接口；APP 拿返回的 uri 后走静态 `/uploads/images/{module}/...`。
  */
 const router = Router();
 

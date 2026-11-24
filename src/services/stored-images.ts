@@ -5,6 +5,7 @@ import type { ResultSetHeader, RowDataPacket } from 'mysql2';
 import {
   IMAGES_MAX_BYTES,
   IMAGES_MIME_EXT,
+  IMAGES_MISC_MODULE,
   IMAGES_PUBLIC_PREFIX,
   IMAGES_UPLOAD_DIR,
 } from '../config/uploads.js';
@@ -50,8 +51,17 @@ const CANONICAL_MIME_BY_EXT: Record<string, string> = {
   '.gif': 'image/gif',
 };
 
+/** 匹配 `/uploads/images/{uuid}.ext` 或 `/uploads/images/{module}/{uuid}.ext`。 */
+export const STORED_IMAGE_URI_RE =
+  /^\/uploads\/images\/(?:([a-z0-9_-]+)\/)?([0-9a-f-]{36})\.([a-z0-9]+)$/i;
+
 export function isStoredImageUri(uri: unknown): boolean {
-  return typeof uri === 'string' && uri.trim().startsWith(`${IMAGES_PUBLIC_PREFIX}/`);
+  return typeof uri === 'string' && STORED_IMAGE_URI_RE.test(uri.trim());
+}
+
+/** 从统一库 uri 解析图片 id；旧平铺路径与模块子目录都支持。 */
+export function storedImageIdFromUri(uri: string): string | null {
+  return uri.trim().match(STORED_IMAGE_URI_RE)?.[2] ?? null;
 }
 
 export async function saveStoredImage(input: {
@@ -67,12 +77,15 @@ export async function saveStoredImage(input: {
   const purpose = parsePurpose(input.purpose) ?? null;
 
   const id = randomUUID();
-  const filename = `${id}${decoded.ext}`;
+  const moduleDir = moduleDirFromPurpose(purpose);
+  // filename = 磁盘相对路径（相对 uploads/images/），与文件名一致
+  const basename = `${id}${decoded.ext}`;
+  const filename = `${moduleDir}/${basename}`;
   const absPath = resolveImagePath(filename);
   const uri = `${IMAGES_PUBLIC_PREFIX}/${filename}`;
   const now = formatMySQLWallClockDateTime(new Date());
 
-  await mkdir(IMAGES_UPLOAD_DIR, { recursive: true });
+  await mkdir(path.dirname(absPath), { recursive: true });
   await writeFile(absPath, decoded.bytes, { flag: 'wx' });
 
   try {
@@ -188,11 +201,16 @@ export async function deleteStoredImage(input: {
   const row = id ? await findRow('id', id) : await findRow('uri', uri!);
   if (!row) throw new StoredImageError('图片不存在', 404);
   if (uri && row.uri !== uri) throw new StoredImageError('图片不存在', 404);
-  if (!isStoredImageUri(row.uri) || row.uri !== `${IMAGES_PUBLIC_PREFIX}/${row.filename}`) {
+  if (!isStoredImageUri(row.uri)) {
+    throw new StoredImageError('只能删除统一图片库中的文件');
+  }
+  // 新数据：uri === /uploads/images/{filename}；旧平铺：filename 仅 basename
+  const expectedUri = `${IMAGES_PUBLIC_PREFIX}/${row.filename}`;
+  if (row.uri !== expectedUri && path.basename(row.uri) !== path.basename(row.filename)) {
     throw new StoredImageError('只能删除统一图片库中的文件');
   }
 
-  const absPath = resolveImagePath(row.filename);
+  const absPath = resolveImagePathFromRow(row);
   const [result] = await db.query<ResultSetHeader>(`DELETE FROM stored_images WHERE id = ?`, [row.id]);
   if (!result.affectedRows) {
     return { deleted: false, filename: row.filename };
@@ -247,14 +265,64 @@ async function findRow(column: 'id' | 'uri', value: string): Promise<ImageRow | 
   return row ? mapRow(row) : null;
 }
 
+/** purpose → 模块目录名；无 purpose 归 misc。 */
+function moduleDirFromPurpose(purpose: string | null): string {
+  if (!purpose) return IMAGES_MISC_MODULE;
+  return purpose;
+}
+
+function isSafeModuleDir(name: string): boolean {
+  return /^[a-z0-9][a-z0-9_-]{0,31}$/i.test(name);
+}
+
+function isSafeBasename(name: string): boolean {
+  return /^[0-9a-f-]{36}\.[a-z0-9]+$/i.test(name);
+}
+
+/**
+ * 解析磁盘路径。filename 可为：
+ * - `{uuid}.ext`（旧平铺）
+ * - `{module}/{uuid}.ext`（按模块分类）
+ */
 function resolveImagePath(filename: string): string {
-  const base = path.basename(filename);
-  if (!base || base !== filename || base === '.' || base === '..') {
+  const normalized = filename.replace(/\\/g, '/').trim();
+  if (!normalized || normalized.includes('..') || path.isAbsolute(normalized)) {
     throw new StoredImageError('图片路径无效');
   }
-  const absPath = path.resolve(IMAGES_UPLOAD_DIR, base);
+  const parts = normalized.split('/').filter(Boolean);
+  if (parts.length === 1) {
+    const base = parts[0]!;
+    if (!isSafeBasename(base)) throw new StoredImageError('图片路径无效');
+    return assertUnderImagesRoot(path.resolve(IMAGES_UPLOAD_DIR, base));
+  }
+  if (parts.length === 2) {
+    const [mod, base] = parts as [string, string];
+    if (!isSafeModuleDir(mod) || !isSafeBasename(base)) {
+      throw new StoredImageError('图片路径无效');
+    }
+    return assertUnderImagesRoot(path.resolve(IMAGES_UPLOAD_DIR, mod, base));
+  }
+  throw new StoredImageError('图片路径无效');
+}
+
+/** 优先用库里的 filename；旧行若 uri 含模块而 filename 只有 basename，从 uri 补全。 */
+function resolveImagePathFromRow(row: ImageRow): string {
+  try {
+    return resolveImagePath(row.filename);
+  } catch {
+    const match = row.uri.trim().match(STORED_IMAGE_URI_RE);
+    if (!match) throw new StoredImageError('图片路径无效');
+    const moduleDir = match[1];
+    const id = match[2]!;
+    const ext = match[3]!;
+    const relative = moduleDir ? `${moduleDir}/${id}.${ext}` : `${id}.${ext}`;
+    return resolveImagePath(relative);
+  }
+}
+
+function assertUnderImagesRoot(absPath: string): string {
   const root = path.resolve(IMAGES_UPLOAD_DIR) + path.sep;
-  if (!absPath.startsWith(root)) {
+  if (!absPath.startsWith(root) && absPath !== path.resolve(IMAGES_UPLOAD_DIR)) {
     throw new StoredImageError('图片路径无效');
   }
   return absPath;
@@ -367,9 +435,11 @@ function parsePurpose(value: unknown): string | null | undefined {
   if (value === undefined) return undefined;
   if (value === null) return null;
   if (typeof value !== 'string') throw new StoredImageError('purpose 无效');
-  const text = value.trim();
+  const text = value.trim().toLowerCase();
   if (!text) return null;
   if (text.length > 32) throw new StoredImageError('purpose 过长');
+  // 同时作为磁盘子目录名，限制字符集
+  if (!isSafeModuleDir(text)) throw new StoredImageError('purpose 无效');
   return text;
 }
 

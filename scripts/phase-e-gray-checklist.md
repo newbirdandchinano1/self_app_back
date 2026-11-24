@@ -4,7 +4,7 @@
 
 | 开关 | 建议灰度值 | 回滚 |
 |------|------------|------|
-| `TASKS_BOOTSTRAP_V2_ENABLED` | `false`（验证后再 `true`） | 保持 `false` |
+| `TASKS_BOOTSTRAP_V2_ENABLED` | `true`（代码默认仍为 false；本地 `.env` / 灰度开） | 设 `false` |
 | `EXPO_PUBLIC_TASKS_MODULE_LOADING_ENABLED`（mobile） | 默认开；回滚设 `0`/`false` | `false` → 旧单一 pending |
 | `TASKS_DANGEROUS_BOOTSTRAP_REJECT` | `true` | `false`（只告警不拒绝） |
 | `PAGE_CONCURRENCY_LIMIT_ENABLED` | `true` | `false`（退回单池 `API_CONCURRENCY_MAX`） |

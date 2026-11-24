@@ -135,7 +135,11 @@ section('对照实验：禁止仅后端限流未收前端 timeout');
 
 section('灰度开关默认值（阶段 E checklist）');
 {
-  assert.equal(tasksPageConfig.bootstrapV2Enabled, false, 'TASKS_BOOTSTRAP_V2_ENABLED 默认 false');
+  assert.equal(
+    tasksPageConfig.bootstrapV2Enabled,
+    process.env.TASKS_BOOTSTRAP_V2_ENABLED === 'true',
+    'TASKS_BOOTSTRAP_V2_ENABLED 跟随 env（代码默认须显式 true）',
+  );
   assert.equal(
     tasksPageConfig.dangerousBootstrapReject,
     true,

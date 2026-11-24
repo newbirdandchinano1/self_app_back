@@ -743,14 +743,35 @@ async function loadScopedTodoEvents(
  * 直接查库，避免 listAllRecords 把 created_at 转成 ISO/Z 后影响墙上时钟比较。
  * 禁止 JOIN/EXISTS tasks：项目青蛙的 task_id 存的是 projects.id，内连接会被滤掉。
  */
+/**
+ * B5 下推：每个 (subject, assigned_ymd) 只取最新一条，减少进 Node 的行数。
+ * 分组键与 aggregateFrogEvents 一致：有 task_id 用 task_id，否则用事件 id。
+ * 禁止 JOIN tasks（项目青蛙 task_id 可能是 projects.id）。
+ */
 async function loadFrogCompletionEvents(
   startYmd: string,
   endYmd: string,
 ): Promise<Record<string, unknown>[]> {
   const [rows] = await db.query<RowDataPacket[]>(
     `SELECT id, task_id, assigned_ymd, action, created_at, task_title
-     FROM frog_completion_events
-     WHERE LEFT(TRIM(assigned_ymd), 10) BETWEEN ? AND ?`,
+     FROM (
+       SELECT
+         id,
+         task_id,
+         assigned_ymd,
+         action,
+         created_at,
+         task_title,
+         ROW_NUMBER() OVER (
+           PARTITION BY
+             COALESCE(NULLIF(TRIM(task_id), ''), id),
+             LEFT(TRIM(assigned_ymd), 10)
+           ORDER BY created_at DESC, id DESC
+         ) AS rn
+       FROM frog_completion_events
+       WHERE LEFT(TRIM(assigned_ymd), 10) BETWEEN ? AND ?
+     ) ranked
+     WHERE rn = 1`,
     [startYmd, endYmd],
   );
   return rows as Record<string, unknown>[];
