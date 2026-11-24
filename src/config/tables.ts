@@ -215,10 +215,12 @@ export const TASK_STATUS_OPTIONS: readonly EnumOption[] = [
 
 export const TASK_STATUS_VALUES = TASK_STATUS_OPTIONS.map((o) => o.value);
 
-/** 待办事项（task_execution_events）action 固定取值 */
+/** 待办事项 / 青蛙完成事件 action 固定取值 */
 export const TASK_EXECUTION_ACTION_OPTIONS: readonly EnumOption[] = [
   { value: 'completed', label: '完成' },
   { value: 'reopened', label: '重新打开' },
+  { value: 'abandoned', label: '放弃今日' },
+  { value: 'unabandoned', label: '撤销放弃' },
 ];
 
 export const TASK_EXECUTION_ACTION_VALUES = TASK_EXECUTION_ACTION_OPTIONS.map((o) => o.value);
