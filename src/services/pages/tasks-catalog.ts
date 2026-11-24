@@ -5,6 +5,11 @@ import {
   listAllRecords,
   type ListOptions,
 } from '../crud.js';
+import {
+  cachedGetOrSet,
+  catalogCacheKey,
+  catalogCacheOpts,
+} from '../../cache/index.js';
 
 export const INBOX_PROJECT_CATEGORY_ID = 'project_category_inbox';
 export const INBOX_PROJECT_CATEGORY_NAME = '收集箱';
@@ -169,7 +174,7 @@ function assertCatalogIntegrity(payload: TasksCatalogResult, mode: 'full' | 'del
   }
 }
 
-export async function getTasksCatalog(params: TasksCatalogParams): Promise<TasksCatalogResult> {
+async function loadTasksCatalogUncached(params: TasksCatalogParams): Promise<TasksCatalogResult> {
   await ensureInboxCatalogSeed();
 
   const isDelta = Boolean(params.updatedSince?.trim());
@@ -197,4 +202,17 @@ export async function getTasksCatalog(params: TasksCatalogParams): Promise<Tasks
   assertCatalogIntegrity(payload, isDelta ? 'delta' : 'full');
 
   return payload;
+}
+
+export async function getTasksCatalog(params: TasksCatalogParams): Promise<TasksCatalogResult> {
+  // delta 不缓存：结果依赖 updatedSince 且体积小；full 走 TTL/SWR
+  if (params.updatedSince?.trim()) {
+    return loadTasksCatalogUncached(params);
+  }
+  const { value } = await cachedGetOrSet(
+    catalogCacheKey(),
+    () => loadTasksCatalogUncached(params),
+    catalogCacheOpts(),
+  );
+  return value;
 }

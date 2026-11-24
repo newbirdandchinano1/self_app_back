@@ -23,6 +23,7 @@ import { ensureWardrobeTables } from '../ensure-wardrobe.js';
 import { ensureRecipeCookStatsColumns } from '../ensure-recipe-cook-stats.js';
 import { ensureWeightLogsTable } from '../ensure-weight-logs.js';
 import { ensureReminderTables } from '../ensure-reminder-tables.js';
+import { ensureTasksPageHotIndexes } from '../ensure-tasks-page-hot-indexes.js';
 import type { Migration } from './types.js';
 
 /**
@@ -63,4 +64,6 @@ export const MIGRATIONS: readonly Migration[] = [
   { id: '027_weight_logs', up: ensureWeightLogsTable },
   /** 服务端提醒：push token / jobs / inbox */
   { id: '028_reminder_tables', up: ensureReminderTables },
+  /** 阶段 B0：任务页热点索引（无 user_id；对齐 project_id/parent/status/事件日期） */
+  { id: '029_tasks_page_hot_indexes', up: ensureTasksPageHotIndexes },
 ];

@@ -1,6 +1,5 @@
 import { Router } from 'express';
-import { concurrencyConfig } from '../../config/index.js';
-import { createConcurrencyMiddleware } from '../../middlewares/concurrency.js';
+import { createAppConcurrencyMiddleware } from '../../middlewares/concurrency.js';
 import authRouter from './auth.js';
 import pagesRouter from './pages.js';
 import calendarRouter from './calendar.js';
@@ -27,16 +26,13 @@ import externalRouter from './external.js';
  * App-facing API (mobile / client).
  * Mount prefix: /api/app
  * 场景 AI 已迁至 selfAPP_AIAgent（/api/v1/ai）；本服务仅保留业务 CRUD / 同步 / 备忘落库点评等。
+ *
+ * 并发：分池（light / page / sync / write）+ 可选全局帽 + 单用户上限；
+ * SSE `/sync/stream` 与 `/agent/*` 不占槽（见 shouldSkipConcurrency）。
  */
 const router = Router();
 
-const apiConcurrency = createConcurrencyMiddleware(
-  'api',
-  concurrencyConfig.apiMax,
-  concurrencyConfig.enabled,
-);
-
-router.use(apiConcurrency);
+router.use(createAppConcurrencyMiddleware());
 router.use('/auth', authRouter);
 router.use('/sync', syncRouter);
 // 必须在任何 `router.use(requireAuth)` 的路由之前挂载，保证 webhook 公开可达

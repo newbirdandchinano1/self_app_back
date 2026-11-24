@@ -8,7 +8,9 @@ import {
   getHabitsGrid,
   getTasksPageBootstrap,
   getTasksPageSummary,
+  TasksBootstrapError,
 } from '../../../services/pages/tasks-bootstrap.js';
+import { getTasksBootstrapV2 } from '../../../services/pages/tasks-bootstrap-v2.js';
 import { getTaskList } from '../../../services/pages/tasks-list.js';
 import {
   assignOrUnassignFrog,
@@ -45,6 +47,7 @@ import {
 
 const handlePromoteError = createDomainErrorHandler(PromoteTodoError);
 const handleDayBoundaryError = createDomainErrorHandler(DayBoundaryError);
+const handleBootstrapError = createDomainErrorHandler(TasksBootstrapError);
 
 const router = Router();
 
@@ -250,6 +253,23 @@ router.get('/pages/tasks/catalog', async (req, res, next) => {
   }
 });
 
+/**
+ * GET /pages/tasks/bootstrap-v2 — 阶段 C 轻量核心快照
+ * 仅 standaloneTodos + 当前页项目树 + 分类 + 版本；不含热力图/habits/事件。
+ * 开关：TASKS_BOOTSTRAP_V2_ENABLED=true
+ */
+router.get('/pages/tasks/bootstrap-v2', async (req, res, next) => {
+  try {
+    const data = await getTasksBootstrapV2({
+      ...parseTasksBootstrapParams(req),
+      ...parseListFilterParams(req),
+    });
+    success(res, data);
+  } catch (err) {
+    handleBootstrapError(err, res, next);
+  }
+});
+
 router.get('/pages/tasks/list', async (req, res, next) => {
   try {
     const data = await getTaskList(parseListFilterParams(req));
@@ -339,10 +359,13 @@ router.put('/pages/tasks/day-boundary', async (req, res, next) => {
 
 router.get('/pages/tasks', async (req, res, next) => {
   try {
-    const data = await getTasksPageBootstrap(parseTasksBootstrapParams(req));
+    const data = await getTasksPageBootstrap({
+      ...parseTasksBootstrapParams(req),
+      userAgent: typeof req.headers['user-agent'] === 'string' ? req.headers['user-agent'] : undefined,
+    });
     success(res, data);
   } catch (err) {
-    next(err);
+    handleBootstrapError(err, res, next);
   }
 });
 

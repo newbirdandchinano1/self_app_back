@@ -6,6 +6,7 @@ import {
   type ListOptions,
 } from '../crud.js';
 import { db } from '../../db/index.js';
+import { tasksPageConfig } from '../../config/index.js';
 import {
   buildHabitsGridItemsForDay,
   isStandaloneTodoInTasksPageList,
@@ -14,8 +15,11 @@ import {
 } from '../calendar/aggregation.js';
 import {
   addDaysToLogicalYmd,
+  formatLocalYmdFromDate,
   formatRowsDateTimesForApi,
+  logicalYmdToLocalDate,
   normalizeTasksDayBoundary,
+  startOfWeekMonday,
 } from '../calendar/logical-day.js';
 import type { CalendarTaskRow, TasksDayBoundary } from '../calendar/types.js';
 import {
@@ -26,8 +30,41 @@ import {
 } from '../calendar/heatmap-range.js';
 import { dueDateYmd, isValidYmd } from '../../utils/ymd.js';
 import { formatScheduleDateToYMD } from '../../utils/schedule-meta.js';
+import { getRequestContext } from '../../utils/request-context.js';
 
 export const TASKS_PAGE_FILTERS_VERSION = 'tasks-page-v1';
+
+/** 阶段 B1：危险大 bootstrap 拒绝 / 迁移提示 */
+export class TasksBootstrapError extends Error {
+  constructor(
+    message: string,
+    public status = 410,
+  ) {
+    super(message);
+    this.name = 'TasksBootstrapError';
+  }
+}
+
+/** 任务视图只选页面字段（与 CalendarTaskRow / 客户端同步列对齐） */
+const TASK_VIEW_SELECT_COLUMNS = [
+  'id',
+  'title',
+  'description',
+  'status',
+  'priority',
+  'due_date',
+  'frog_assigned_on',
+  'completed_at',
+  'created_at',
+  'updated_at',
+  'sync_status',
+  'project_id',
+  'category_id',
+  'parent_task_id',
+  'note',
+  'extra_data',
+  'sort_order',
+] as const;
 
 const FULL_TABLES = [
   'projects',
@@ -342,7 +379,9 @@ async function loadFilteredTasks(params: TasksBootstrapParams, context: TasksBoo
 
   const meta = await getTableMeta('tasks');
   const columns = new Set(meta.columns);
-  const selectCols = meta.columns.map(quoteIdent).join(', ');
+  const selectCols = TASK_VIEW_SELECT_COLUMNS.filter((c) => columns.has(c))
+    .map(quoteIdent)
+    .join(', ');
   const baseWhere = [...optionalNotDeleted(columns), ...optionalNotPendingDelete(columns)];
   const projectIds = parseCsv(params.projectIds);
   const byId = new Map<string, Record<string, unknown>>();
@@ -352,7 +391,12 @@ async function loadFilteredTasks(params: TasksBootstrapParams, context: TasksBoo
     projectTrees: [],
   };
 
-  async function selectRows(where: string[], values: unknown[], orderBy = 'updated_at DESC') {
+  /** 稳定排序：updated_at DESC, id DESC，保证分页可复现 */
+  async function selectRows(
+    where: string[],
+    values: unknown[],
+    orderBy = 'updated_at DESC, id DESC',
+  ) {
     const whereSql = where.length > 0 ? `WHERE ${where.join(' AND ')}` : '';
     const [rows] = await db.query<RowDataPacket[]>(
       `SELECT ${selectCols} FROM tasks ${whereSql} ORDER BY ${orderBy}`,
@@ -365,6 +409,12 @@ async function loadFilteredTasks(params: TasksBootstrapParams, context: TasksBoo
     if (view === 'standaloneTodos') {
       const where = [...baseWhere, isBlankColumn('project_id'), isBlankColumn('parent_task_id')];
       const values: unknown[] = [];
+      // SQL 先排除明确不需要的状态；日界/重复仍保留 Node 过滤（口径复杂，不可贸然下推）
+      addStatusFilters(where, values, columns, {
+        ...params,
+        includeCompleted: true,
+        includeCancelled: true,
+      });
       const rawRows = await selectRows(where, values);
       grouped.standaloneTodos = filterStandaloneTodosRows(rawRows, context, params);
     }
@@ -378,7 +428,11 @@ async function loadFilteredTasks(params: TasksBootstrapParams, context: TasksBoo
       } else {
         where.push(`(${isPresentColumn('project_id')} OR ${isPresentColumn('parent_task_id')})`);
       }
-      addStatusFilters(where, values, columns, { ...params, includeCompleted: false, includeCancelled: false });
+      addStatusFilters(where, values, columns, {
+        ...params,
+        includeCompleted: false,
+        includeCancelled: false,
+      });
       const start =
         params.weekStart?.trim() && isValidYmd(params.weekStart)
           ? params.weekStart.trim()
@@ -392,21 +446,25 @@ async function loadFilteredTasks(params: TasksBootstrapParams, context: TasksBoo
     }
 
     if (view === 'projectTrees') {
+      // B2：无 projectIds 禁止扫用户全部项目任务
+      if (projectIds.length === 0) {
+        grouped.projectTrees = [];
+        continue;
+      }
       const where = [...baseWhere];
       const values: unknown[] = [];
-      if (projectIds.length > 0) {
-        where.push(`project_id IN (${projectIds.map(() => '?').join(', ')})`);
-        values.push(...projectIds);
-      } else {
-        where.push(isPresentColumn('project_id'));
-      }
+      where.push(`project_id IN (${projectIds.map(() => '?').join(', ')})`);
+      values.push(...projectIds);
+      // 状态过滤留到调用方/客户端；树结构完整性要求先拉全树再裁
       const roots = await selectRows(where, values);
       const treeById = new Map<string, Record<string, unknown>>();
       const queue = [...roots];
       for (const row of roots) {
         treeById.set(String(row.id), row);
       }
-      while (queue.length > 0) {
+      // 子节点扇出上限：每批 200，总节点软顶 5000，防止异常深树拖垮连接池
+      const MAX_TREE_NODES = 5000;
+      while (queue.length > 0 && treeById.size < MAX_TREE_NODES) {
         const batch = queue.splice(0, 200);
         const ids = batch.map((row) => String(row.id)).filter(Boolean);
         if (ids.length === 0) continue;
@@ -418,6 +476,7 @@ async function loadFilteredTasks(params: TasksBootstrapParams, context: TasksBoo
         for (const child of children) {
           const id = String(child.id);
           if (treeById.has(id)) continue;
+          if (treeById.size >= MAX_TREE_NODES) break;
           treeById.set(id, child);
           queue.push(child);
         }
@@ -497,6 +556,82 @@ export function parseTasksBootstrapInclude(raw?: string): TasksBootstrapInclude 
   }
 
   return next;
+}
+
+/** 无 taskView 且含事件/打卡或多个大表 → 危险 bootstrap */
+export function isDangerousTasksBootstrapInclude(include: TasksBootstrapInclude): boolean {
+  if (include.taskExecutionEvents || include.frogCompletionEvents || include.habitCheckIns) {
+    return true;
+  }
+  const largeTables = [
+    include.projects,
+    include.tasks,
+    include.habits,
+    include.taskItems,
+    include.taskCategories,
+    include.projectCategories,
+    include.habitContexts,
+  ].filter(Boolean).length;
+  return largeTables >= 3;
+}
+
+export function countEnabledBootstrapIncludes(include: TasksBootstrapInclude): number {
+  return (Object.keys(include) as (keyof TasksBootstrapInclude)[]).filter((k) => include[k]).length;
+}
+
+function logDangerousBootstrapAttempt(opts: {
+  include: TasksBootstrapInclude;
+  rejected: boolean;
+  userAgent?: string;
+}): void {
+  const ctx = getRequestContext();
+  console.warn(
+    JSON.stringify({
+      type: 'dangerous_tasks_bootstrap',
+      rejected: opts.rejected,
+      request_id: ctx?.requestId ?? null,
+      route: ctx?.route ?? '/pages/tasks',
+      identity: ctx?.identityMasked ?? '-',
+      ua: (opts.userAgent ?? '').slice(0, 160) || null,
+      includes: (Object.keys(opts.include) as (keyof TasksBootstrapInclude)[])
+        .filter((k) => opts.include[k]),
+    }),
+  );
+}
+
+/**
+ * habits-grid 打卡窗口：养成/戒除只查逻辑今日；任务型查周期起点→今日。
+ * 禁止默认 -400 天全量。
+ */
+export function resolveHabitsGridCheckInStartYmd(
+  logicalToday: string,
+  habits: Array<{ extra_data?: unknown }>,
+): string {
+  let earliest = logicalToday;
+  for (const habit of habits) {
+    const extra = extraDataForApi(habit.extra_data);
+    if (!extra) continue;
+    let parsed: { habitKind?: unknown; schedule?: { activeTab?: unknown } };
+    try {
+      parsed = JSON.parse(extra) as typeof parsed;
+    } catch {
+      continue;
+    }
+    if (parsed.habitKind !== 'task') continue;
+    const tab = typeof parsed.schedule?.activeTab === 'string' ? parsed.schedule.activeTab : '每月';
+    let periodStart = logicalToday;
+    if (tab === '每日') {
+      periodStart = logicalToday;
+    } else if (tab === '每周') {
+      periodStart = formatLocalYmdFromDate(startOfWeekMonday(logicalYmdToLocalDate(logicalToday)));
+    } else if (tab === '每年') {
+      periodStart = `${logicalToday.slice(0, 4)}-01-01`;
+    } else {
+      periodStart = `${logicalToday.slice(0, 7)}-01`;
+    }
+    if (periodStart < earliest) earliest = periodStart;
+  }
+  return earliest;
 }
 
 export function resolveTasksBootstrapContext(params: TasksBootstrapParams): TasksBootstrapContext {
@@ -664,7 +799,7 @@ export async function getTasksPageSummary(params: TasksBootstrapParams): Promise
 }
 
 export async function getTasksPageBootstrap(
-  params: TasksBootstrapParams,
+  params: TasksBootstrapParams & { userAgent?: string },
 ): Promise<TasksBootstrapResult> {
   const context = resolveTasksBootstrapContext(params);
   const views = parseTaskPageViews(params);
@@ -702,6 +837,22 @@ export async function getTasksPageBootstrap(
 
   const include = parseTasksBootstrapInclude(params.include);
 
+  // B1：无 taskView 的危险大包 → 记录调用方；生产默认拒绝
+  if (isDangerousTasksBootstrapInclude(include)) {
+    const reject = tasksPageConfig.dangerousBootstrapReject;
+    logDangerousBootstrapAttempt({
+      include,
+      rejected: reject,
+      userAgent: params.userAgent,
+    });
+    if (reject) {
+      throw new TasksBootstrapError(
+        '危险 tasks bootstrap 已停用：请改用 taskView 专用接口、/pages/tasks/habits-grid、/pages/tasks/completion-heatmap 或 /sync/snapshot-*。设置 TASKS_DANGEROUS_BOOTSTRAP_REJECT=false 可临时回滚为只告警。',
+        410,
+      );
+    }
+  }
+
   const loaders: Promise<void>[] = [];
   const result: TasksBootstrapResult = {
     meta: {
@@ -734,9 +885,20 @@ export async function getTasksPageBootstrap(
     loaders.push(
       loadFilteredTasks(params, context).then((filtered) => {
         if (!filtered) {
-          return listAllRecords('tasks').then((rows) => {
-            result.tasks = rows;
+          // B1/B2：禁止失败后链式全表 List
+          result.tasks = [];
+          Object.assign(result.meta, {
+            tasksScope: 'tasksPageFiltered',
+            serverFiltered: true,
+            filtersVersion: TASKS_PAGE_FILTERS_VERSION,
+            taskViews: [] as TaskPageView[],
+            snapshotAt: result.meta.serverTime,
+            page: 1,
+            limit: TASK_VIEW_DEFAULT_LIMIT,
+            total: 0,
+            totalPages: 0,
           });
+          return;
         }
         result.tasks = filtered.unionRows;
         Object.assign(result.meta, filtered.meta, { snapshotAt: result.meta.serverTime });
@@ -948,14 +1110,16 @@ export async function getHabitsGrid(params: TasksBootstrapParams): Promise<Habit
   const context = resolveTasksBootstrapContext(params);
   const logicalToday = context.logicalToday;
 
-  const [habits, contexts, checkInRows] = await Promise.all([
+  // B4：先取 habits 算最小打卡窗口，再查 check-ins（禁止默认 -400 天）
+  const [habits, contexts] = await Promise.all([
     listAllRecords('habits'),
     listAllRecords('habit_contexts'),
-    listAllRecords('habit_check_ins', {
-      startDate: addDaysToLogicalYmd(logicalToday, -400),
-      endDate: logicalToday,
-    }),
   ]);
+  const checkInStart = resolveHabitsGridCheckInStartYmd(logicalToday, habits);
+  const checkInRows = await listAllRecords('habit_check_ins', {
+    startDate: checkInStart,
+    endDate: logicalToday,
+  });
 
   const habitCheckInsByHabit = buildCheckInsByHabit(checkInRows);
   const todayCheckIns = buildTodayCheckIns(checkInRows, logicalToday);

@@ -2,6 +2,11 @@ import type { RowDataPacket } from 'mysql2';
 import { getTableMeta } from '../crud.js';
 import { db } from '../../db/index.js';
 import {
+  cachedGetOrSet,
+  heatmapCacheKey,
+  heatmapCacheOpts,
+} from '../../cache/index.js';
+import {
   addDaysToLogicalYmd,
   compareTaskAuditDatetime,
   getLogicalYmdFromCreatedAt,
@@ -14,6 +19,7 @@ import type { TasksDayBoundary } from '../calendar/types.js';
 import { isValidYmd } from '../../utils/ymd.js';
 import {
   COMPLETION_HEATMAP_WEEKS,
+  resolveHeatmapEventCreatedAtBounds,
   resolveHeatmapRange,
   resolveOverviewHeatmapRange,
 } from '../calendar/heatmap-range.js';
@@ -712,12 +718,23 @@ async function loadRepeatingStandaloneTaskIds(): Promise<Set<string>> {
   return ids;
 }
 
-async function loadScopedTodoEvents(): Promise<Record<string, unknown>[]> {
+/**
+ * B5：待办事件必须带日期下界（逻辑日 → created_at 墙上时钟）。
+ * 不下上界：非重复净完成需要窗口后的 reopen 才能正确「不计」；
+ * 禁止无范围把全表事件拉进内存。
+ */
+async function loadScopedTodoEvents(
+  startYmd: string,
+  boundary: TasksDayBoundary,
+): Promise<Record<string, unknown>[]> {
+  const { createdAtGte } = resolveHeatmapEventCreatedAtBounds(startYmd, startYmd, boundary);
   const [rows] = await db.query<RowDataPacket[]>(
     `SELECT tee.id, tee.task_id, tee.action, tee.created_at, tee.task_title
      FROM task_execution_events tee
      WHERE tee.action IN ('completed', 'reopened')
+       AND tee.created_at >= ?
        AND ${overviewScopeEventSql('tee')}`,
+    [createdAtGte],
   );
   return rows as Record<string, unknown>[];
 }
@@ -895,7 +912,7 @@ export interface CompletionHeatmapParams extends TasksBootstrapParams {
   includeDayDetail?: boolean;
 }
 
-export async function getCompletionHeatmap(
+async function loadCompletionHeatmapUncached(
   params: CompletionHeatmapParams,
 ): Promise<CompletionHeatmapResult> {
   const context = resolveTasksBootstrapContext(params);
@@ -909,7 +926,7 @@ export async function getCompletionHeatmap(
 
   const [frogEvents, todoEvents, repeatingTaskIds] = await Promise.all([
     loadFrogCompletionEvents(range.startYmd, range.endYmd),
-    loadScopedTodoEvents(),
+    loadScopedTodoEvents(range.startYmd, boundary),
     loadRepeatingStandaloneTaskIds(),
   ]);
 
@@ -961,4 +978,30 @@ export async function getCompletionHeatmap(
   }
 
   return result;
+}
+
+export async function getCompletionHeatmap(
+  params: CompletionHeatmapParams,
+): Promise<CompletionHeatmapResult> {
+  const context = resolveTasksBootstrapContext(params);
+  const range = resolveHeatmapRange({
+    heatmapStart: params.heatmapStart,
+    heatmapEnd: params.heatmapEnd,
+    dayBoundary: context.dayBoundary,
+  });
+  const detailDay = params.day?.trim();
+  const key = heatmapCacheKey({
+    start: range.startYmd,
+    end: range.endYmd,
+    hour: context.dayBoundary.hour,
+    minute: context.dayBoundary.minute,
+    day: detailDay,
+    includeDayDetail: params.includeDayDetail === true,
+  });
+  const { value } = await cachedGetOrSet(
+    key,
+    () => loadCompletionHeatmapUncached(params),
+    heatmapCacheOpts(),
+  );
+  return value;
 }

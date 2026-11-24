@@ -9,19 +9,51 @@ export const config = {
 };
 
 export { APP_TIME_ZONE, APP_MYSQL_TIMEZONE } from './timezone.js';
+function parsePositiveInt(raw: string | undefined, fallback: number): number {
+  const n = parseInt(raw || '', 10);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+}
+
+function parseNonNegativeInt(raw: string | undefined, fallback: number): number {
+  const n = parseInt(raw || '', 10);
+  return Number.isFinite(n) && n >= 0 ? n : fallback;
+}
+
 export const dbConfig = {
   host: process.env.DB_HOST || 'localhost',
   port: parseInt(process.env.DB_PORT || '3306', 10),
   user: process.env.DB_USER || 'root',
   password: process.env.DB_PASSWORD || '',
   database: process.env.DB_NAME || 'self_app',
-  connectionLimit: parseInt(process.env.DB_CONNECTION_LIMIT || '20', 10),
+  /** 连接池大小；禁止为掩盖过载而直接扩到 50 */
+  connectionLimit: parsePositiveInt(process.env.DB_CONNECTION_LIMIT, 20),
+  /**
+   * 等待连接的队列上限。旧默认 0=无限等待；阶段 A 默认 50，满则快速失败。
+   */
+  queueLimit: parseNonNegativeInt(process.env.DB_QUEUE_LIMIT, 50),
+  /** 获取连接超时（ms）；超时返回 503 + Retry-After */
+  acquireTimeoutMs: parsePositiveInt(process.env.DB_ACQUIRE_TIMEOUT_MS, 3000),
 };
 
 export const concurrencyConfig = {
   enabled: process.env.CONCURRENCY_LIMIT_ENABLED !== 'false',
-  apiMax: parseInt(process.env.API_CONCURRENCY_MAX || '50', 10),
-  aiMax: parseInt(process.env.AI_CONCURRENCY_MAX || '8', 10),
+  /**
+   * 全局并发上限（单池模式，或分池开启时作为跨池总帽）。
+   * 阶段 A 灰度默认 12（旧 50）。
+   */
+  apiMax: parsePositiveInt(process.env.API_CONCURRENCY_MAX, 12),
+  aiMax: parsePositiveInt(process.env.AI_CONCURRENCY_MAX, 8),
+  /**
+   * 分池开关：轻量读 / 页面重查询 / 同步 / 写入。
+   * 与 PAGE_CONCURRENCY_LIMIT_ENABLED 对齐；默认开启。
+   */
+  pagePoolsEnabled: process.env.PAGE_CONCURRENCY_LIMIT_ENABLED !== 'false',
+  lightMax: parsePositiveInt(process.env.API_LIGHT_CONCURRENCY_MAX, 16),
+  pageMax: parsePositiveInt(process.env.API_PAGE_CONCURRENCY_MAX, 6),
+  syncMax: parsePositiveInt(process.env.API_SYNC_CONCURRENCY_MAX, 4),
+  writeMax: parsePositiveInt(process.env.API_WRITE_CONCURRENCY_MAX, 6),
+  /** 单身份并发上限；0=关闭 */
+  userMax: parseNonNegativeInt(process.env.API_USER_CONCURRENCY_MAX, 4),
 };
 
 /** Phase 5：多端同步硬化配置 */
@@ -37,6 +69,41 @@ export const syncConfig = {
   retainMaxRows: parseInt(process.env.SYNC_CHANGE_LOG_RETAIN_MAX_ROWS || '100000', 10),
   /** 是否启用定时清理（默认开） */
   cleanupEnabled: process.env.SYNC_CHANGE_LOG_CLEANUP_ENABLED !== 'false',
+};
+
+/**
+ * 阶段 B：任务页危险 bootstrap 闸门。
+ * true=生产拒绝无 taskView 的大 include 包（410）；false=只告警仍放行（回滚开关）。
+ */
+export const tasksPageConfig = {
+  dangerousBootstrapReject: process.env.TASKS_DANGEROUS_BOOTSTRAP_REJECT !== 'false',
+  /**
+   * 阶段 C：轻量 bootstrap-v2。默认关，可先于前端消费上线；
+   * 不得假设旧大 bootstrap 已消失（B1 拒包另轨）。
+   */
+  bootstrapV2Enabled: process.env.TASKS_BOOTSTRAP_V2_ENABLED === 'true',
+};
+
+/**
+ * 阶段 C：进程内缓存（catalog / heatmap / day-boundary / bootstrap-v2）。
+ * CACHE_ENABLED=false 可整段旁路；多实例 Redis 可后置。
+ */
+export const cacheConfig = {
+  enabled: process.env.CACHE_ENABLED !== 'false',
+  /** catalog：30～120s，默认 60s */
+  catalogTtlMs: parsePositiveInt(process.env.CACHE_CATALOG_TTL_MS, 60_000),
+  catalogSwrMs: parseNonNegativeInt(process.env.CACHE_CATALOG_SWR_MS, 30_000),
+  /** heatmap：按身份+范围，默认 60s */
+  heatmapTtlMs: parsePositiveInt(process.env.CACHE_HEATMAP_TTL_MS, 60_000),
+  heatmapSwrMs: parseNonNegativeInt(process.env.CACHE_HEATMAP_SWR_MS, 30_000),
+  /** day boundary：5 分钟 */
+  dayBoundaryTtlMs: parsePositiveInt(process.env.CACHE_DAY_BOUNDARY_TTL_MS, 300_000),
+  dayBoundarySwrMs: parseNonNegativeInt(process.env.CACHE_DAY_BOUNDARY_SWR_MS, 60_000),
+  /** bootstrap-v2 短窗（single-flight 为主，TTL 偏短） */
+  bootstrapV2TtlMs: parsePositiveInt(process.env.CACHE_BOOTSTRAP_V2_TTL_MS, 15_000),
+  bootstrapV2SwrMs: parseNonNegativeInt(process.env.CACHE_BOOTSTRAP_V2_SWR_MS, 15_000),
+  /** single-flight 最大等待 */
+  singleFlightMaxWaitMs: parsePositiveInt(process.env.CACHE_SINGLE_FLIGHT_MAX_WAIT_MS, 8_000),
 };
 
 /** TrendRadar 热点推送（通用 Webhook 回调） */

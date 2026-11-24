@@ -1,10 +1,11 @@
 import { Request, Response, NextFunction } from 'express';
+import { isDbCapacityError } from '../utils/db-errors.js';
 import { fail } from '../utils/response.js';
 
 /** 未捕获异常对外统一文案；原文只写日志，避免 SQL/堆栈/驱动信息泄漏到 App */
 const INTERNAL_ERROR_MESSAGE = '服务器繁忙，请稍后重试';
 
-export function errorHandler(err: Error, _req: Request, res: Response, _next: NextFunction) {
+export function errorHandler(err: Error, req: Request, res: Response, _next: NextFunction) {
   // express.json() 解析失败时的 SyntaxError，避免把原始 "Unexpected token…" 直接甩给 App
   const isBodyJsonSyntax =
     err instanceof SyntaxError ||
@@ -14,6 +15,25 @@ export function errorHandler(err: Error, _req: Request, res: Response, _next: Ne
   }
   if (isBodyJsonSyntax && /in JSON at position/i.test(err.message)) {
     return fail(res, '请求体不是合法 JSON，请检查客户端序列化', -1, 400);
+  }
+
+  if (isDbCapacityError(err)) {
+    const retryAfter = err.retryAfterSec || 1;
+    res.setHeader('Retry-After', String(retryAfter));
+    if (req.requestId) res.setHeader('X-Request-Id', req.requestId);
+    console.warn(
+      JSON.stringify({
+        type: 'db_capacity',
+        request_id: req.requestId ?? null,
+        code: err.code,
+        message: err.message,
+      }),
+    );
+    return fail(res, err.message, -1, err.status, {
+      retryAfterSec: retryAfter,
+      requestId: req.requestId ?? null,
+      code: err.code,
+    });
   }
 
   console.error('[Error]', err.message);

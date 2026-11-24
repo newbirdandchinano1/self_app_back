@@ -5,6 +5,11 @@
 import type { ResultSetHeader, RowDataPacket } from 'mysql2';
 import { db } from '../../db/index.js';
 import {
+  cachedGetOrSet,
+  dayBoundaryCacheKey,
+  dayBoundaryCacheOpts,
+} from '../../cache/index.js';
+import {
   DEFAULT_TASKS_DAY_BOUNDARY,
   formatUtcMySQLDateTime,
   normalizeTasksDayBoundary,
@@ -121,7 +126,7 @@ export type DayBoundarySettings = {
   keys: { boundary: string; pages: string };
 };
 
-export async function getDayBoundarySettings(): Promise<DayBoundarySettings> {
+async function loadDayBoundarySettingsUncached(): Promise<DayBoundarySettings> {
   const [rawBoundary, rawPages] = await Promise.all([
     readSetting(KEY_BOUNDARY),
     readSetting(KEY_PAGES),
@@ -137,6 +142,15 @@ export async function getDayBoundarySettings(): Promise<DayBoundarySettings> {
     tasksEffective,
     keys: { boundary: KEY_BOUNDARY, pages: KEY_PAGES },
   };
+}
+
+export async function getDayBoundarySettings(): Promise<DayBoundarySettings> {
+  const { value } = await cachedGetOrSet(
+    dayBoundaryCacheKey(),
+    loadDayBoundarySettingsUncached,
+    dayBoundaryCacheOpts(),
+  );
+  return value;
 }
 
 export type UpdateDayBoundaryInput = {

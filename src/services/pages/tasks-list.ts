@@ -1,5 +1,5 @@
 import type { RowDataPacket } from 'mysql2';
-import { getTableMeta, listAllRecords } from '../crud.js';
+import { getTableMeta } from '../crud.js';
 import { db } from '../../db/index.js';
 import {
   formatRecordDateTimesForApi,
@@ -157,6 +157,8 @@ export async function loadProjectTaskRowsWithStructure(
 
   const structural = [...treeById.values()];
   const structuralById = new Map(structural.map((task) => [String(task.id), task]));
+  // includeCompleted=false 时仍先拉完整结构树，再在内存按 status 裁剪，
+  // 以保证父节点缺失时子树挂载不丢（扇出已由 projectIds + BFS 批次限制）。
   const filtered = structural.filter((task) =>
     taskMatchesStatusFilter(task, columns, options),
   );
@@ -389,18 +391,91 @@ export function attachProjectTaskTrees(
   });
 }
 
-async function loadFilteredProjects(params: ProjectListParams): Promise<Record<string, unknown>[]> {
-  const listOptions = params.updatedSince ? { updatedSince: params.updatedSince } : {};
-  const projects = sortProjects(await listAllRecords('projects', listOptions));
-  return filterProjectsForList(projects, params);
+/**
+ * B3：按分类/单项目 SQL 过滤 + 分页，禁止 listAllRecords 扫全表后再内存切片。
+ * 排序与 sortProjects 对齐（活跃状态优先 → priority DESC → name → id）。
+ */
+async function queryProjectsPage(params: ProjectListParams): Promise<{
+  pageProjects: Record<string, unknown>[];
+  pagination: ProjectListPagination;
+}> {
+  const meta = await getTableMeta('projects');
+  const columns = new Set(meta.columns);
+  const selectCols = meta.columns.map(quoteIdent).join(', ');
+  const where = [...optionalNotDeleted(columns), ...optionalNotPendingDelete(columns)];
+  const values: unknown[] = [];
+
+  const requestedId = resolveRequestedProjectId(params);
+  if (requestedId) {
+    where.push(`${quoteIdent('id')} = ?`);
+    values.push(requestedId);
+  } else if (params.uncategorized) {
+    where.push(isBlankColumn('category_id'));
+  } else {
+    const categoryIds = resolveCategoryIds(params);
+    if (categoryIds && categoryIds.length > 0) {
+      // 收集箱可能同时带 uncategorized + inbox category；单次请求内 IN 去重即可
+      const unique = [...new Set(categoryIds)];
+      where.push(`${quoteIdent('category_id')} IN (${unique.map(() => '?').join(', ')})`);
+      values.push(...unique);
+    }
+  }
+
+  if (params.updatedSince?.trim() && columns.has('updated_at')) {
+    where.push(`${quoteIdent('updated_at')} >= ?`);
+    values.push(params.updatedSince.trim());
+  }
+
+  const whereSql = where.length > 0 ? `WHERE ${where.join(' AND ')}` : '';
+  const [countRows] = await db.query<RowDataPacket[]>(
+    `SELECT COUNT(*) AS total FROM projects ${whereSql}`,
+    values,
+  );
+  const total = Math.max(0, Number(countRows[0]?.total ?? 0));
+
+  const safePage = Math.max(1, params.page ?? 1);
+  const safeLimit = Math.min(
+    PROJECT_LIST_MAX_LIMIT,
+    Math.max(1, params.limit ?? PROJECT_LIST_DEFAULT_LIMIT),
+  );
+  const offset = (safePage - 1) * safeLimit;
+
+  const orderBy = `
+    CASE
+      WHEN status IN ('todo', 'doing', 'blocked', 'active') THEN 0
+      ELSE 1
+    END ASC,
+    priority DESC,
+    name ASC,
+    id ASC
+  `;
+
+  const [rows] = await db.query<RowDataPacket[]>(
+    `SELECT ${selectCols} FROM projects ${whereSql}
+     ORDER BY ${orderBy}
+     LIMIT ? OFFSET ?`,
+    [...values, safeLimit, offset],
+  );
+
+  return {
+    pageProjects: rows.map((row) =>
+      formatRecordDateTimesForApi(row as Record<string, unknown>, 'projects'),
+    ),
+    pagination: {
+      page: safePage,
+      limit: safeLimit,
+      total,
+      totalPages: Math.ceil(total / safeLimit) || 0,
+    },
+  };
 }
 
 export async function getProjectList(params: ProjectListParams): Promise<ProjectListResult> {
-  const allProjects = await loadFilteredProjects(params);
-  const { pageProjects, pagination } = paginateProjects(allProjects, params.page, params.limit);
+  const { pageProjects, pagination } = await queryProjectsPage(params);
   const projectIds = pageProjects.map((row) => String(row.id)).filter(Boolean);
 
   const statusFilters = resolveProjectListStatusFilters(params);
+  // 仅对本页 projectIds 拉任务树，禁止扫描用户全部 tasks
   const taskLoad = await loadProjectTaskRowsWithStructure(projectIds, statusFilters);
   const list = attachProjectTaskTrees(pageProjects, taskLoad);
 

@@ -5,6 +5,7 @@ import morgan from 'morgan';
 import path from 'path';
 import routes from './routes/index.js';
 import { errorHandler } from './middlewares/error-handler.js';
+import { requestMetricsMiddleware } from './middlewares/request-metrics.js';
 import { UPLOAD_ROOT } from './config/uploads.js';
 
 const app = express();
@@ -27,6 +28,9 @@ app.use(express.json({ limit: '12mb' }));
 app.use(express.urlencoded({ extended: true, limit: '12mb' }));
 app.use(express.static(publicDir));
 app.use('/uploads', express.static(UPLOAD_ROOT));
+
+/** 请求指标 / request_id（须在业务路由与并发闸之前） */
+app.use(requestMetricsMiddleware);
 
 app.use(routes);
 app.use(errorHandler);

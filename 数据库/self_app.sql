@@ -276,7 +276,8 @@ CREATE TABLE `frog_completion_events`  (
   `task_title` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL,
   `sync_status` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'pending_create',
   PRIMARY KEY (`id`) USING BTREE,
-  INDEX `idx_frog_assigned_ymd`(`assigned_ymd`) USING BTREE
+  INDEX `idx_frog_assigned_ymd`(`assigned_ymd`) USING BTREE,
+  INDEX `idx_frog_assigned_created`(`assigned_ymd`, `created_at`) USING BTREE
 ) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_unicode_ci ROW_FORMAT = DYNAMIC;
 
 -- ----------------------------
@@ -535,7 +536,9 @@ CREATE TABLE `projects`  (
   `version` int NOT NULL DEFAULT 1,
   `extra_data` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL,
   PRIMARY KEY (`id`) USING BTREE,
-  INDEX `idx_projects_due_date`(`due_date`) USING BTREE
+  INDEX `idx_projects_due_date`(`due_date`) USING BTREE,
+  INDEX `idx_projects_category_updated`(`category_id`, `updated_at`, `id`) USING BTREE,
+  INDEX `idx_projects_updated_at`(`updated_at`, `id`) USING BTREE
 ) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_unicode_ci ROW_FORMAT = DYNAMIC;
 
 -- ----------------------------
@@ -750,7 +753,9 @@ CREATE TABLE `task_execution_events`  (
   `task_title` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL,
   `sync_status` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'pending_create',
   PRIMARY KEY (`id`) USING BTREE,
-  INDEX `idx_tevt_created_at`(`created_at`) USING BTREE
+  INDEX `idx_tevt_created_at`(`created_at`) USING BTREE,
+  INDEX `idx_tevt_task_created`(`task_id`, `created_at`) USING BTREE,
+  INDEX `idx_tevt_action_created`(`action`, `created_at`) USING BTREE
 ) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_unicode_ci ROW_FORMAT = DYNAMIC;
 
 -- ----------------------------
@@ -795,7 +800,10 @@ CREATE TABLE `tasks`  (
   PRIMARY KEY (`id`) USING BTREE,
   INDEX `idx_tasks_due_date`(`due_date`) USING BTREE,
   INDEX `idx_tasks_frog_assigned_on`(`frog_assigned_on`) USING BTREE,
-  INDEX `idx_tasks_updated_at`(`updated_at`) USING BTREE
+  INDEX `idx_tasks_updated_at`(`updated_at`) USING BTREE,
+  INDEX `idx_tasks_project_status_updated`(`project_id`, `status`, `updated_at`, `id`) USING BTREE,
+  INDEX `idx_tasks_parent_task_id`(`parent_task_id`(191)) USING BTREE,
+  INDEX `idx_tasks_status_updated`(`status`, `updated_at`, `id`) USING BTREE
 ) ENGINE = InnoDB CHARACTER SET = utf8mb4 COLLATE = utf8mb4_unicode_ci ROW_FORMAT = DYNAMIC;
 
 -- ----------------------------

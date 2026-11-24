@@ -228,6 +228,12 @@ export async function flushPendingSyncPublish(conn: PoolConnection): Promise<voi
   pendingPublishByConn.delete(conn);
   if (!pending || pending.dirtyTables.size === 0) return;
   try {
+    const { invalidateTasksCachesForTables } = await import('../cache/tasks-page-cache.js');
+    invalidateTasksCachesForTables(pending.dirtyTables);
+  } catch (err) {
+    console.warn('[cache] 写入后失效失败（不影响写成功）', err);
+  }
+  try {
     const { publishSyncSignal } = await import('./sync-sse-hub.js');
     publishSyncSignal({
       userId: pending.userId,

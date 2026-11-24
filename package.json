@@ -26,7 +26,13 @@
     "test:sync-phase8": "tsx scripts/sync-bootstrap-selftest.ts",
     "test:memo-richdoc-phase1": "tsx scripts/memo-richdoc-phase1-selftest.ts",
     "test:memo-richdoc-phase5": "tsx scripts/memo-richdoc-phase5-selftest.ts",
-    "test:frog-placement-minutes": "tsx scripts/frog-placement-minutes-selftest.ts"
+    "test:frog-placement-minutes": "tsx scripts/frog-placement-minutes-selftest.ts",
+    "test:phase-a": "tsx scripts/phase-a-capacity-selftest.ts",
+    "test:phase-b": "tsx scripts/phase-b-tasks-page-selftest.ts",
+    "test:phase-c": "tsx scripts/phase-c-cache-bootstrap-selftest.ts",
+    "test:phase-e-gate": "tsx scripts/phase-e-gate-selftest.ts",
+    "test:phase-e-loadtest": "tsx scripts/phase-e-loadtest.ts",
+    "test:phase-e": "tsx scripts/phase-e-run-priority.ts"
   },
   "dependencies": {
     "bcrypt": "^6.0.0",
